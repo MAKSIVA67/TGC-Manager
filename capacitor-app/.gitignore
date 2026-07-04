@@ -1,0 +1,13 @@
+node_modules/
+www/
+
+# Android build outputs
+android/app/build/
+android/.gradle/
+android/local.properties
+android/*.iml
+
+# iOS build outputs / CocoaPods
+ios/App/Pods/
+ios/App/build/
+ios/App/App.xcworkspace/xcuserdata/

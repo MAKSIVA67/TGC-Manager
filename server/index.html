@@ -78,6 +78,7 @@ input,textarea{font-family:inherit;font-size:16px}
 <script src="lib/game-data.js"></script>
 <script src="lib/social.js"></script>
 <script src="lib/admin-api.js"></script>
+<script src="lib/iap.js"></script>
 
 <script>
 (function(){
@@ -2023,5 +2024,6 @@ document.getElementById("stage").addEventListener("change", handleFieldInput);
 
 render();
 initAuthListener();
+initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/iap.js
 })();
 </script>
