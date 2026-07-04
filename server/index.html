@@ -306,7 +306,7 @@ const TEAM_COLORS = [
   {id:"green",hex:"#52D68A"},{id:"cyan",hex:"#4CC9F0"},{id:"pink",hex:"#FF6FB5"},
   {id:"purple",hex:"#B784F0"},{id:"gold",hex:"#FFC94A"},{id:"red",hex:"#FF6B6B"},
 ];
-const WIN_GEMS=20, LOSS_GEMS=5, DRAW_GEMS=10, STARTING_GEMS=60;
+const WIN_GEMS=20, LOSS_GEMS=5, DRAW_GEMS=10;
 // Odds tuned so a "good" pull (Elite tier or above) is genuinely rare on the
 // base pack -- about 1 in 20 opens (5%), matching "1000 packs opened, only
 // ~50 good ones" -- then scales up through the tiers from there.
@@ -446,20 +446,20 @@ function playFanfare(){ [[523,659,784],[587,698,880],[659,784,1046]].forEach((ch
 function playImpact(){ tone(55,0.25,"sine",0.3,0); }
 
 // ---------- state ----------
-const SAVE_KEY = "legendxi-preview-save-v1";
-function loadSave(){
-  try{ const raw = localStorage.getItem(SAVE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
-  return null;
-}
-const saved = loadSave();
+// Cosmetic-only, device-local (profiles has no color column, and nothing
+// server-side ever needs to know it -- see the Phase A plan notes).
+const TEAM_COLOR_KEY = "tcg-team-color-v1";
+function loadLocalTeamColor(){ try{ return localStorage.getItem(TEAM_COLOR_KEY) || COLORS.turf; }catch(e){ return COLORS.turf; } }
+function saveLocalTeamColor(hex){ try{ localStorage.setItem(TEAM_COLOR_KEY, hex); }catch(e){} }
+
 const state = {
-  players: (saved && saved.players) || JSON.parse(JSON.stringify(STARTER_PLAYERS)),
+  players: [], // populated by loadCatalogAndOwnership() (lib/game-data.js) once signed in
   tab: "home",
-  stats: (saved && saved.stats) || {wins:0,losses:0,draws:0,streak:0,bestStreak:0},
-  profile: (saved && saved.profile) || {name:"Player",avatar:"⚽",teamName:"My Team",number:7,color:COLORS.turf},
-  gems: (saved && typeof saved.gems==="number") ? saved.gems : STARTING_GEMS,
-  season: (saved && saved.season) || {number:1,matchday:1,points:0,wins:0,losses:0,draws:0},
-  home: (saved && saved.home) || {dailyLastClaim:null, dailyStreak:0, objectivesClaimed:[]},
+  stats: {wins:0,losses:0,draws:0,streak:0,bestStreak:0},
+  profile: {name:"Player",avatar:"⚽",teamName:"My Team",number:7,color:loadLocalTeamColor()},
+  gems: 0,
+  season: {number:1,matchday:1,points:0,wins:0,losses:0,draws:0},
+  home: {dailyLastClaim:null, dailyStreak:0, objectivesClaimed:[]},
   newsOpen: false,
   prevRankName: null,
   rankUp: null,
@@ -472,75 +472,25 @@ const state = {
     pasteCode:"", pasteError:"", copyFeedback:false, ballOwnerKey:null, ballInterval:null,
   },
   shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0 },
-  confirmReset:false,
   confettiOn:false,
-  adminPlayers: { form:{name:"",position:"FWD",power:80,rarity:"Common"}, status:"", statusOk:true, list:null, listLoading:false },
+  // Auth/account state (Phase A) -- populated by lib/auth.js.
+  session: null,
+  authReady: false,
+  justBanned: false,
+  authUI: { mode:"signin", email:"", password:"", confirmPassword:"", error:"", loading:false, checkEmail:false },
 };
 state.prevRankName = rankForWins(state.stats.wins).name;
 
-let saveTimer=null;
-function persistNow(){
-  clearTimeout(saveTimer);
-  try{ localStorage.setItem(SAVE_KEY, JSON.stringify({players:state.players,stats:state.stats,profile:state.profile,gems:state.gems,season:state.season,home:state.home})); }catch(e){}
+// Debounced profile-field autosave (name/team name/jersey number) -- mirrors
+// the old localStorage persist() debounce, just against Supabase instead.
+let profileSaveTimer=null;
+function scheduleProfileSave(){
+  clearTimeout(profileSaveTimer);
+  profileSaveTimer = setTimeout(()=>{
+    updateProfile({ display_name: state.profile.name, team_name: state.profile.teamName, jersey_number: state.profile.number });
+  }, 500);
 }
-function persist(){
-  clearTimeout(saveTimer);
-  saveTimer=setTimeout(persistNow,300);
-}
-window.addEventListener("pagehide", persistNow);
-window.addEventListener("beforeunload", persistNow);
-document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") persistNow(); });
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-// Admin panel is gated on hostname, not a password: it only ever renders when the
-// page is loaded via the local server directly (localhost/127.0.0.1) -- i.e. only
-// on this machine, via the desktop shortcut or http://localhost:8080. Anyone playing
-// through the public tunnel URL or on their own phone loads a different hostname
-// and never sees it, regardless of save data.
-function isAdminDevice(){
-  try{ return location.hostname==="localhost" || location.hostname==="127.0.0.1"; }catch(e){ return false; }
-}
-// Global player-roster management. Talks to admin-server.ps1, a SEPARATE local-only
-// server (different port, never tunneled) -- see admin-server.ps1's header comment
-// for why that's what actually makes this safe against friends on the public link.
-const ADMIN_API = "http://localhost:8081";
-function adminPlayersStatus(msg, ok){ state.adminPlayers.status = msg; state.adminPlayers.statusOk = ok; render(); }
-function adminRefreshPlayers(){
-  state.adminPlayers.listLoading = true; render();
-  fetch(ADMIN_API+"/players", {cache:"no-store"}).then(r=>r.json()).then(list=>{
-    state.adminPlayers.list = list; state.adminPlayers.listLoading = false; render();
-  }).catch(()=>{
-    state.adminPlayers.listLoading = false;
-    adminPlayersStatus("Could not reach the local admin server — is admin-server.ps1 running?", false);
-  });
-}
-function adminAddPlayer(){
-  const f = state.adminPlayers.form;
-  const name = (f.name||"").trim();
-  const power = Math.max(1, Math.min(100, Number(f.power)||1));
-  if(!name){ adminPlayersStatus("Enter a player name first.", false); return; }
-  fetch(ADMIN_API+"/players", {cache:"no-store"}).then(r=>r.json()).then(list=>{
-    const nextId = list.reduce((m,p)=>Math.max(m,p.id),0) + 1;
-    const updated = [...list, {id:nextId, name, position:f.position, power, rarity:f.rarity, owned:false}];
-    return fetch(ADMIN_API+"/players", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(updated)})
-      .then(r=>r.json()).then(res=>{
-        if(res.ok){
-          adminPlayersStatus(`Added ${name} (${f.rarity}) — now live for everyone.`, true);
-          state.adminPlayers.form = {name:"", position:"FWD", power:80, rarity:"Common"};
-          adminRefreshPlayers();
-        } else { adminPlayersStatus("Server rejected the player data.", false); }
-      });
-  }).catch(()=>{ adminPlayersStatus("Could not reach the local admin server — is admin-server.ps1 running?", false); });
-}
-function adminDeletePlayer(id){
-  fetch(ADMIN_API+"/players", {cache:"no-store"}).then(r=>r.json()).then(list=>{
-    const updated = list.filter(p=>p.id!==id);
-    return fetch(ADMIN_API+"/players", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(updated)})
-      .then(r=>r.json()).then(res=>{
-        if(res.ok){ adminPlayersStatus("Player removed from the global catalog.", true); adminRefreshPlayers(); }
-        else { adminPlayersStatus("Server rejected the update.", false); }
-      });
-  }).catch(()=>{ adminPlayersStatus("Could not reach the local admin server — is admin-server.ps1 running?", false); });
-}
 
 // ---------- icons (Lucide path data, inlined - no external requests) ----------
 const ICONS = {
@@ -571,7 +521,14 @@ function icon(name, size, color, extraStyle){
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;${extraStyle}">${body}</svg>`;
 }
 
-function render(){ persist(); document.getElementById("stage").innerHTML = appHTML(); }
+function render(){ document.getElementById("stage").innerHTML = appHTML(); }
+// Exposed so the separate lib/*.js scripts (auth.js, game-data.js, ...) can
+// reach into this IIFE -- everything else declared in here stays private to
+// it, since a nested function's scope chain doesn't fall through to a
+// sibling <script>'s top-level declarations unless explicitly put on window.
+window.state = state;
+window.render = render;
+window.rankForWins = rankForWins;
 
 // ---------- shared bits ----------
 function railHeader(){
@@ -600,7 +557,6 @@ function tabBar(){
     {key:"shop",label:"Shop",icon:"ShoppingBag"},{key:"play",label:"Play",icon:"PlayCircle"},
     {key:"profile",label:"Profile",icon:"User"},
   ];
-  if(isAdminDevice()) tabs.push({key:"admin",label:"Admin",icon:"Lock"});
   return `<div class="tabbar"><div class="row" style="justify-content:space-around">
     ${tabs.map(t=>`
       <button class="tabbtn scrimtap" data-action="nav-tab" data-tab="${t.key}">
@@ -1159,76 +1115,67 @@ function profileView(){
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">BEST CARD</div>
     ${bestCard ? playerCard(bestCard,{mode:"index"}) : `<div style="font-size:13px;margin-bottom:16px;color:${COLORS.muted}">No cards yet.</div>`}
 
-    <button data-action="${state.confirmReset?"do-reset":"confirm-reset"}" class="btn scrimtap wfull" style="margin-top:16px;padding:12px 0;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;background:${state.confirmReset?COLORS.danger:COLORS.panel};color:${state.confirmReset?"#fff":COLORS.muted}">${icon("RefreshCw",14,state.confirmReset?"#fff":COLORS.muted)} ${state.confirmReset?"Tap again to confirm reset":"Reset progress"}</button>
+    <button data-action="sign-out" class="btn scrimtap wfull" style="margin-top:16px;padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.muted}">Sign Out</button>
   </div>`;
 }
-function adminPlayersSection(){
-  const ap = state.adminPlayers;
-  const list = ap.list || [];
-  const sorted = [...list].sort((a,b)=>b.id-a.id).slice(0,15);
-  return `
-    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">MANAGE PLAYERS (GLOBAL)</div>
-    <div class="panel" style="padding:12px;margin-bottom:12px">
-      <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Adding or removing here goes live for <b>every connected player</b> (including friends on the public link) next time their game reloads — it calls a local-only API on this PC, separate from the shared game file.</div>
-      ${ap.status ? `<div style="font-size:11px;font-weight:700;margin-bottom:10px;color:${ap.statusOk?COLORS.turf:COLORS.danger}">${esc(ap.status)}</div>` : ""}
-      <div class="grid2" style="gap:8px;margin-bottom:8px">
-        <input data-field="adminName" value="${esc(ap.form.name)}" placeholder="Player name" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}" />
-        <input data-field="adminPower" type="number" min="1" max="100" value="${ap.form.power}" placeholder="Power" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}" />
-      </div>
-      <div class="grid2" style="gap:8px;margin-bottom:10px">
-        <select data-field="adminPosition" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}">
-          ${["GK","DEF","MID","FWD"].map(pos=>`<option value="${pos}" ${ap.form.position===pos?"selected":""}>${pos}</option>`).join("")}
-        </select>
-        <select data-field="adminRarity" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}">
-          ${RARITY_ORDER.map(r=>`<option value="${r}" ${ap.form.rarity===r?"selected":""}>${r}</option>`).join("")}
-        </select>
-      </div>
-      <button data-action="admin-players-add" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;background:${COLORS.turf};color:${COLORS.bg};margin-bottom:8px">Add Player Globally</button>
-      <button data-action="admin-players-refresh" class="btn scrimtap wfull panel" style="padding:8px 0;font-size:11px;color:${COLORS.muted}">${ap.listLoading?"Loading…":"Refresh list ("+list.length+" total)"}</button>
+// ---------- Auth views (Phase A) ----------
+function loadingView(){
+  return `<div class="view" style="display:flex;align-items:center;justify-content:center;min-height:70vh">
+    <div style="text-align:center">
+      <div class="display" style="font-size:24px;color:${COLORS.cream};margin-bottom:8px">TCG <span style="color:${COLORS.gold}">MANAGER</span></div>
+      <div style="font-size:12px;color:${COLORS.muted}">Loading…</div>
     </div>
-    ${list.length ? `<div class="panel" style="padding:8px;margin-bottom:16px;max-height:220px;overflow-y:auto">
-      ${sorted.map(p=>`<div class="row between" style="padding:6px 4px;border-bottom:1px solid ${COLORS.panelLight}">
-        <div style="font-size:11px;color:${COLORS.cream}">${esc(p.name)} <span style="color:${COLORS.muted}">· ${p.position} · ${p.power} · ${p.rarity}</span></div>
-        <button data-action="admin-players-delete" data-player-id="${p.id}" class="scrimtap" style="background:none;border:none;color:${COLORS.danger};font-size:11px;font-weight:800">✕</button>
-      </div>`).join("")}
-    </div>` : `<div style="font-size:12px;color:${COLORS.muted};margin-bottom:16px">Tap "Refresh list" to load the current global catalog.</div>`}
-  `;
+  </div>`;
 }
-function adminView(){
-  const ownedCount = state.players.filter(p=>p.owned).length;
-  const totalCount = state.players.length;
-  const debugState = { gems: state.gems, stats: state.stats, season: state.season, home: state.home, profile: state.profile };
-  return `<div class="view">
-    <div class="panel" style="padding:16px;margin-bottom:16px;border:1px solid ${COLORS.danger}55">
-      <div class="row" style="gap:6px;margin-bottom:4px">${icon("Lock",14,COLORS.danger)}<span style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.danger}">DEVICE-ONLY ADMIN PANEL</span></div>
-      <div style="font-size:12px;color:${COLORS.muted}">Only visible when the game is opened on this machine (localhost). Friends playing via the public link or their own phone never see this tab.</div>
+function authView(){
+  const ui = state.authUI;
+  const title = ui.mode==="signup" ? "Create Account" : ui.mode==="reset" ? "Reset Password" : "Welcome Back";
+  const eyebrow = ui.mode==="signup" ? "JOIN THE LEAGUE" : ui.mode==="reset" ? "NO WORRIES" : "WELCOME BACK";
+  return `<div class="view" style="padding-top:60px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.2em;color:${COLORS.muted};margin-bottom:4px">${eyebrow}</div>
+      <div class="display" style="font-size:30px;color:${COLORS.cream}">TCG <span style="color:${COLORS.gold}">MANAGER</span></div>
     </div>
-
-    ${adminPlayersSection()}
-
-    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">GEMS (${state.gems})</div>
-    <div class="grid4" style="margin-bottom:16px">
-      <button data-action="admin-add-gems" data-amount="100" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+100</button>
-      <button data-action="admin-add-gems" data-amount="1000" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+1,000</button>
-      <button data-action="admin-add-gems" data-amount="100000" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+100k</button>
-      <button data-action="admin-set-gems-zero" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.danger}">Zero</button>
+    <div class="panel" style="padding:20px">
+      <div style="font-size:15px;font-weight:900;margin-bottom:14px;color:${COLORS.cream}">${title}</div>
+      ${ui.checkEmail ? `
+        <div style="font-size:13px;margin-bottom:14px;color:${COLORS.turf}">Check your email for a confirmation link, then come back and sign in.</div>
+        <button data-action="auth-tab" data-mode="signin" class="btn scrimtap wfull" style="padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Back to Sign In</button>
+      ` : `
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">EMAIL</div>
+          <input data-field="authEmail" type="email" value="${esc(ui.email)}" placeholder="you@example.com" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        </div>
+        <div style="margin-bottom:${ui.mode==="signup"?"10":"14"}px">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">PASSWORD</div>
+          <input data-field="authPassword" type="password" value="${esc(ui.password)}" placeholder="••••••••" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        </div>
+        ${ui.mode==="signup" ? `
+        <div style="margin-bottom:14px">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">CONFIRM PASSWORD</div>
+          <input data-field="authConfirmPassword" type="password" value="${esc(ui.confirmPassword)}" placeholder="••••••••" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        </div>` : ""}
+        ${ui.error ? `<div style="font-size:12px;font-weight:700;margin-bottom:12px;color:${COLORS.danger}">${esc(ui.error)}</div>` : ""}
+        <button data-action="auth-submit" class="btn scrimtap wfull" style="padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">${ui.loading ? "…" : (ui.mode==="signup"?"Create Account":ui.mode==="reset"?"Send Reset Email":"Log In")}</button>
+        <div class="row between" style="margin-top:14px">
+          ${ui.mode==="signin" ? `
+            <button data-action="auth-tab" data-mode="reset" class="scrimtap" style="background:none;border:none;font-size:11px;color:${COLORS.gold}">Forgot password?</button>
+            <button data-action="auth-tab" data-mode="signup" class="scrimtap" style="background:none;border:none;font-size:11px;color:${COLORS.gold}">Create an account</button>
+          ` : `
+            <button data-action="auth-tab" data-mode="signin" class="scrimtap" style="background:none;border:none;font-size:11px;color:${COLORS.gold}">Back to sign in</button>
+            <span></span>
+          `}
+        </div>
+      `}
     </div>
-
-    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">COLLECTION (${ownedCount}/${totalCount} owned)</div>
-    <div class="row" style="gap:8px;margin-bottom:16px">
-      <button data-action="admin-unlock-all" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;background:${COLORS.turf};color:${COLORS.bg}">Unlock all cards</button>
-      <button data-action="admin-lock-all" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;background:${COLORS.panel};color:${COLORS.muted}">Reset to starters</button>
-    </div>
-
-    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">PROGRESS</div>
-    <div class="grid3" style="margin-bottom:16px">
-      <button data-action="admin-add-wins" data-amount="1" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.cream}">+1 Win</button>
-      <button data-action="admin-add-wins" data-amount="10" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.cream}">+10 Wins</button>
-      <button data-action="admin-advance-matchday" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.cream}">Next Matchday</button>
-    </div>
-
-    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">RAW STATE (read-only, for debugging)</div>
-    <textarea readonly style="width:100%;height:160px;border-radius:12px;padding:10px;font-size:10px;font-family:monospace;border:none;outline:none;margin-bottom:16px;background:${COLORS.panelLight};color:${COLORS.cream}">${esc(JSON.stringify(debugState, null, 2))}</textarea>
+  </div>`;
+}
+function bannedView(){
+  return `<div class="view" style="padding-top:80px;text-align:center">
+    <div style="font-size:40px;margin-bottom:12px">🚫</div>
+    <div style="font-size:16px;font-weight:900;margin-bottom:8px;color:${COLORS.cream}">Account Suspended</div>
+    <div style="font-size:13px;margin-bottom:20px;color:${COLORS.muted}">Your account has been suspended. Contact support if you think this is a mistake.</div>
+    <button data-action="acknowledge-ban" class="btn scrimtap" style="padding:12px 24px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.cream}">Back to Sign In</button>
   </div>`;
 }
 function statBox(label,value,color){
@@ -1237,6 +1184,9 @@ function statBox(label,value,color){
 
 // ---------- app shell ----------
 function appHTML(){
+  if(!state.authReady) return loadingView();
+  if(state.justBanned) return bannedView();
+  if(!state.session) return authView();
   const rankUpBanner = state.rankUp ? `<div style="position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:8px;padding:calc(12px + env(safe-area-inset-top)) 12px 12px;background:linear-gradient(90deg, ${state.rankUp.color}, ${COLORS.gold})">
     <span style="font-size:22px">${state.rankUp.icon}</span><span style="font-weight:900;font-size:13px;color:${COLORS.bg}">PROMOTED TO ${state.rankUp.name.toUpperCase()}!</span>
   </div>` : "";
@@ -1247,7 +1197,6 @@ function appHTML(){
   else if(state.tab==="shop") view = shopView();
   else if(state.tab==="play") view = playView();
   else if(state.tab==="profile") view = profileView();
-  else if(state.tab==="admin" && isAdminDevice()) view = adminView();
   return `${rankUpBanner}${railHeader()}${view}${tabBar()}`;
 }
 
@@ -1336,6 +1285,7 @@ function beginMatch(newOppSlots, opp, label){
 }
 function kickOff(){
   const pl = state.play;
+  saveSquadRemote();
   const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
   const formationKeys = Object.keys(FORMATIONS);
   const chosenOppFormation = formationKeys[Math.floor(Math.random()*formationKeys.length)];
@@ -1408,6 +1358,10 @@ function continueSecondHalf(){
     const won = outcome==="win";
     const isDraw = outcome==="draw";
     const gemsEarned = won ? WIN_GEMS : isDraw ? DRAW_GEMS : LOSS_GEMS;
+    // Captured before any season-rollover reassignment below -- a match must
+    // be recorded under the season/matchday it was actually played in.
+    const matchSeasonNumber = state.season.number, matchMatchday = state.season.matchday;
+    const opponentName = pl.opponentMeta ? pl.opponentMeta.teamName : currentClub();
 
     const ns = won ? state.stats.streak+1 : 0;
     state.stats = { wins: state.stats.wins+(won?1:0), losses: state.stats.losses+(!won&&!isDraw?1:0), draws: (state.stats.draws||0)+(isDraw?1:0), streak: ns, bestStreak: Math.max(state.stats.bestStreak, ns) };
@@ -1432,6 +1386,7 @@ function continueSecondHalf(){
     state.confettiOn = won;
     checkRankUp();
     render();
+    commitMatchResult({result:outcome, myWins, myTotalPower, oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, pl.isChallengeMatch);
   }, 15000);
 }
 
@@ -1445,7 +1400,6 @@ document.getElementById("stage").addEventListener("click", function(e){
   switch(action){
     case "nav-tab":
       state.tab = el.dataset.tab; playTap();
-      if(state.tab==="admin" && isAdminDevice() && !state.adminPlayers.list) adminRefreshPlayers();
       render(); break;
     case "open-slot-picker": {
       const slot = buildSlots(pl.formationKey,"my").find(s=>s.id===el.dataset.slotId);
@@ -1463,7 +1417,9 @@ document.getElementById("stage").addEventListener("click", function(e){
       const reward = DAILY_REWARDS[state.home.dailyStreak % 7];
       state.gems += reward;
       state.home = { ...state.home, dailyLastClaim: todayStr(), dailyStreak: state.home.dailyStreak+1 };
-      render(); break;
+      render();
+      updateProfile({ gems: state.gems, daily_last_claim: state.home.dailyLastClaim, daily_streak: state.home.dailyStreak });
+      break;
     }
     case "claim-objective": {
       const id = el.dataset.objId, reward = Number(el.dataset.reward);
@@ -1471,7 +1427,9 @@ document.getElementById("stage").addEventListener("click", function(e){
       playSparkle();
       state.gems += reward;
       state.home = { ...state.home, objectivesClaimed: [...state.home.objectivesClaimed, id] };
-      render(); break;
+      render();
+      updateProfile({ gems: state.gems, objectives_claimed: state.home.objectivesClaimed });
+      break;
     }
     case "assign-player": {
       const p = state.players.find(x=>x.id===Number(el.dataset.playerId));
@@ -1535,7 +1493,8 @@ document.getElementById("stage").addEventListener("click", function(e){
       const locked = state.players.filter(p=>!p.owned && !p.exclusive);
       const pick = pickWeighted(locked, pack.weights);
       s.selectedPack = pack;
-      if(!pick){ state.gems += Math.round(pack.cost/3); playTap(); s.revealed=null; s.phase="revealed"; render(); break; }
+      if(!pick){ state.gems += Math.round(pack.cost/3); playTap(); s.revealed=null; s.phase="revealed"; render(); commitPackRefund(); break; }
+      commitPackOpen(pick.id);
       const spinPool = state.players.filter(p=>!p.exclusive);
       const items = Array.from({length: SPIN_FILLER_COUNT}, ()=> spinPool[Math.floor(Math.random()*spinPool.length)]);
       // Land on the real pick at a randomized position in the strip (not always
@@ -1568,117 +1527,59 @@ document.getElementById("stage").addEventListener("click", function(e){
       state.shop.purchasedExclusive = card.id; render(); break;
     }
     case "set-avatar":
-      playTap(); state.profile.avatar = el.dataset.avatar; render(); break;
+      playTap(); state.profile.avatar = el.dataset.avatar; render(); updateProfile({avatar: el.dataset.avatar}); break;
     case "set-color":
-      playTap(); state.profile.color = el.dataset.color; render(); break;
-    case "confirm-reset":
-      state.confirmReset = true; render();
-      setTimeout(()=>{ state.confirmReset=false; render(); }, 4000);
+      playTap(); state.profile.color = el.dataset.color; saveLocalTeamColor(el.dataset.color); render(); break;
+    case "auth-tab":
+      state.authUI = { mode: el.dataset.mode, email:"", password:"", confirmPassword:"", error:"", loading:false, checkEmail:false };
+      render(); break;
+    case "auth-submit": {
+      const ui = state.authUI;
+      if(ui.loading) break;
+      if(!ui.email || !ui.password){ ui.error = "Enter an email and password."; render(); break; }
+      if(ui.mode==="signup" && ui.password !== ui.confirmPassword){ ui.error = "Passwords don't match."; render(); break; }
+      ui.loading = true; ui.error = ""; render();
+      if(ui.mode==="signin"){
+        authSignIn(ui.email, ui.password).then(({error})=>{
+          ui.loading = false;
+          if(error){ ui.error = error; render(); }
+        });
+      } else if(ui.mode==="signup"){
+        authSignUp(ui.email, ui.password).then(({data, error})=>{
+          ui.loading = false;
+          if(error){ ui.error = error; render(); return; }
+          if(!(data && data.session)){ ui.checkEmail = true; render(); }
+        });
+      } else if(ui.mode==="reset"){
+        authSendPasswordReset(ui.email).then(({error})=>{
+          ui.loading = false;
+          if(error){ ui.error = error; } else { ui.checkEmail = true; }
+          render();
+        });
+      }
       break;
-    case "do-reset":
-      state.players = JSON.parse(JSON.stringify(STARTER_PLAYERS));
-      state.stats = {wins:0,losses:0,draws:0,streak:0,bestStreak:0};
-      state.profile = {name:"Player",avatar:"⚽",teamName:"My Team",number:7,color:COLORS.turf};
-      state.gems = STARTING_GEMS;
-      state.season = {number:1,matchday:1,points:0,wins:0,losses:0,draws:0};
-      state.home = {dailyLastClaim:null, dailyStreak:0, objectivesClaimed:[]};
-      state.prevRankName = "Bronze";
-      state.confirmReset = false;
-      clearMinuteInterval(); clearBallInterval();
-      state.play = { formationKey:"balanced", myLineup:{}, activeSlot:null, subSlot:null, halfSubUsed:false, phase:"building", currentHalf:1, oppSlots:[], oppLineup:null, firstHalfLineup:null, finalResult:null, myGoals:0, oppGoals:0, commentary:"Kick off!", matchMinute:0, zoneResultsLive:{}, seasonSummary:null, minuteInterval:null, ballOwnerKey:null, ballInterval:null };
-      render(); break;
-    case "admin-add-gems":
-      if(!isAdminDevice()) break;
-      state.gems += Number(el.dataset.amount)||0; playChime(); render(); break;
-    case "admin-set-gems-zero":
-      if(!isAdminDevice()) break;
-      state.gems = 0; render(); break;
-    case "admin-unlock-all":
-      if(!isAdminDevice()) break;
-      state.players = state.players.map(p=>({...p, owned:true})); playFanfare(); render(); break;
-    case "admin-lock-all": {
-      if(!isAdminDevice()) break;
-      const starterIds = new Set(STARTER_PLAYERS.filter(p=>p.owned).map(p=>p.id));
-      state.players = state.players.map(p=>({...p, owned:starterIds.has(p.id)})); render(); break;
     }
-    case "admin-add-wins": {
-      if(!isAdminDevice()) break;
-      const n = Number(el.dataset.amount)||0;
-      state.stats.wins += n; state.stats.streak += n;
-      state.stats.bestStreak = Math.max(state.stats.bestStreak, state.stats.streak);
-      checkRankUp(); render(); break;
-    }
-    case "admin-advance-matchday": {
-      if(!isAdminDevice()) break;
-      const s = state.season;
-      if(s.matchday>=6){ state.season = {number:s.number+1, matchday:1, points:0, wins:0, losses:0, draws:0}; }
-      else { state.season = {...s, matchday:s.matchday+1}; }
-      render(); break;
-    }
-    case "admin-players-add":
-      if(!isAdminDevice()) break;
-      adminAddPlayer(); break;
-    case "admin-players-refresh":
-      if(!isAdminDevice()) break;
-      adminRefreshPlayers(); break;
-    case "admin-players-delete":
-      if(!isAdminDevice()) break;
-      adminDeletePlayer(Number(el.dataset.playerId)); break;
+    case "sign-out":
+      authSignOut(); break;
+    case "acknowledge-ban":
+      state.justBanned = false; render(); break;
   }
 });
 function handleFieldInput(e){
   const field = e.target.dataset.field;
   if(!field) return;
   if(field==="pasteCode"){ state.play.pasteCode = e.target.value; state.play.pasteError=""; return; }
-  if(field==="adminName"){ state.adminPlayers.form.name = e.target.value; return; }
-  if(field==="adminPower"){ state.adminPlayers.form.power = e.target.value; return; }
-  if(field==="adminPosition"){ state.adminPlayers.form.position = e.target.value; return; }
-  if(field==="adminRarity"){ state.adminPlayers.form.rarity = e.target.value; return; }
+  if(field==="authEmail"){ state.authUI.email = e.target.value; state.authUI.error=""; return; }
+  if(field==="authPassword"){ state.authUI.password = e.target.value; state.authUI.error=""; return; }
+  if(field==="authConfirmPassword"){ state.authUI.confirmPassword = e.target.value; state.authUI.error=""; return; }
   if(field==="number"){ state.profile.number = Math.max(1, Math.min(99, Number(e.target.value)||1)); }
   else { state.profile[field] = e.target.value; }
-  persist();
+  scheduleProfileSave();
 }
 document.getElementById("stage").addEventListener("input", handleFieldInput);
 document.getElementById("stage").addEventListener("change", handleFieldInput);
 
-// ---------- global roster catalog (players.json) ----------
-// The game boots instantly from local save / STARTER_PLAYERS above, then
-// quietly checks players.json in the background for admin-added/edited
-// cards and folds them in. This is what lets the admin-only "Manage
-// Players" panel add new cards for every connected player (including
-// friends on the public link) without needing anyone to update the app --
-// they just need to reload. Existing local ownership is never touched by
-// this merge; it only adds brand-new ids (always starting unowned) and
-// refreshes stats/rarity on ids that already exist.
-function mergeCatalog(remoteList){
-  if(!Array.isArray(remoteList)) return false;
-  const byId = {};
-  state.players.forEach(p=>{ byId[p.id] = p; });
-  let changed = false;
-  remoteList.forEach(rp=>{
-    if(!rp || typeof rp.id!=="number" || !rp.name || !rp.position || !rp.rarity) return;
-    const existing = byId[rp.id];
-    if(existing){
-      if(existing.name!==rp.name || existing.position!==rp.position || existing.power!==rp.power || existing.rarity!==rp.rarity){
-        existing.name = rp.name; existing.position = rp.position; existing.power = rp.power; existing.rarity = rp.rarity;
-        changed = true;
-      }
-    } else {
-      const fresh = {id:rp.id, name:rp.name, position:rp.position, power:rp.power, rarity:rp.rarity, owned:false};
-      if(rp.exclusive){ fresh.exclusive = true; fresh.priceEUR = rp.priceEUR; }
-      state.players.push(fresh);
-      changed = true;
-    }
-  });
-  return changed;
-}
-function loadRemoteCatalog(){
-  fetch("players.json", {cache:"no-store"}).then(r=> r.ok ? r.json() : null).then(data=>{
-    if(mergeCatalog(data)){ persist(); render(); }
-  }).catch(()=>{});
-}
-
 render();
-loadRemoteCatalog();
+initAuthListener();
 })();
 </script>

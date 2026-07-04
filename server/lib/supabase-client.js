@@ -13,6 +13,9 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     storage: window.localStorage,
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false,
+    // Unlike the mobile app (no URL-based redirects at all), the web
+    // version's email-confirmation link redirects back here with the new
+    // session in a URL fragment -- this must be true to actually pick it up.
+    detectSessionInUrl: true,
   },
 });
