@@ -989,7 +989,8 @@ function playView(){
   }
 
   if(pl.phase==="building"){
-    body += `<div style="text-align:center;font-size:12px;color:${COLORS.muted};margin-bottom:12px">${filled}/${mySlots.length} positions filled — tap a slot to assign a player</div>
+    body += `<button data-action="equip-best" class="btn scrimtap wfull row center" style="gap:6px;padding:10px 0;margin-bottom:10px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.gold};border:1px solid ${COLORS.gold}55">${icon("Sparkles",14,COLORS.gold)} EQUIP BEST SQUAD</button>
+    <div style="text-align:center;font-size:12px;color:${COLORS.muted};margin-bottom:12px">${filled}/${mySlots.length} positions filled — tap a slot to assign a player</div>
     <button data-action="kickoff" ${!isComplete?"disabled":""} class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C;opacity:${!isComplete?0.4:1}">▶️ KICK OFF</button>
     <div style="text-align:center;font-size:11px;margin-top:8px;color:${COLORS.muted}">Want to challenge a friend instead? Head to the Friends tab — this squad is what you'll battle with.</div>`;
   }
@@ -1825,6 +1826,18 @@ document.getElementById("stage").addEventListener("click", function(e){
     }
     case "set-formation":
       pl.formationKey = el.dataset.key; pl.myLineup = {}; playTap(); render(); break;
+    case "equip-best": {
+      const mySlots = buildSlots(pl.formationKey,"my");
+      const owned = state.players.filter(p=>p.owned);
+      const usedIds = new Set();
+      const newLineup = {};
+      mySlots.forEach(slot=>{
+        const best = owned.filter(p=>p.position===slot.position && !usedIds.has(p.id)).sort((a,b)=>b.power-a.power)[0];
+        if(best){ newLineup[slot.id] = best; usedIds.add(best.id); } else { newLineup[slot.id] = null; }
+      });
+      pl.myLineup = newLineup;
+      playFanfare(); render(); break;
+    }
     case "kickoff":
       kickOff(); break;
     case "open-sub": {
