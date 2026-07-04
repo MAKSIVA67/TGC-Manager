@@ -136,3 +136,74 @@ function submitFriendRequestResponse(requestId, accept) {
     return Promise.all([refreshFriendRequests(), refreshFriendsList()]);
   });
 }
+
+// ---- Chat (Phase C) ----
+
+function listMessages(userId, friendId) {
+  return sb.from("messages").select("*").or(pairFilter("sender_id", "recipient_id", userId, friendId))
+    .order("created_at", { ascending: true }).limit(200)
+    .then(({ data, error }) => ({ data: data || [], error: error ? error.message : null }));
+}
+function sendMessage(userId, friendId, body) {
+  const trimmed = (body || "").trim().slice(0, 500);
+  if (!trimmed) return Promise.resolve({ data: null, error: "Message can't be empty." });
+  return sb.from("messages").insert({ sender_id: userId, recipient_id: friendId, body: trimmed }).select().single()
+    .then(({ data, error }) => ({ data, error: error ? error.message : null }));
+}
+
+let chatChannel = null;
+
+function openChat(friendId, friendName) {
+  const myId = window.state.session.user.id;
+  window.state.friendsUI.chat = { friendId, friendName, messages: [], draft: "", loading: true };
+  window.render();
+  listMessages(myId, friendId).then(({ data }) => {
+    window.state.friendsUI.chat.messages = data;
+    window.state.friendsUI.chat.loading = false;
+    window.render();
+    scrollChatToBottom();
+  });
+  subscribeToChat(myId, friendId);
+}
+function closeChat() {
+  unsubscribeFromChat();
+  window.state.friendsUI.chat = { friendId: null, friendName: "", messages: [], draft: "", loading: false };
+  window.render();
+}
+function sendChatMessage() {
+  const chat = window.state.friendsUI.chat;
+  const myId = window.state.session.user.id;
+  const body = chat.draft;
+  if (!body || !body.trim()) return;
+  chat.draft = "";
+  window.render();
+  sendMessage(myId, chat.friendId, body).then(({ data, error }) => {
+    if (error) { console.error("sendMessage failed:", error); return; }
+    // Appended here rather than relying on the realtime echo -- the
+    // recipient_id-scoped subscription below never fires for our own sends.
+    chat.messages = [...chat.messages, data];
+    window.render();
+    scrollChatToBottom();
+  });
+}
+// Realtime filter is server-side scoped to recipient_id only (Realtime
+// filters can't express an OR across two columns) -- the sender check
+// below is what actually scopes it to the currently-open conversation.
+function subscribeToChat(myId, friendId) {
+  unsubscribeFromChat();
+  chatChannel = sb.channel("messages-" + myId)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `recipient_id=eq.${myId}` }, (payload) => {
+      const chat = window.state.friendsUI.chat;
+      if (!chat.friendId || payload.new.sender_id !== chat.friendId) return;
+      chat.messages = [...chat.messages, payload.new];
+      window.render();
+      scrollChatToBottom();
+    })
+    .subscribe();
+}
+function unsubscribeFromChat() {
+  if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
+}
+function scrollChatToBottom() {
+  setTimeout(() => { const el = document.getElementById("chatScroll"); if (el) el.scrollTop = el.scrollHeight; }, 50);
+}

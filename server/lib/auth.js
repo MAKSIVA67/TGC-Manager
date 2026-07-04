@@ -91,6 +91,7 @@ function initAuthListener() {
       if (newSession.user.id !== lastHandledUserId) handleSignedIn(newSession.user.id);
     } else {
       lastHandledUserId = null;
+      unsubscribeFromChat();
       window.state.authReady = true;
       window.state.tab = "home";
       window.render();

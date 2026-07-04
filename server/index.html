@@ -483,6 +483,9 @@ const state = {
     subTab:"friends", friends:[], friendsLoaded:false,
     requests:{incoming:[],outgoing:[]}, requestsLoaded:false,
     searchTerm:"", searchResults:[], searchStatus:"",
+    // Chat (Phase C) -- a friendId set here means "chat is open", overlaying
+    // whatever sub-tab was showing.
+    chat: { friendId:null, friendName:"", messages:[], draft:"", loading:false },
   },
 };
 state.prevRankName = rankForWins(state.stats.wins).name;
@@ -1066,6 +1069,7 @@ function confettiHTML(){
 // ---------- Friends view (Phase B) ----------
 function friendsView(){
   const ui = state.friendsUI;
+  if(ui.chat.friendId) return `<div class="view">${chatSection()}</div>`;
   const sub = ui.subTab;
   const tabs = [
     {key:"friends", label:"Friends"},
@@ -1087,15 +1091,41 @@ function friendsListSection(){
   if(!ui.friends.length) return `<div class="panel" style="padding:20px;text-align:center;font-size:13px;color:${COLORS.muted}">No friends yet — head to the Find tab to search for players.</div>`;
   return ui.friends.map(f=>`
     <div class="panel" style="padding:14px;margin-bottom:10px">
-      <div class="row" style="gap:10px">
-        <div class="avatarCircle" style="width:40px;height:40px;font-size:18px;background:${COLORS.panelLight}">${esc(f.avatar||"⚽")}</div>
-        <div style="flex:1">
-          <div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${esc(f.display_name||"Player")}</div>
-          <div style="font-size:11px;color:${COLORS.muted}">${esc(f.team_name||"")}</div>
+      <div class="row between" style="gap:10px">
+        <div class="row" style="gap:10px">
+          <div class="avatarCircle" style="width:40px;height:40px;font-size:18px;background:${COLORS.panelLight}">${esc(f.avatar||"⚽")}</div>
+          <div>
+            <div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${esc(f.display_name||"Player")}</div>
+            <div style="font-size:11px;color:${COLORS.muted}">${esc(f.team_name||"")}</div>
+          </div>
         </div>
+        <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat</button>
       </div>
     </div>
   `).join("");
+}
+function chatSection(){
+  const chat = state.friendsUI.chat;
+  const myId = state.session.user.id;
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <button data-action="chat-close" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">${esc(chat.friendName)}</div>
+      <span style="width:40px"></span>
+    </div>
+    <div id="chatScroll" style="height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:10px;margin-bottom:12px;border-radius:12px;background:${COLORS.panel}">
+      ${chat.loading ? `<div style="font-size:12px;color:${COLORS.muted}">Loading…</div>`
+        : !chat.messages.length ? `<div style="font-size:12px;color:${COLORS.muted};text-align:center;margin-top:20px">Say hello!</div>`
+        : chat.messages.map(m=>{
+            const mine = m.sender_id===myId;
+            return `<div style="align-self:${mine?"flex-end":"flex-start"};max-width:75%;padding:8px 12px;border-radius:14px;font-size:13px;background:${mine?COLORS.turf:COLORS.panelLight};color:${mine?COLORS.bg:COLORS.cream}">${esc(m.body)}</div>`;
+          }).join("")}
+    </div>
+    <div class="row" style="gap:8px">
+      <input data-field="chatDraft" value="${esc(chat.draft)}" placeholder="Message…" maxlength="500" style="flex:1;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+      <button data-action="chat-send" class="btn scrimtap" style="padding:10px 16px;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Send</button>
+    </div>
+  `;
 }
 function friendsRequestsSection(){
   const ui = state.friendsUI;
@@ -1671,6 +1701,12 @@ document.getElementById("stage").addEventListener("click", function(e){
       submitFriendRequest(el.dataset.targetId); break;
     case "friend-request-respond":
       submitFriendRequestResponse(Number(el.dataset.requestId), el.dataset.accept==="1"); break;
+    case "friend-open-chat":
+      openChat(el.dataset.friendId, el.dataset.friendName); break;
+    case "chat-send":
+      sendChatMessage(); break;
+    case "chat-close":
+      closeChat(); break;
   }
 });
 function handleFieldInput(e){
@@ -1681,6 +1717,7 @@ function handleFieldInput(e){
   if(field==="authPassword"){ state.authUI.password = e.target.value; state.authUI.error=""; return; }
   if(field==="authConfirmPassword"){ state.authUI.confirmPassword = e.target.value; state.authUI.error=""; return; }
   if(field==="friendSearch"){ state.friendsUI.searchTerm = e.target.value; return; }
+  if(field==="chatDraft"){ state.friendsUI.chat.draft = e.target.value; return; }
   if(field==="number"){ state.profile.number = Math.max(1, Math.min(99, Number(e.target.value)||1)); }
   else { state.profile[field] = e.target.value; }
   scheduleProfileSave();
