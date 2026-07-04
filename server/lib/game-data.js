@@ -195,6 +195,16 @@ function commitPackRefund() {
 // caller BEFORE any season-rollover reassignment) since a match must be
 // recorded under the season/matchday it was actually played in, not
 // whatever state.season has become by the time this runs.
+// Re-fetches everything for the current user -- used after a trade
+// completes, since the other side's RPC-driven card/gem swap happened
+// entirely server-side and neither side's local state knows about it yet.
+function refreshGameState() {
+  const session = window.state.session;
+  const userId = session && session.user && session.user.id;
+  if (!userId) return Promise.resolve();
+  return Promise.all([loadProfile(userId), loadCatalogAndOwnership(userId), loadSquad(userId)]).then(() => window.render());
+}
+
 function commitMatchResult(outcome, matchSeasonNumber, matchMatchday, opponentName, isChallengeMatch) {
   const session = window.state.session;
   const userId = session && session.user && session.user.id;

@@ -337,3 +337,119 @@ function closeChallengeResult() {
   window.state.friendsUI.viewingChallengeId = null;
   window.render();
 }
+
+// ---- Trading (Phase E) ----
+
+function fetchFriendCollection(friendId) {
+  return sb.from("user_cards").select("card_id").eq("user_id", friendId)
+    .then(({ data, error }) => ({ data: (data || []).map(r => r.card_id), error: error ? error.message : null }));
+}
+function sendTradeOffer(initiatorId, recipientId, offeredCardIds, requestedCardIds, offeredGems) {
+  if (!requestedCardIds.length) return Promise.resolve({ error: "Pick at least one of their cards to request." });
+  if (!offeredCardIds.length && offeredGems <= 0) return Promise.resolve({ error: "Offer at least one card or some gems." });
+  return sb.from("trades").insert({
+    initiator_id: initiatorId, recipient_id: recipientId,
+    offered_card_ids: offeredCardIds, requested_card_ids: requestedCardIds, offered_gems: offeredGems,
+  }).then(({ error }) => ({ error: error ? error.message : null }));
+}
+function listTrades(callerId) {
+  return sb.from("trades").select("*")
+    .or(`initiator_id.eq.${callerId},recipient_id.eq.${callerId}`)
+    .order("created_at", { ascending: false })
+    .then(({ data, error }) => ({ data: data || [], error: error ? error.message : null }));
+}
+function cancelTrade(tradeId) {
+  return sb.from("trades").update({ status: "cancelled", resolved_at: new Date().toISOString() }).eq("id", tradeId)
+    .then(({ error }) => ({ error: error ? error.message : null }));
+}
+function declineTrade(tradeId) {
+  return sb.from("trades").update({ status: "declined", resolved_at: new Date().toISOString() }).eq("id", tradeId)
+    .then(({ error }) => ({ error: error ? error.message : null }));
+}
+function viewerTradeSides(trade, viewerId) {
+  const isInitiator = trade.initiator_id === viewerId;
+  return isInitiator
+    ? { youGive: { cardIds: trade.offered_card_ids, gems: trade.offered_gems }, youGet: { cardIds: trade.requested_card_ids, gems: 0 } }
+    : { youGive: { cardIds: trade.requested_card_ids, gems: 0 }, youGet: { cardIds: trade.offered_card_ids, gems: trade.offered_gems } };
+}
+// The ONLY atomic multi-row/multi-user mutation in this schema -- re-
+// validates both sides still own what they're putting up (ownership may
+// have changed since the offer was sent) and moves cards/gems all-or-
+// nothing. Never reimplement this client-side.
+function acceptTrade(tradeId) {
+  return sb.rpc("execute_trade", { trade_id: tradeId }).then(({ error }) => ({ error: error ? error.message : null }));
+}
+
+// ---- UI-facing wrappers ----
+
+function openTradeComposer(friendId, friendName) {
+  window.state.friendsUI.trade = { friendId, friendName, friendCollection: [], offerIds: [], requestIds: [], gems: 0, status: "Loading their collection…", loading: true };
+  window.render();
+  fetchFriendCollection(friendId).then(({ data, error }) => {
+    const t = window.state.friendsUI.trade;
+    t.friendCollection = data || [];
+    t.status = error || "";
+    t.loading = false;
+    window.render();
+  });
+}
+function closeTradeComposer() {
+  window.state.friendsUI.trade = { friendId: null, friendName: "", friendCollection: [], offerIds: [], requestIds: [], gems: 0, status: "", loading: false };
+  window.render();
+}
+function toggleTradeOffer(cardId) {
+  const t = window.state.friendsUI.trade;
+  const idx = t.offerIds.indexOf(cardId);
+  if (idx >= 0) t.offerIds.splice(idx, 1); else t.offerIds.push(cardId);
+  window.render();
+}
+function toggleTradeRequest(cardId) {
+  const t = window.state.friendsUI.trade;
+  const idx = t.requestIds.indexOf(cardId);
+  if (idx >= 0) t.requestIds.splice(idx, 1); else t.requestIds.push(cardId);
+  window.render();
+}
+function submitTradeOffer() {
+  const uid = window.state.session.user.id;
+  const t = window.state.friendsUI.trade;
+  t.status = "Sending offer…";
+  window.render();
+  sendTradeOffer(uid, t.friendId, t.offerIds, t.requestIds, t.gems).then(({ error }) => {
+    if (error) { t.status = error; window.render(); return; }
+    closeTradeComposer();
+    refreshTrades();
+  });
+}
+function refreshTrades() {
+  const uid = window.state.session.user.id;
+  return listTrades(uid).then(({ data }) => {
+    window.state.friendsUI.trades = data || [];
+    window.state.friendsUI.tradesLoaded = true;
+    window.render();
+  });
+}
+function viewTrade(tradeId) {
+  window.state.friendsUI.viewingTradeId = tradeId;
+  window.render();
+}
+function closeTradeView() {
+  window.state.friendsUI.viewingTradeId = null;
+  window.state.friendsUI.tradeActionStatus = "";
+  window.render();
+}
+function submitAcceptTrade(tradeId) {
+  window.state.friendsUI.tradeActionStatus = "Completing trade…";
+  window.render();
+  acceptTrade(tradeId).then(({ error }) => {
+    if (error) { window.state.friendsUI.tradeActionStatus = error; window.render(); return; }
+    closeTradeView();
+    refreshTrades();
+    refreshGameState();
+  });
+}
+function submitDeclineTrade(tradeId) {
+  declineTrade(tradeId).then(() => { closeTradeView(); refreshTrades(); });
+}
+function submitCancelTrade(tradeId) {
+  cancelTrade(tradeId).then(() => { closeTradeView(); refreshTrades(); });
+}

@@ -470,6 +470,9 @@ const state = {
     chat: { friendId:null, friendName:"", messages:[], draft:"", loading:false },
     // Challenges (Phase D) -- populated by lib/social.js.
     challenges: [], challengesLoaded: false, challengeStatus: "", viewingChallengeId: null,
+    // Trading (Phase E) -- populated by lib/social.js.
+    trade: { friendId:null, friendName:"", friendCollection:[], offerIds:[], requestIds:[], gems:0, status:"", loading:false },
+    trades: [], tradesLoaded: false, viewingTradeId: null, tradeActionStatus: "",
   },
 };
 state.prevRankName = rankForWins(state.stats.wins).name;
@@ -569,7 +572,8 @@ function playerCard(p, opts){
   const locked = opts.mode==="index" && !p.owned;
   const clickAttr = opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "";
   const disabled = opts.disabled ? "disabled" : "";
-  return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="border-left:4px solid ${rarity.color};opacity:${locked?0.45:1};${opts.disabled?"pointer-events:none":""}">
+  const selectedOutline = opts.selected ? `;outline:2px solid ${COLORS.gold};outline-offset:-2px` : "";
+  return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="border-left:4px solid ${rarity.color};opacity:${locked?0.45:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
     ${!locked && isTopTier(p.rarity) ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.35) 50%,transparent 60%);animation:shineSweep 3s ease-in-out infinite"></div>` : ""}
     <div class="row between" style="margin-bottom:8px">
       <span class="badge" style="background:${rarity.color}33;color:${rarity.color}">${rarity.label}</span>
@@ -1032,10 +1036,13 @@ function friendsView(){
   const ui = state.friendsUI;
   if(ui.chat.friendId) return `<div class="view">${chatSection()}</div>`;
   if(ui.viewingChallengeId) return `<div class="view">${challengeResultSection()}</div>`;
+  if(ui.trade.friendId) return `<div class="view">${tradeComposerSection()}</div>`;
+  if(ui.viewingTradeId) return `<div class="view">${tradeReviewSection()}</div>`;
   const sub = ui.subTab;
   const tabs = [
     {key:"friends", label:"Friends"},
     {key:"requests", label:"Requests"+(ui.requestsLoaded && ui.requests.incoming.length ? ` (${ui.requests.incoming.length})` : "")},
+    {key:"trades", label:"Trades"},
     {key:"find", label:"Find"},
   ];
   return `<div class="view">
@@ -1044,7 +1051,7 @@ function friendsView(){
         <button data-action="friends-subtab" data-subtab="${t.key}" class="btn scrimtap" style="flex:1;padding:10px 4px;font-size:11px;font-weight:800;background:${sub===t.key?COLORS.turf:COLORS.panel};color:${sub===t.key?COLORS.bg:COLORS.muted}">${t.label.toUpperCase()}</button>
       `).join("")}
     </div>
-    ${sub==="friends" ? friendsListSection() : sub==="requests" ? friendsRequestsSection() : friendsFindSection()}
+    ${sub==="friends" ? friendsListSection() : sub==="requests" ? friendsRequestsSection() : sub==="trades" ? friendsTradesSection() : friendsFindSection()}
   </div>`;
 }
 function friendsListSection(){
@@ -1076,7 +1083,10 @@ function friendsListSection(){
             <div style="font-size:11px;color:${COLORS.muted}">${esc(f.team_name||"")}</div>
           </div>
         </div>
-        <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat</button>
+        <div class="row" style="gap:6px">
+          <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat</button>
+          <button data-action="trade-open-composer" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.gold}">Trade</button>
+        </div>
       </div>
       <div class="row" style="gap:6px;justify-content:flex-end">${challengeButtons}</div>
     </div>
@@ -1129,6 +1139,93 @@ function challengeResultSection(){
       </div>`).join("")}
     </div>
   `;
+}
+function tradeComposerSection(){
+  const t = state.friendsUI.trade;
+  const myCards = state.players.filter(p=>p.owned);
+  const theirCards = t.friendCollection.map(id=> state.players.find(p=>p.id===id)).filter(Boolean);
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <button data-action="trade-close-composer" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">Trade with ${esc(t.friendName)}</div>
+      <span style="width:40px"></span>
+    </div>
+    ${t.status ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(t.status)}</div>` : ""}
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">YOU GIVE (tap to select)</div>
+    <div class="grid2" style="margin-bottom:12px">
+      ${myCards.map(p=>playerCard(p,{mode:"trade-select", action:"trade-toggle-offer", selected:t.offerIds.includes(p.id)})).join("")}
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:4px;color:${COLORS.muted}">GEMS TO OFFER (optional)</div>
+      <input data-field="tradeGems" type="number" min="0" value="${t.gems}" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+    </div>
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">YOU GET (tap to select)</div>
+    <div class="grid2" style="margin-bottom:16px">
+      ${theirCards.map(p=>playerCard(p,{mode:"trade-select", action:"trade-toggle-request", selected:t.requestIds.includes(p.id)})).join("")}
+      ${!theirCards.length ? `<div style="grid-column:1/3;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">They don't own any cards yet.</div>` : ""}
+    </div>
+    <button data-action="trade-send" class="btn scrimtap wfull" style="padding:12px 0;font-size:13px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Send Offer</button>
+  `;
+}
+function tradeReviewSection(){
+  const ui = state.friendsUI;
+  const trade = (ui.trades||[]).find(t=>t.id===ui.viewingTradeId);
+  const backBtn = `<button data-action="trade-close-view" class="btn scrimtap" style="margin-top:12px;padding:10px 16px;font-size:12px;background:${COLORS.panel};color:${COLORS.cream}">Back</button>`;
+  if(!trade) return `<div style="font-size:12px;color:${COLORS.muted}">Trade not found.</div>${backBtn}`;
+  const myId = state.session.user.id;
+  const sides = viewerTradeSides(trade, myId);
+  const cardName = id => { const p = state.players.find(x=>x.id===id); return p ? p.name : "Unknown card"; };
+  const isRecipient = trade.recipient_id===myId;
+  const isInitiator = trade.initiator_id===myId;
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <button data-action="trade-close-view" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">Trade</div>
+      <span style="width:40px"></span>
+    </div>
+    ${ui.tradeActionStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.danger}">${esc(ui.tradeActionStatus)}</div>` : ""}
+    <div class="panel" style="padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:6px;color:${COLORS.turf}">YOU GIVE</div>
+      ${sides.youGive.cardIds.map(id=>`<div style="font-size:13px;color:${COLORS.cream}">${esc(cardName(id))}</div>`).join("")}
+      ${sides.youGive.gems>0 ? `<div style="font-size:13px;color:${COLORS.gold}">${sides.youGive.gems} gems</div>` : ""}
+      ${!sides.youGive.cardIds.length && !sides.youGive.gems ? `<div style="font-size:12px;color:${COLORS.muted}">Nothing</div>` : ""}
+    </div>
+    <div class="panel" style="padding:14px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:6px;color:${COLORS.gold}">YOU GET</div>
+      ${sides.youGet.cardIds.map(id=>`<div style="font-size:13px;color:${COLORS.cream}">${esc(cardName(id))}</div>`).join("")}
+      ${sides.youGet.gems>0 ? `<div style="font-size:13px;color:${COLORS.gold}">${sides.youGet.gems} gems</div>` : ""}
+      ${!sides.youGet.cardIds.length && !sides.youGet.gems ? `<div style="font-size:12px;color:${COLORS.muted}">Nothing</div>` : ""}
+    </div>
+    <div style="font-size:12px;font-weight:800;margin-bottom:12px;color:${trade.status==="completed"?COLORS.turf:trade.status==="pending"?COLORS.gold:COLORS.danger}">${trade.status.toUpperCase()}</div>
+    ${trade.status==="pending" && isRecipient ? `
+      <div class="row" style="gap:8px">
+        <button data-action="trade-respond" data-trade-id="${trade.id}" data-decision="accept" class="btn scrimtap wfull" style="padding:12px 0;font-size:13px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Accept</button>
+        <button data-action="trade-respond" data-trade-id="${trade.id}" data-decision="decline" class="btn scrimtap wfull panel" style="padding:12px 0;font-size:13px;color:${COLORS.danger}">Decline</button>
+      </div>
+    ` : trade.status==="pending" && isInitiator ? `
+      <button data-action="trade-respond" data-trade-id="${trade.id}" data-decision="cancel" class="btn scrimtap wfull panel" style="padding:12px 0;font-size:13px;color:${COLORS.danger}">Cancel Offer</button>
+    ` : ""}
+  `;
+}
+function friendsTradesSection(){
+  const ui = state.friendsUI;
+  if(!ui.tradesLoaded) return `<div style="font-size:12px;color:${COLORS.muted}">Loading…</div>`;
+  if(!ui.trades.length) return `<div class="panel" style="padding:20px;text-align:center;font-size:13px;color:${COLORS.muted}">No trades yet.</div>`;
+  const myId = state.session.user.id;
+  return ui.trades.map(t=>{
+    const isInitiator = t.initiator_id===myId;
+    const label = t.status==="pending" ? (isInitiator?"You offered — waiting":"They offered — respond")
+      : t.status==="completed" ? "Completed" : t.status==="declined" ? "Declined" : "Cancelled";
+    const color = t.status==="pending" ? COLORS.gold : t.status==="completed" ? COLORS.turf : COLORS.muted;
+    return `
+      <div class="panel" style="padding:14px;margin-bottom:10px">
+        <div class="row between">
+          <span style="font-size:12px;font-weight:800;color:${color}">${label}</span>
+          <button data-action="trade-view" data-trade-id="${t.id}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.cyan}">View</button>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 function friendsRequestsSection(){
   const ui = state.friendsUI;
@@ -1538,7 +1635,7 @@ document.getElementById("stage").addEventListener("click", function(e){
   switch(action){
     case "nav-tab":
       state.tab = el.dataset.tab; playTap();
-      if(state.tab==="friends"){ refreshFriendsList(); refreshFriendRequests(); refreshChallenges(); }
+      if(state.tab==="friends"){ refreshFriendsList(); refreshFriendRequests(); refreshChallenges(); refreshTrades(); }
       render(); break;
     case "open-slot-picker": {
       const slot = buildSlots(pl.formationKey,"my").find(s=>s.id===el.dataset.slotId);
@@ -1610,6 +1707,27 @@ document.getElementById("stage").addEventListener("click", function(e){
       viewChallengeResult(Number(el.dataset.challengeId)); break;
     case "challenge-close-view":
       closeChallengeResult(); break;
+    case "trade-open-composer":
+      openTradeComposer(el.dataset.friendId, el.dataset.friendName); break;
+    case "trade-close-composer":
+      closeTradeComposer(); break;
+    case "trade-toggle-offer":
+      toggleTradeOffer(Number(el.dataset.playerId)); break;
+    case "trade-toggle-request":
+      toggleTradeRequest(Number(el.dataset.playerId)); break;
+    case "trade-send":
+      submitTradeOffer(); break;
+    case "trade-view":
+      viewTrade(Number(el.dataset.tradeId)); break;
+    case "trade-close-view":
+      closeTradeView(); break;
+    case "trade-respond": {
+      const tradeId = Number(el.dataset.tradeId);
+      if(el.dataset.decision==="accept") submitAcceptTrade(tradeId);
+      else if(el.dataset.decision==="decline") submitDeclineTrade(tradeId);
+      else submitCancelTrade(tradeId);
+      break;
+    }
     case "open-pack": {
       const pack = PACKS.find(p=>p.id===el.dataset.packId);
       const s = state.shop;
@@ -1712,6 +1830,7 @@ function handleFieldInput(e){
   if(field==="authConfirmPassword"){ state.authUI.confirmPassword = e.target.value; state.authUI.error=""; return; }
   if(field==="friendSearch"){ state.friendsUI.searchTerm = e.target.value; return; }
   if(field==="chatDraft"){ state.friendsUI.chat.draft = e.target.value; return; }
+  if(field==="tradeGems"){ state.friendsUI.trade.gems = Math.max(0, Number(e.target.value)||0); return; }
   if(field==="number"){ state.profile.number = Math.max(1, Math.min(99, Number(e.target.value)||1)); }
   else { state.profile[field] = e.target.value; }
   scheduleProfileSave();
