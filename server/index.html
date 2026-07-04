@@ -1360,6 +1360,15 @@ function profileView(){
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">BEST CARD</div>
     ${bestCard ? playerCard(bestCard,{mode:"index"}) : `<div style="font-size:13px;margin-bottom:16px;color:${COLORS.muted}">No cards yet.</div>`}
 
+    ${isAdmin() ? `
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin:16px 0 8px;color:${COLORS.gold}">ADMIN SHORTCUTS (your account only)</div>
+    <div class="grid3" style="margin-bottom:8px">
+      <button data-action="admin-self-gems" data-amount="100" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+100</button>
+      <button data-action="admin-self-gems" data-amount="1000" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+1,000</button>
+      <button data-action="admin-self-gems" data-amount="100000" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+100k</button>
+    </div>
+    ` : ""}
+
     <button data-action="sign-out" class="btn scrimtap wfull" style="margin-top:16px;padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.muted}">Sign Out</button>
   </div>`;
 }
@@ -1997,6 +2006,13 @@ document.getElementById("stage").addEventListener("click", function(e){
     }
     case "sign-out":
       authSignOut(); break;
+    case "admin-self-gems": {
+      if(!isAdmin()) break;
+      const amount = Number(el.dataset.amount)||0;
+      state.gems += amount; playChime(); render();
+      updateProfile({ gems: state.gems });
+      break;
+    }
     case "acknowledge-ban":
       state.justBanned = false; render(); break;
     case "friends-subtab":
