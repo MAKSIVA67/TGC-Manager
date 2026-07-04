@@ -207,3 +207,133 @@ function unsubscribeFromChat() {
 function scrollChatToBottom() {
   setTimeout(() => { const el = document.getElementById("chatScroll"); if (el) el.scrollTop = el.scrollHeight; }, 50);
 }
+
+// ---- Challenges (Phase D) ----
+
+function sendChallenge(callerId, opponentId, formation, lineupIds) {
+  return sb.from("challenges").insert({
+    challenger_id: callerId, opponent_id: opponentId,
+    challenger_formation: formation, challenger_lineup: lineupIds,
+  }).then(({ error }) => {
+    if (error && error.code === "23505") return { error: "There's already a pending challenge between you two." };
+    return { error: error ? error.message : null };
+  });
+}
+function listChallenges(callerId) {
+  return sb.from("challenges").select("*")
+    .or(`challenger_id.eq.${callerId},opponent_id.eq.${callerId}`)
+    .order("created_at", { ascending: false })
+    .then(({ data, error }) => ({ data: data || [], error: error ? error.message : null }));
+}
+function fetchChallenge(id) {
+  return sb.from("challenges").select("*").eq("id", id).single()
+    .then(({ data, error }) => ({ data, error: error ? error.message : null }));
+}
+function declineChallengeRow(challengeId) {
+  return sb.from("challenges").update({ status: "declined", resolved_at: new Date().toISOString() }).eq("id", challengeId)
+    .then(({ error }) => ({ error: error ? error.message : null }));
+}
+
+// Resolves an accepted challenge: fetch the row, resolve both lineups,
+// compute all 4 zones via the existing local match-sim (window.computeZone,
+// exposed by index.html's IIFE), aggregate via decideMatchFromZones
+// (game-data.js), and write the authoritative result back -- ALWAYS from
+// the CHALLENGER's perspective, per the schema's own convention.
+function resolveChallengeAccept(challengeId, myFormation, myLineupIds) {
+  return fetchChallenge(challengeId).then(({ data: challenge, error }) => {
+    if (error || !challenge) return { error: error || "Challenge not found." };
+    if (challenge.status !== "pending") return { error: "This challenge is no longer pending." };
+    const byId = playersById();
+    const challengerLU = resolveLineupIds(challenge.challenger_lineup, byId);
+    const opponentLU = resolveLineupIds(myLineupIds, byId);
+    const zGK = window.computeZone("GK", challengerLU, opponentLU);
+    const zDEF = window.computeZone("DEF", challengerLU, opponentLU);
+    const zMID = window.computeZone("MID", challengerLU, opponentLU);
+    const zFWD = window.computeZone("FWD", challengerLU, opponentLU);
+    const outcome = decideMatchFromZones(zGK, zDEF, zMID, zFWD);
+    const result = outcome.result === "win" ? "challenger" : outcome.result === "loss" ? "opponent" : "draw";
+    const zoneResults = { GK: zGK.result, DEF: zDEF.result, MID: zMID.result, FWD: zFWD.result };
+    return sb.from("challenges").update({
+      opponent_formation: myFormation, opponent_lineup: myLineupIds,
+      zone_results: zoneResults, result, status: "completed", resolved_at: new Date().toISOString(),
+    }).eq("id", challengeId).then(({ error: updateError }) => ({
+      error: updateError ? updateError.message : null,
+      data: { challenge, challengerLU },
+    }));
+  });
+}
+
+function flipZoneResult(r) { return r === "win" ? "lose" : r === "lose" ? "win" : "tie"; }
+// zone_results is always stored from the CHALLENGER's perspective -- flip
+// each zone (and the overall result) for the opponent's own view, so both
+// sides always see their own win/loss, never a copy of the other's.
+function viewerChallengeOutcome(challenge, viewerId) {
+  const zr = challenge.zone_results || {};
+  const isChallenger = challenge.challenger_id === viewerId;
+  const zones = {};
+  ["GK", "DEF", "MID", "FWD"].forEach(k => { zones[k] = isChallenger ? zr[k] : flipZoneResult(zr[k]); });
+  const result = isChallenger
+    ? (challenge.result === "challenger" ? "win" : challenge.result === "opponent" ? "loss" : "draw")
+    : (challenge.result === "opponent" ? "win" : challenge.result === "challenger" ? "loss" : "draw");
+  return { zones, result };
+}
+
+// ---- UI-facing wrappers ----
+
+function refreshChallenges() {
+  const uid = window.state.session.user.id;
+  return listChallenges(uid).then(({ data }) => {
+    window.state.friendsUI.challenges = data || [];
+    window.state.friendsUI.challengesLoaded = true;
+    window.render();
+  });
+}
+function submitChallengeFriend(opponentId) {
+  const uid = window.state.session.user.id;
+  const pl = window.state.play;
+  const mySlots = window.buildSlots(pl.formationKey, "my");
+  const filled = Object.values(pl.myLineup).filter(Boolean).length;
+  if (filled !== mySlots.length) {
+    window.state.friendsUI.challengeStatus = "Build a complete squad in the Play tab first.";
+    window.render();
+    return;
+  }
+  const lineupIds = lineupToIds(pl.myLineup);
+  window.state.friendsUI.challengeStatus = "Sending challenge…";
+  window.render();
+  sendChallenge(uid, opponentId, pl.formationKey, lineupIds).then(({ error }) => {
+    window.state.friendsUI.challengeStatus = error || "Challenge sent!";
+    window.render();
+    refreshChallenges();
+  });
+}
+function submitAcceptChallenge(challengeId) {
+  const pl = window.state.play;
+  const mySlots = window.buildSlots(pl.formationKey, "my");
+  const filled = Object.values(pl.myLineup).filter(Boolean).length;
+  if (filled !== mySlots.length) {
+    window.state.friendsUI.challengeStatus = "Build a complete squad in the Play tab first, then accept.";
+    window.render();
+    return;
+  }
+  const lineupIds = lineupToIds(pl.myLineup);
+  window.state.friendsUI.challengeStatus = "Loading match…";
+  window.render();
+  resolveChallengeAccept(challengeId, pl.formationKey, lineupIds).then(({ error, data }) => {
+    if (error) { window.state.friendsUI.challengeStatus = error; window.render(); return; }
+    window.state.friendsUI.challengeStatus = "";
+    refreshChallenges();
+    window.beginChallengeMatch(data.challenge, data.challengerLU);
+  });
+}
+function submitDeclineChallenge(challengeId) {
+  declineChallengeRow(challengeId).then(() => refreshChallenges());
+}
+function viewChallengeResult(challengeId) {
+  window.state.friendsUI.viewingChallengeId = challengeId;
+  window.render();
+}
+function closeChallengeResult() {
+  window.state.friendsUI.viewingChallengeId = null;
+  window.render();
+}

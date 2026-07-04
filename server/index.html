@@ -353,23 +353,6 @@ function computeZone(zoneKey, myLU, oppLU){
 const ZONES = [{key:"GK",label:"Goalkeeper"},{key:"DEF",label:"Defense"},{key:"MID",label:"Midfield"},{key:"FWD",label:"Attack"}];
 const SEASON_CLUBS = ["Ironclad FC","Blaze United","Falcon Rovers","Crimson Athletic","Storm City","Aurora Sporting"];
 
-const RARITY_CODE = {Common:"C",Uncommon:"U",Rare:"R",Epic:"E",Elite:"X",Ultra:"T",Legendary:"L",Mythic:"M",Icon:"I",GOAT:"G"};
-const RARITY_FROM_CODE = {C:"Common",U:"Uncommon",R:"Rare",E:"Epic",X:"Elite",T:"Ultra",L:"Legendary",M:"Mythic",I:"Icon",G:"GOAT"};
-function b64encode(str){ return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
-function b64decode(str){ const pad = str.length%4===0 ? "" : "=".repeat(4-(str.length%4)); const b64 = str.replace(/-/g,"+").replace(/_/g,"/")+pad; return decodeURIComponent(escape(atob(b64))); }
-function encodeChallenge(formationKey, lineup, profile){
-  const pl = Object.values(lineup).filter(Boolean).map(p=>[p.name, p.position, p.power, RARITY_CODE[p.rarity]||"C"]);
-  const payload = {v:1, f:formationKey, tn:profile.teamName||"My Team", pn:profile.name||"Player", av:profile.avatar, cl:profile.color, pl};
-  return "LXI1-"+b64encode(JSON.stringify(payload));
-}
-function decodeChallenge(code){
-  try{
-    const raw = String(code).trim().replace(/^LXI1-/,"");
-    const payload = JSON.parse(b64decode(raw));
-    if(!payload || payload.v!==1 || !Array.isArray(payload.pl) || !payload.pl.length || !FORMATIONS[payload.f]) return null;
-    return payload;
-  }catch(e){ return null; }
-}
 const WIN_LINES = ["Absolute masterclass. 🏆","They never stood a chance.","That's a statement win.","Trophy cabinet's getting crowded.","Textbook. Pure textbook."];
 const LOSS_LINES = ["Rough one. Shake it off.","They caught a break. Run it back.","Not your day — next one is.","Tough draw. Regroup and go again.","So close. Adjust your tactics and retry."];
 const DRAW_LINES = ["Honours even. Sharp margins next time.","Dead heat — adjust and go again.","A fair result out there.","Neither side could find a way through.","Stalemate. Strike first next time."];
@@ -468,8 +451,7 @@ const state = {
     phase:"building", currentHalf:1, oppSlots:[], oppLineup:null, firstHalfLineup:null,
     finalResult:null, myGoals:0, oppGoals:0, commentary:"Kick off!", matchMinute:0,
     zoneResultsLive:{}, seasonSummary:null, minuteInterval:null,
-    opponentMeta:null, isChallengeMatch:false, challengeOpen:false, challengeTab:"share",
-    pasteCode:"", pasteError:"", copyFeedback:false, ballOwnerKey:null, ballInterval:null,
+    opponentMeta:null, isChallengeMatch:false, ballOwnerKey:null, ballInterval:null,
   },
   shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0 },
   confettiOn:false,
@@ -486,6 +468,8 @@ const state = {
     // Chat (Phase C) -- a friendId set here means "chat is open", overlaying
     // whatever sub-tab was showing.
     chat: { friendId:null, friendName:"", messages:[], draft:"", loading:false },
+    // Challenges (Phase D) -- populated by lib/social.js.
+    challenges: [], challengesLoaded: false, challengeStatus: "", viewingChallengeId: null,
   },
 };
 state.prevRankName = rankForWins(state.stats.wins).name;
@@ -539,6 +523,8 @@ function render(){ document.getElementById("stage").innerHTML = appHTML(); }
 window.state = state;
 window.render = render;
 window.rankForWins = rankForWins;
+window.computeZone = computeZone;
+window.buildSlots = buildSlots;
 
 // ---------- shared bits ----------
 function railHeader(){
@@ -953,31 +939,6 @@ function playView(){
       </div>
     </div>`;
   }
-  if(pl.challengeOpen){
-    const challengeCode = isComplete ? encodeChallenge(pl.formationKey, pl.myLineup, state.profile) : "";
-    modals += `<div class="modalWrap" data-action="close-modal" data-modal="challenge">
-      <div class="modalSheet" data-action="noop">
-        <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">⚔️ Challenge a Friend</div><button data-action="close-modal" data-modal="challenge" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
-        <div class="row" style="gap:8px;margin-bottom:16px">
-          <button data-action="challenge-tab" data-tab="share" class="btn scrimtap" style="flex:1;padding:8px 0;font-size:11px;background:${pl.challengeTab==="share"?COLORS.turf:COLORS.panelLight};color:${pl.challengeTab==="share"?COLORS.bg:COLORS.muted}">SHARE MY SQUAD</button>
-          <button data-action="challenge-tab" data-tab="join" class="btn scrimtap" style="flex:1;padding:8px 0;font-size:11px;background:${pl.challengeTab==="join"?COLORS.turf:COLORS.panelLight};color:${pl.challengeTab==="join"?COLORS.bg:COLORS.muted}">ENTER A CODE</button>
-        </div>
-        ${pl.challengeTab==="share" ? (
-          isComplete ? `<div>
-            <div style="font-size:12px;margin-bottom:8px;color:${COLORS.muted}">Copy this code and send it to a friend any way you like (text, Discord, whatever). When they paste it into their own TCG Manager, their squad plays yours — real lineup vs real lineup.</div>
-            <div style="border-radius:12px;padding:12px;margin-bottom:12px;font-size:11px;word-break:break-all;font-family:monospace;background:${COLORS.panelLight};color:${COLORS.gold}">${esc(challengeCode)}</div>
-            <button data-action="copy-challenge" class="btn scrimtap wfull row center" style="gap:4px;padding:10px 0;font-size:13px;background:${COLORS.turf};color:${COLORS.bg}">${pl.copyFeedback?icon("Check",14,COLORS.bg)+" Copied!":"COPY CODE"}</button>
-          </div>` : `<div style="text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">Fill all ${mySlots.length} positions first, then come back to generate your code.</div>`
-        ) : `<div>
-          <div style="font-size:12px;margin-bottom:8px;color:${COLORS.muted}">Paste a friend's challenge code below to battle their real squad.</div>
-          <textarea data-field="pasteCode" rows="3" placeholder="Paste LXI1-... code here" style="width:100%;border-radius:12px;padding:10px;font-size:11px;outline:none;border:none;margin-bottom:8px;font-family:monospace;background:${COLORS.panelLight};color:${COLORS.cream}">${esc(pl.pasteCode)}</textarea>
-          ${pl.pasteError ? `<div style="font-size:11px;font-weight:800;margin-bottom:8px;color:${COLORS.danger}">${esc(pl.pasteError)}</div>` : ""}
-          <button data-action="join-challenge" class="btn scrimtap wfull" style="padding:10px 0;font-size:13px;background:${COLORS.gold};color:${COLORS.bg}">⚔️ BATTLE THIS SQUAD</button>
-        </div>`}
-      </div>
-    </div>`;
-  }
-
   let body = "";
   if(pl.phase==="building"){
     body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.cyan};margin-bottom:8px">Season ${state.season.number} · Matchday ${state.season.matchday}/6 vs ${currentClub()}</div>
@@ -1010,7 +971,7 @@ function playView(){
   if(pl.phase==="building"){
     body += `<div style="text-align:center;font-size:12px;color:${COLORS.muted};margin-bottom:12px">${filled}/${mySlots.length} positions filled — tap a slot to assign a player</div>
     <button data-action="kickoff" ${!isComplete?"disabled":""} class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C;opacity:${!isComplete?0.4:1}">▶️ KICK OFF</button>
-    <button data-action="open-challenge" class="btn scrimtap wfull" style="padding:10px 0;margin-top:8px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.pink};border:1px solid ${COLORS.pink}55">⚔️ CHALLENGE A FRIEND</button>`;
+    <div style="text-align:center;font-size:11px;margin-top:8px;color:${COLORS.muted}">Want to challenge a friend instead? Head to the Friends tab — this squad is what you'll battle with.</div>`;
   }
   if(pl.phase==="halftime"){
     body += `<div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">${pl.halfSubUsed?"SUBSTITUTION USED":"ONE SUBSTITUTION AVAILABLE"}</div>
@@ -1070,6 +1031,7 @@ function confettiHTML(){
 function friendsView(){
   const ui = state.friendsUI;
   if(ui.chat.friendId) return `<div class="view">${chatSection()}</div>`;
+  if(ui.viewingChallengeId) return `<div class="view">${challengeResultSection()}</div>`;
   const sub = ui.subTab;
   const tabs = [
     {key:"friends", label:"Friends"},
@@ -1089,9 +1051,24 @@ function friendsListSection(){
   const ui = state.friendsUI;
   if(!ui.friendsLoaded) return `<div style="font-size:12px;color:${COLORS.muted}">Loading…</div>`;
   if(!ui.friends.length) return `<div class="panel" style="padding:20px;text-align:center;font-size:13px;color:${COLORS.muted}">No friends yet — head to the Find tab to search for players.</div>`;
-  return ui.friends.map(f=>`
+  return (ui.challengeStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(ui.challengeStatus)}</div>` : "")
+    + ui.friends.map(f=>{
+    const myId = state.session.user.id;
+    const relevant = (ui.challenges||[]).filter(c=> (c.challenger_id===f.id && c.opponent_id===myId) || (c.challenger_id===myId && c.opponent_id===f.id));
+    const challenge = relevant[0] || null;
+    let challengeButtons;
+    if(challenge && challenge.status==="pending"){
+      challengeButtons = challenge.challenger_id===myId
+        ? `<span style="font-size:10px;font-weight:800;color:${COLORS.gold}">PENDING</span>`
+        : `<button data-action="challenge-accept" data-challenge-id="${challenge.id}" class="btn scrimtap" style="padding:6px 10px;font-size:10px;background:${COLORS.turf};color:${COLORS.bg}">Accept</button>
+           <button data-action="challenge-decline" data-challenge-id="${challenge.id}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;color:${COLORS.danger}">Decline</button>`;
+    } else {
+      challengeButtons = `<button data-action="friend-send-challenge" data-target-id="${f.id}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;color:${COLORS.pink}">⚔️ Challenge</button>`
+        + (challenge && challenge.status==="completed" ? `<button data-action="challenge-view" data-challenge-id="${challenge.id}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;color:${COLORS.cyan}">Result</button>` : "");
+    }
+    return `
     <div class="panel" style="padding:14px;margin-bottom:10px">
-      <div class="row between" style="gap:10px">
+      <div class="row between" style="gap:10px;margin-bottom:8px">
         <div class="row" style="gap:10px">
           <div class="avatarCircle" style="width:40px;height:40px;font-size:18px;background:${COLORS.panelLight}">${esc(f.avatar||"⚽")}</div>
           <div>
@@ -1101,8 +1078,9 @@ function friendsListSection(){
         </div>
         <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat</button>
       </div>
+      <div class="row" style="gap:6px;justify-content:flex-end">${challengeButtons}</div>
     </div>
-  `).join("");
+  `;}).join("");
 }
 function chatSection(){
   const chat = state.friendsUI.chat;
@@ -1124,6 +1102,31 @@ function chatSection(){
     <div class="row" style="gap:8px">
       <input data-field="chatDraft" value="${esc(chat.draft)}" placeholder="Message…" maxlength="500" style="flex:1;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
       <button data-action="chat-send" class="btn scrimtap" style="padding:10px 16px;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Send</button>
+    </div>
+  `;
+}
+function challengeResultSection(){
+  const ui = state.friendsUI;
+  const challenge = (ui.challenges||[]).find(c=>c.id===ui.viewingChallengeId);
+  const backBtn = `<button data-action="challenge-close-view" class="btn scrimtap" style="margin-top:12px;padding:10px 16px;font-size:12px;background:${COLORS.panel};color:${COLORS.cream}">Back</button>`;
+  if(!challenge) return `<div style="font-size:12px;color:${COLORS.muted}">Challenge not found.</div>${backBtn}`;
+  const myId = state.session.user.id;
+  const outcome = viewerChallengeOutcome(challenge, myId);
+  const won = outcome.result==="win", isDraw = outcome.result==="draw";
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <button data-action="challenge-close-view" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">Challenge Result</div>
+      <span style="width:40px"></span>
+    </div>
+    <div style="border-radius:16px;padding:20px;margin-bottom:16px;text-align:center;background:${won?COLORS.turf+"22":isDraw?COLORS.cyan+"22":COLORS.danger+"22"};border:2px solid ${won?COLORS.turf:isDraw?COLORS.cyan:COLORS.danger}">
+      <div style="font-size:22px;font-weight:900;color:${won?COLORS.turf:isDraw?COLORS.cyan:COLORS.danger}">${won?"VICTORY! 🎉":isDraw?"DRAW":"DEFEAT"}</div>
+    </div>
+    <div class="grid2">
+      ${ZONES.map(z=>`<div class="row between panel" style="padding:8px 10px;border:1px solid ${outcome.zones[z.key]==="win"?COLORS.turf:outcome.zones[z.key]==="lose"?COLORS.danger:COLORS.muted}">
+        <span style="font-size:12px;font-weight:800;color:${COLORS.cream}">${z.label}</span>
+        <span style="font-size:12px;font-weight:900;color:${outcome.zones[z.key]==="win"?COLORS.turf:outcome.zones[z.key]==="lose"?COLORS.danger:COLORS.muted}">${outcome.zones[z.key]==="win"?"WON":outcome.zones[z.key]==="lose"?"LOST":"TIE"}</span>
+      </div>`).join("")}
     </div>
   `;
 }
@@ -1430,20 +1433,26 @@ function kickOff(){
   pl.opponentMeta = null; pl.isChallengeMatch = false;
   beginMatch(newOppSlots, opp, `vs ${currentClub()}`);
 }
-function startChallengeMatch(payload){
+// Phase D: real challenge acceptance. Called from lib/social.js once
+// resolveChallengeAccept() has already written the authoritative result to
+// the challenges row -- this just drives the SAME local beginMatch() ticker
+// AI matches use, with the challenger's real lineup as the opponent.
+// computeZone() re-derives the same result live since it's a pure function
+// of the two already-fixed lineups, so there's no risk of the live reveal
+// disagreeing with what was just written to the DB.
+function beginChallengeMatch(challengeRow, challengerLineup){
   const pl = state.play;
-  const newOppSlots = buildSlots(payload.f,"opp");
-  const byPos = {};
-  payload.pl.forEach(([name, position, power, rc], i)=>{
-    (byPos[position] = byPos[position] || []).push({ id:`chal-${i}-${position}-${power}`, name, position, power, rarity: RARITY_FROM_CODE[rc]||"Common", owned:true });
-  });
+  const friend = state.friendsUI.friends.find(f=>f.id===challengeRow.challenger_id);
+  const newOppSlots = buildSlots(challengeRow.challenger_formation,"opp");
   const opp = {};
-  newOppSlots.forEach(slot=>{ const pool = byPos[slot.position]||[]; opp[slot.id] = pool.shift() || null; });
-  pl.opponentMeta = { teamName: payload.tn, profileName: payload.pn, avatar: payload.av, color: payload.cl };
+  newOppSlots.forEach(slot=>{ opp[slot.id] = challengerLineup[slot.id] || null; });
+  pl.opponentMeta = { teamName: (friend&&friend.team_name)||"Rival Squad", profileName: (friend&&friend.display_name)||"Friend", avatar: (friend&&friend.avatar)||"⚔️", color: COLORS.pink };
   pl.isChallengeMatch = true;
-  pl.challengeOpen = false;
-  beginMatch(newOppSlots, opp, `vs ${payload.pn}'s ${payload.tn}`);
+  state.tab = "play";
+  render();
+  beginMatch(newOppSlots, opp, `vs ${(friend&&friend.display_name)||"a friend"}'s squad`);
 }
+window.beginChallengeMatch = beginChallengeMatch;
 function continueSecondHalf(){
   const pl = state.play;
   const secondHalfLineup = {...pl.myLineup};
@@ -1529,14 +1538,14 @@ document.getElementById("stage").addEventListener("click", function(e){
   switch(action){
     case "nav-tab":
       state.tab = el.dataset.tab; playTap();
-      if(state.tab==="friends"){ refreshFriendsList(); refreshFriendRequests(); }
+      if(state.tab==="friends"){ refreshFriendsList(); refreshFriendRequests(); refreshChallenges(); }
       render(); break;
     case "open-slot-picker": {
       const slot = buildSlots(pl.formationKey,"my").find(s=>s.id===el.dataset.slotId);
       pl.activeSlot = slot; render(); break;
     }
     case "close-modal":
-      if(el.dataset.modal==="active") pl.activeSlot=null; else if(el.dataset.modal==="sub") pl.subSlot=null; else if(el.dataset.modal==="news") state.newsOpen=false; else if(el.dataset.modal==="challenge") pl.challengeOpen=false;
+      if(el.dataset.modal==="active") pl.activeSlot=null; else if(el.dataset.modal==="sub") pl.subSlot=null; else if(el.dataset.modal==="news") state.newsOpen=false;
       render(); break;
     case "open-news":
       state.newsOpen = true; render(); break;
@@ -1591,30 +1600,16 @@ document.getElementById("stage").addEventListener("click", function(e){
       state.confettiOn=false;
       state.play = {...pl, activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false};
       render(); break;
-    case "open-challenge":
-      pl.challengeOpen = true; pl.challengeTab = "share"; pl.pasteError=""; render(); break;
-    case "challenge-tab":
-      pl.challengeTab = el.dataset.tab; render(); break;
-    case "copy-challenge": {
-      const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
-      const mySlots = buildSlots(pl.formationKey,"my");
-      const filled = Object.values(pl.myLineup).filter(Boolean).length;
-      if(filled !== mySlots.length) break;
-      const code = encodeChallenge(pl.formationKey, pl.myLineup, state.profile);
-      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(code).catch(()=>{}); }
-      playTap(); pl.copyFeedback = true; render();
-      setTimeout(()=>{ pl.copyFeedback=false; render(); }, 1800);
-      break;
-    }
-    case "join-challenge": {
-      const mySlots = buildSlots(pl.formationKey,"my");
-      const filled = Object.values(pl.myLineup).filter(Boolean).length;
-      if(filled !== mySlots.length){ pl.pasteError = `Fill all ${mySlots.length} of your own positions before battling.`; render(); break; }
-      const payload = decodeChallenge(pl.pasteCode);
-      if(!payload){ pl.pasteError = "That code doesn't look right — double-check and try again."; render(); break; }
-      startChallengeMatch(payload);
-      break;
-    }
+    case "friend-send-challenge":
+      submitChallengeFriend(el.dataset.targetId); break;
+    case "challenge-accept":
+      submitAcceptChallenge(Number(el.dataset.challengeId)); break;
+    case "challenge-decline":
+      submitDeclineChallenge(Number(el.dataset.challengeId)); break;
+    case "challenge-view":
+      viewChallengeResult(Number(el.dataset.challengeId)); break;
+    case "challenge-close-view":
+      closeChallengeResult(); break;
     case "open-pack": {
       const pack = PACKS.find(p=>p.id===el.dataset.packId);
       const s = state.shop;
@@ -1712,7 +1707,6 @@ document.getElementById("stage").addEventListener("click", function(e){
 function handleFieldInput(e){
   const field = e.target.dataset.field;
   if(!field) return;
-  if(field==="pasteCode"){ state.play.pasteCode = e.target.value; state.play.pasteError=""; return; }
   if(field==="authEmail"){ state.authUI.email = e.target.value; state.authUI.error=""; return; }
   if(field==="authPassword"){ state.authUI.password = e.target.value; state.authUI.error=""; return; }
   if(field==="authConfirmPassword"){ state.authUI.confirmPassword = e.target.value; state.authUI.error=""; return; }
