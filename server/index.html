@@ -1,0 +1,1677 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#080F1A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>TCG Manager — Preview</title>
+<style>
+@font-face{
+  font-family:'Teko';
+  src:url('data:font/woff2;base64,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') format('woff2');
+  font-weight:500 700;
+  font-style:normal;
+  font-display:swap;
+}
+:root{
+  --bg:#080F1A;--bg2:#0D1826;--panel:#132234;--panelLight:#1C3348;
+  --turf:#2FD180;--pitch:#0F2A1C;--pitchLine:#2E6B47;--pitchLine2:#14351f;--gold:#FFB020;
+  --pink:#E14F8A;--cyan:#2FB6D9;--purple:#8B7FE8;--cream:#F3F6FA;--muted:#6C84A3;--danger:#FB5A5A;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overscroll-behavior-y:contain}
+body{background:var(--bg);color:var(--cream);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0}
+#stage{max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;background:var(--bg);position:relative;overflow-x:hidden;
+  background-image:radial-gradient(circle at 12% 0%, #FFB0201f, transparent 38%), radial-gradient(circle at 88% 4%, #2FB6D91a, transparent 40%);}
+button{font-family:inherit;cursor:pointer;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+input,textarea{font-family:inherit;font-size:16px}
+.display{font-family:'Teko',system-ui,sans-serif;font-weight:700;letter-spacing:0.02em}
+.row{display:flex;align-items:center}
+.col{display:flex;flex-direction:column}
+.between{justify-content:space-between}
+.center{justify-content:center}
+.wrap{flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.wfull{width:100%}
+.muted{color:var(--muted)}
+.panel{background:var(--panel);border:1px solid var(--panelLight);border-radius:16px}
+.btn{border:none;border-radius:12px;font-weight:800}
+.scrimtap{transition:transform .12s ease}
+.scrimtap:active{transform:scale(0.95)}
+.tabbar{position:sticky;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--panelLight);z-index:20;padding-bottom:env(safe-area-inset-bottom)}
+.tabbtn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;background:transparent}
+.hdr{padding:calc(18px + env(safe-area-inset-top)) 16px 12px;border-bottom:1px solid var(--panelLight);position:sticky;top:0;background:var(--bg);z-index:15}
+.pill{display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:12px;background:var(--panel)}
+.view{padding:14px 16px calc(100px + env(safe-area-inset-bottom))}
+.cardTile{position:relative;border-radius:16px;padding:12px 12px 12px 16px;text-align:left;width:100%;background:var(--panel);border-top:1px solid var(--panelLight);border-right:1px solid var(--panelLight);border-bottom:1px solid var(--panelLight);}
+.badge{font-size:9px;font-weight:800;letter-spacing:.08em;padding:2px 8px;border-radius:999px}
+.avatarCircle{display:flex;align-items:center;justify-content:center;border-radius:999px}
+.modalWrap{position:fixed;inset:0;z-index:40;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.6)}
+.modalSheet{width:100%;max-width:480px;border-radius:24px 24px 0 0;padding:16px calc(16px) calc(16px + env(safe-area-inset-bottom));max-height:72vh;max-height:72dvh;overflow-y:auto;background:var(--panel)}
+.overlayFull{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 24px}
+@keyframes confettiFall{to{transform:translateY(105vh) rotate(360deg);opacity:.4}}
+@keyframes popIn{0%{transform:scale(.85);opacity:0}60%{transform:scale(1.04);opacity:1}100%{transform:scale(1)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+@keyframes floatBounce{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-10px) rotate(3deg)}}
+@keyframes twinkle{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
+@keyframes spinRays{to{transform:rotate(360deg)}}
+@keyframes shineSweep{0%{transform:translateX(-150%)}60%{transform:translateX(150%)}100%{transform:translateX(150%)}}
+@keyframes riseIn{0%{transform:translateY(120px) scale(.55);opacity:0}70%{transform:translateY(-10px) scale(1.05);opacity:1}100%{transform:translateY(0) scale(1)}}
+@keyframes pulseLive{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes wanderA{0%{transform:translate(0,0)}25%{transform:translate(4px,-3px)}50%{transform:translate(-3px,3px)}75%{transform:translate(3px,4px)}100%{transform:translate(0,0)}}
+@keyframes wanderB{0%{transform:translate(0,0)}30%{transform:translate(-4px,3px)}60%{transform:translate(4px,-4px)}100%{transform:translate(0,0)}}
+@keyframes wanderC{0%{transform:translate(0,0)}40%{transform:translate(3px,3px)}70%{transform:translate(-4px,-2px)}100%{transform:translate(0,0)}}
+@keyframes wanderD{0%{transform:translate(0,0)}35%{transform:translate(-3px,-4px)}65%{transform:translate(4px,3px)}100%{transform:translate(0,0)}}
+.confettiPiece{position:absolute;top:-20px;pointer-events:none}
+</style>
+
+<div id="stage"></div>
+
+<script>
+(function(){
+"use strict";
+const COLORS = { bg:"#080F1A", panel:"#132234", panelLight:"#1C3348", turf:"#2FD180", pitch:"#0F2A1C",
+  pitchLine:"#2E6B47", gold:"#FFB020", pink:"#E14F8A", cyan:"#2FB6D9", purple:"#8B7FE8", cream:"#F3F6FA",
+  muted:"#6C84A3", danger:"#FB5A5A" };
+const RARITY = {
+  Common:{color:"#9AA5B1",label:"COMMON"}, Uncommon:{color:"#4ADE80",label:"UNCOMMON"},
+  Rare:{color:"#2FD180",label:"RARE"}, Epic:{color:"#2FB6D9",label:"EPIC"},
+  Elite:{color:"#3B82F6",label:"ELITE"}, Ultra:{color:"#8B7FE8",label:"ULTRA"},
+  Legendary:{color:"#FFB020",label:"LEGENDARY"}, Mythic:{color:"#F97316",label:"MYTHIC"},
+  Icon:{color:"#E14F8A",label:"ICON"}, GOAT:{color:"#FFD700",label:"GOAT"},
+};
+const RARITY_ORDER = ["Common","Uncommon","Rare","Epic","Elite","Ultra","Legendary","Mythic","Icon","GOAT"];
+function tierRank(r){ return RARITY_ORDER.indexOf(r); }
+function isTopTier(r){ return tierRank(r) >= tierRank("Legendary"); }
+function isHighTier(r){ return tierRank(r) >= tierRank("Epic"); }
+const STARTER_PLAYERS = [
+  {id:1,name:"K. Fenwick",position:"FWD",power:78,rarity:"Rare",owned:true},
+  {id:2,name:"R. Adeyemi",position:"MID",power:71,rarity:"Common",owned:true},
+  {id:3,name:"D. Falcone",position:"DEF",power:69,rarity:"Common",owned:true},
+  {id:4,name:"M. Storm",position:"FWD",power:88,rarity:"Epic",owned:true},
+  {id:5,name:"T. Vasquez",position:"GK",power:74,rarity:"Rare",owned:true},
+  {id:6,name:"L. Okafor",position:"MID",power:65,rarity:"Common",owned:true},
+  {id:7,name:"N. Petrov",position:"DEF",power:95,rarity:"Legendary",owned:false},
+  {id:8,name:"A. Sundberg",position:"FWD",power:91,rarity:"Epic",owned:false},
+  {id:9,name:"J. Marchetti",position:"MID",power:83,rarity:"Rare",owned:false},
+  {id:10,name:"C. Duarte",position:"GK",power:97,rarity:"Legendary",owned:false},
+  {id:11,name:"H. Ibrahim",position:"FWD",power:73,rarity:"Rare",owned:false},
+  {id:12,name:"P. Kowalski",position:"DEF",power:60,rarity:"Common",owned:true},
+  {id:100,name:"R. Whitfield",position:"MID",power:66,rarity:"Common",owned:true},
+  {id:101,name:"S. Nakamura",position:"MID",power:72,rarity:"Rare",owned:true},
+  {id:102,name:"T. Okonkwo",position:"DEF",power:70,rarity:"Common",owned:true},
+  {id:13,name:"S. Odongo",position:"MID",power:85,rarity:"Epic",owned:false},
+  {id:14,name:"V. Laurent",position:"GK",power:66,rarity:"Common",owned:false},
+  {id:15,name:"B. Kessler",position:"FWD",power:99,rarity:"Legendary",owned:false},
+  {id:16,name:"O. Renard",position:"MID",power:76,rarity:"Rare",owned:false},
+  {id:17,name:"L. Messi",position:"FWD",power:98,rarity:"Legendary",owned:false},
+  {id:18,name:"K. Mbappé",position:"FWD",power:99,rarity:"Legendary",owned:false},
+  {id:19,name:"C. Ronaldo",position:"FWD",power:96,rarity:"Legendary",owned:false},
+  {id:20,name:"E. Haaland",position:"FWD",power:97,rarity:"Legendary",owned:false},
+  {id:21,name:"Vinícius Jr",position:"FWD",power:93,rarity:"Epic",owned:false},
+  {id:22,name:"J. Bellingham",position:"MID",power:92,rarity:"Epic",owned:false},
+  {id:23,name:"L. Yamal",position:"FWD",power:90,rarity:"Epic",owned:false},
+  {id:24,name:"L. Modrić",position:"MID",power:82,rarity:"Rare",owned:false},
+  {id:25,name:"M. Salah",position:"FWD",power:88,rarity:"Epic",owned:false},
+  {id:26,name:"H. Kane",position:"FWD",power:87,rarity:"Epic",owned:false},
+  {id:27,name:"World XI Captain",position:"FWD",power:100,rarity:"Legendary",owned:false,exclusive:true,priceEUR:5},
+  {id:28,name:"Golden Boot Star",position:"MID",power:100,rarity:"Legendary",owned:false,exclusive:true,priceEUR:5},
+  {id:29,name:"Iron Wall Elite",position:"DEF",power:100,rarity:"Legendary",owned:false,exclusive:true,priceEUR:5},
+  {id:30,name:"Alisson Becker",position:"GK",power:91,rarity:"Legendary",owned:false},
+  {id:31,name:"Thibaut Courtois",position:"GK",power:90,rarity:"Epic",owned:false},
+  {id:32,name:"Marc-André ter Stegen",position:"GK",power:88,rarity:"Epic",owned:false},
+  {id:33,name:"Ederson",position:"GK",power:87,rarity:"Epic",owned:false},
+  {id:34,name:"Jan Oblak",position:"GK",power:89,rarity:"Epic",owned:false},
+  {id:35,name:"Gianluigi Donnarumma",position:"GK",power:87,rarity:"Epic",owned:false},
+  {id:36,name:"Emiliano Martínez",position:"GK",power:86,rarity:"Epic",owned:false},
+  {id:37,name:"Yassine Bounou",position:"GK",power:82,rarity:"Rare",owned:false},
+  {id:38,name:"Manuel Neuer",position:"GK",power:85,rarity:"Epic",owned:false},
+  {id:39,name:"Mike Maignan",position:"GK",power:86,rarity:"Epic",owned:false},
+  {id:40,name:"Virgil van Dijk",position:"DEF",power:90,rarity:"Legendary",owned:false},
+  {id:41,name:"Rúben Dias",position:"DEF",power:89,rarity:"Epic",owned:false},
+  {id:42,name:"William Saliba",position:"DEF",power:86,rarity:"Epic",owned:false},
+  {id:43,name:"Antonio Rüdiger",position:"DEF",power:87,rarity:"Epic",owned:false},
+  {id:44,name:"Kim Min-jae",position:"DEF",power:85,rarity:"Epic",owned:false},
+  {id:45,name:"Marquinhos",position:"DEF",power:86,rarity:"Epic",owned:false},
+  {id:46,name:"Achraf Hakimi",position:"DEF",power:87,rarity:"Epic",owned:false},
+  {id:47,name:"Trent Alexander-Arnold",position:"DEF",power:88,rarity:"Epic",owned:false},
+  {id:48,name:"Alphonso Davies",position:"DEF",power:85,rarity:"Epic",owned:false},
+  {id:49,name:"Theo Hernández",position:"DEF",power:86,rarity:"Epic",owned:false},
+  {id:50,name:"Josko Gvardiol",position:"DEF",power:84,rarity:"Rare",owned:false},
+  {id:51,name:"Éder Militão",position:"DEF",power:85,rarity:"Epic",owned:false},
+  {id:52,name:"David Alaba",position:"DEF",power:84,rarity:"Rare",owned:false},
+  {id:53,name:"Kyle Walker",position:"DEF",power:83,rarity:"Rare",owned:false},
+  {id:54,name:"Dani Carvajal",position:"DEF",power:84,rarity:"Rare",owned:false},
+  {id:55,name:"Jules Koundé",position:"DEF",power:83,rarity:"Rare",owned:false},
+  {id:56,name:"Sergio Ramos",position:"DEF",power:85,rarity:"Epic",owned:false},
+  {id:57,name:"Thiago Silva",position:"DEF",power:83,rarity:"Rare",owned:false},
+  {id:58,name:"Kevin De Bruyne",position:"MID",power:91,rarity:"Legendary",owned:false},
+  {id:59,name:"Rodri",position:"MID",power:90,rarity:"Legendary",owned:false},
+  {id:60,name:"Toni Kroos",position:"MID",power:88,rarity:"Epic",owned:false},
+  {id:61,name:"Casemiro",position:"MID",power:86,rarity:"Epic",owned:false},
+  {id:62,name:"Frenkie de Jong",position:"MID",power:87,rarity:"Epic",owned:false},
+  {id:63,name:"Pedri",position:"MID",power:87,rarity:"Epic",owned:false},
+  {id:64,name:"Gavi",position:"MID",power:84,rarity:"Rare",owned:false},
+  {id:65,name:"Bruno Fernandes",position:"MID",power:88,rarity:"Epic",owned:false},
+  {id:66,name:"İlkay Gündoğan",position:"MID",power:86,rarity:"Epic",owned:false},
+  {id:67,name:"Federico Valverde",position:"MID",power:87,rarity:"Epic",owned:false},
+  {id:68,name:"Martin Ødegaard",position:"MID",power:87,rarity:"Epic",owned:false},
+  {id:69,name:"N'Golo Kanté",position:"MID",power:85,rarity:"Epic",owned:false},
+  {id:70,name:"Declan Rice",position:"MID",power:85,rarity:"Epic",owned:false},
+  {id:71,name:"Joshua Kimmich",position:"MID",power:88,rarity:"Epic",owned:false},
+  {id:72,name:"Marco Verratti",position:"MID",power:84,rarity:"Rare",owned:false},
+  {id:73,name:"Jorginho",position:"MID",power:82,rarity:"Rare",owned:false},
+  {id:74,name:"Aurélien Tchouaméni",position:"MID",power:83,rarity:"Rare",owned:false},
+  {id:75,name:"Enzo Fernández",position:"MID",power:83,rarity:"Rare",owned:false},
+  {id:76,name:"Neymar Jr",position:"FWD",power:89,rarity:"Epic",owned:false},
+  {id:77,name:"Robert Lewandowski",position:"FWD",power:91,rarity:"Legendary",owned:false},
+  {id:78,name:"Karim Benzema",position:"FWD",power:89,rarity:"Epic",owned:false},
+  {id:79,name:"Antoine Griezmann",position:"FWD",power:88,rarity:"Epic",owned:false},
+  {id:80,name:"Son Heung-min",position:"FWD",power:88,rarity:"Epic",owned:false},
+  {id:81,name:"Rafael Leão",position:"FWD",power:86,rarity:"Epic",owned:false},
+  {id:82,name:"Victor Osimhen",position:"FWD",power:88,rarity:"Epic",owned:false},
+  {id:83,name:"Marcus Rashford",position:"FWD",power:85,rarity:"Epic",owned:false},
+  {id:84,name:"Phil Foden",position:"FWD",power:87,rarity:"Epic",owned:false},
+  {id:85,name:"Bukayo Saka",position:"FWD",power:87,rarity:"Epic",owned:false},
+  {id:86,name:"Ousmane Dembélé",position:"FWD",power:85,rarity:"Epic",owned:false},
+  {id:87,name:"Federico Chiesa",position:"FWD",power:83,rarity:"Rare",owned:false},
+  {id:88,name:"Julián Álvarez",position:"FWD",power:85,rarity:"Epic",owned:false},
+  {id:89,name:"Cole Palmer",position:"FWD",power:84,rarity:"Rare",owned:false},
+  {id:90,name:"Gabriel Jesus",position:"FWD",power:83,rarity:"Rare",owned:false},
+  {id:91,name:"Darwin Núñez",position:"FWD",power:83,rarity:"Rare",owned:false},
+  {id:92,name:"Khvicha Kvaratskhelia",position:"FWD",power:87,rarity:"Epic",owned:false},
+  {id:93,name:"Jamal Musiala",position:"FWD",power:87,rarity:"Epic",owned:false},
+  {id:94,name:"Serhou Guirassy",position:"FWD",power:81,rarity:"Rare",owned:false},
+  {id:95,name:"Alexander Isak",position:"FWD",power:84,rarity:"Rare",owned:false},
+  {id:96,name:"Dušan Vlahović",position:"FWD",power:84,rarity:"Rare",owned:false},
+  {id:97,name:"Randal Kolo Muani",position:"FWD",power:82,rarity:"Rare",owned:false},
+  {id:98,name:"Rodrygo",position:"FWD",power:85,rarity:"Epic",owned:false},
+  {id:99,name:"Ángel Di María",position:"FWD",power:83,rarity:"Rare",owned:false},
+  {id:104,name:"Pelé",position:"FWD",power:100,rarity:"GOAT",owned:false},
+  {id:105,name:"Diego Maradona",position:"MID",power:100,rarity:"GOAT",owned:false},
+  {id:106,name:"Johan Cruyff",position:"FWD",power:98,rarity:"GOAT",owned:false},
+  {id:107,name:"Franz Beckenbauer",position:"DEF",power:97,rarity:"GOAT",owned:false},
+  {id:108,name:"Zinedine Zidane",position:"MID",power:98,rarity:"GOAT",owned:false},
+  {id:109,name:"Ronaldinho",position:"MID",power:97,rarity:"GOAT",owned:false},
+  {id:110,name:"Ronaldo Nazário",position:"FWD",power:98,rarity:"GOAT",owned:false},
+  {id:111,name:"Marta",position:"FWD",power:97,rarity:"GOAT",owned:false},
+  {id:112,name:"Thierry Henry",position:"FWD",power:95,rarity:"Icon",owned:false},
+  {id:113,name:"David Beckham",position:"MID",power:92,rarity:"Icon",owned:false},
+  {id:114,name:"Paolo Maldini",position:"DEF",power:96,rarity:"Icon",owned:false},
+  {id:115,name:"Xavi Hernández",position:"MID",power:94,rarity:"Icon",owned:false},
+  {id:116,name:"Andrés Iniesta",position:"MID",power:95,rarity:"Icon",owned:false},
+  {id:117,name:"Iker Casillas",position:"GK",power:93,rarity:"Icon",owned:false},
+  {id:118,name:"Gianluigi Buffon",position:"GK",power:95,rarity:"Icon",owned:false},
+  {id:119,name:"Roberto Carlos",position:"DEF",power:92,rarity:"Icon",owned:false},
+  {id:120,name:"Cafu",position:"DEF",power:92,rarity:"Icon",owned:false},
+  {id:121,name:"George Best",position:"FWD",power:93,rarity:"Icon",owned:false},
+  {id:122,name:"Michel Platini",position:"MID",power:94,rarity:"Icon",owned:false},
+  {id:123,name:"Marco van Basten",position:"FWD",power:95,rarity:"Icon",owned:false},
+  {id:124,name:"Alfredo Di Stéfano",position:"FWD",power:96,rarity:"Icon",owned:false},
+  {id:125,name:"Garrincha",position:"FWD",power:93,rarity:"Icon",owned:false},
+  {id:126,name:"Eusébio",position:"FWD",power:94,rarity:"Icon",owned:false},
+  {id:127,name:"Bobby Moore",position:"DEF",power:91,rarity:"Icon",owned:false},
+  {id:128,name:"Franco Baresi",position:"DEF",power:93,rarity:"Icon",owned:false},
+  {id:129,name:"Fabio Cannavaro",position:"DEF",power:92,rarity:"Icon",owned:false},
+  {id:130,name:"Andrea Pirlo",position:"MID",power:92,rarity:"Icon",owned:false},
+  {id:131,name:"Didier Drogba",position:"FWD",power:91,rarity:"Icon",owned:false},
+  {id:132,name:"Samuel Eto'o",position:"FWD",power:92,rarity:"Icon",owned:false},
+  {id:133,name:"Luís Figo",position:"MID",power:91,rarity:"Icon",owned:false},
+  {id:134,name:"Kaká",position:"MID",power:92,rarity:"Icon",owned:false},
+  {id:135,name:"Alexia Putellas",position:"MID",power:94,rarity:"Icon",owned:false},
+  {id:136,name:"Aitana Bonmatí",position:"MID",power:93,rarity:"Icon",owned:false},
+  {id:137,name:"Steven Gerrard",position:"MID",power:90,rarity:"Mythic",owned:false},
+  {id:138,name:"Frank Lampard",position:"MID",power:89,rarity:"Mythic",owned:false},
+  {id:139,name:"Wayne Rooney",position:"FWD",power:90,rarity:"Mythic",owned:false},
+  {id:140,name:"Ryan Giggs",position:"MID",power:88,rarity:"Mythic",owned:false},
+  {id:141,name:"Eric Cantona",position:"FWD",power:89,rarity:"Mythic",owned:false},
+  {id:142,name:"Raúl González",position:"FWD",power:90,rarity:"Mythic",owned:false},
+  {id:143,name:"Carles Puyol",position:"DEF",power:88,rarity:"Mythic",owned:false},
+  {id:144,name:"Gerard Piqué",position:"DEF",power:87,rarity:"Mythic",owned:false},
+  {id:145,name:"Sergio Agüero",position:"FWD",power:91,rarity:"Mythic",owned:false},
+  {id:146,name:"Radamel Falcao",position:"FWD",power:87,rarity:"Mythic",owned:false},
+  {id:147,name:"James Rodríguez",position:"MID",power:87,rarity:"Mythic",owned:false},
+  {id:148,name:"Zico",position:"MID",power:90,rarity:"Mythic",owned:false},
+  {id:149,name:"Sócrates",position:"MID",power:88,rarity:"Mythic",owned:false},
+  {id:150,name:"Alex Morgan",position:"FWD",power:89,rarity:"Mythic",owned:false},
+  {id:151,name:"Sam Kerr",position:"FWD",power:90,rarity:"Mythic",owned:false},
+  {id:152,name:"Megan Rapinoe",position:"FWD",power:87,rarity:"Mythic",owned:false},
+  {id:153,name:"Ada Hegerberg",position:"FWD",power:89,rarity:"Mythic",owned:false},
+  {id:154,name:"Wendie Renard",position:"DEF",power:88,rarity:"Mythic",owned:false},
+  {id:155,name:"Lucy Bronze",position:"DEF",power:89,rarity:"Mythic",owned:false},
+  {id:156,name:"Lautaro Martínez",position:"FWD",power:87,rarity:"Ultra",owned:false},
+  {id:157,name:"Nicolò Barella",position:"MID",power:86,rarity:"Ultra",owned:false},
+  {id:158,name:"Federico Dimarco",position:"DEF",power:84,rarity:"Elite",owned:false},
+  {id:159,name:"Christian Pulisic",position:"MID",power:83,rarity:"Elite",owned:false},
+  {id:160,name:"Paulo Dybala",position:"FWD",power:85,rarity:"Ultra",owned:false},
+  {id:161,name:"Domenico Berardi",position:"FWD",power:82,rarity:"Elite",owned:false},
+  {id:162,name:"Sandro Tonali",position:"MID",power:83,rarity:"Elite",owned:false},
+  {id:163,name:"Davide Frattesi",position:"MID",power:81,rarity:"Rare",owned:false},
+  {id:164,name:"Warren Zaïre-Emery",position:"MID",power:80,rarity:"Rare",owned:false},
+  {id:165,name:"Bradley Barcola",position:"FWD",power:81,rarity:"Rare",owned:false},
+  {id:166,name:"Vitinha",position:"MID",power:83,rarity:"Elite",owned:false},
+  {id:167,name:"Manuel Ugarte",position:"MID",power:81,rarity:"Rare",owned:false},
+  {id:168,name:"Gonçalo Ramos",position:"FWD",power:82,rarity:"Elite",owned:false},
+  {id:169,name:"Florian Wirtz",position:"MID",power:87,rarity:"Ultra",owned:false},
+  {id:170,name:"Kai Havertz",position:"FWD",power:85,rarity:"Ultra",owned:false},
+  {id:171,name:"Leroy Sané",position:"FWD",power:86,rarity:"Ultra",owned:false},
+  {id:172,name:"Serge Gnabry",position:"FWD",power:84,rarity:"Elite",owned:false},
+  {id:173,name:"Thomas Müller",position:"FWD",power:85,rarity:"Ultra",owned:false},
+  {id:174,name:"Leon Goretzka",position:"MID",power:84,rarity:"Elite",owned:false},
+  {id:175,name:"Niclas Füllkrug",position:"FWD",power:82,rarity:"Elite",owned:false},
+  {id:176,name:"Takefusa Kubo",position:"FWD",power:82,rarity:"Elite",owned:false},
+  {id:177,name:"Ritsu Doan",position:"FWD",power:80,rarity:"Rare",owned:false},
+  {id:178,name:"Wataru Endo",position:"MID",power:79,rarity:"Rare",owned:false},
+  {id:179,name:"Hwang Hee-chan",position:"FWD",power:81,rarity:"Rare",owned:false},
+  {id:180,name:"Jonathan David",position:"FWD",power:83,rarity:"Elite",owned:false},
+  {id:181,name:"Cyle Larin",position:"FWD",power:76,rarity:"Rare",owned:false},
+  {id:182,name:"Weston McKennie",position:"MID",power:80,rarity:"Rare",owned:false},
+  {id:183,name:"Folarin Balogun",position:"FWD",power:79,rarity:"Rare",owned:false},
+  {id:184,name:"Sadio Mané",position:"FWD",power:87,rarity:"Ultra",owned:false},
+  {id:185,name:"Hakim Ziyech",position:"MID",power:82,rarity:"Elite",owned:false},
+  {id:186,name:"Youssef En-Nesyri",position:"FWD",power:81,rarity:"Rare",owned:false},
+  {id:187,name:"Sofyan Amrabat",position:"MID",power:80,rarity:"Rare",owned:false},
+  {id:188,name:"Thomas Partey",position:"MID",power:83,rarity:"Elite",owned:false},
+  {id:189,name:"André Onana",position:"GK",power:84,rarity:"Elite",owned:false},
+  {id:190,name:"Édouard Mendy",position:"GK",power:83,rarity:"Elite",owned:false},
+  {id:191,name:"Nico Williams",position:"FWD",power:84,rarity:"Elite",owned:false},
+  {id:192,name:"Iñaki Williams",position:"FWD",power:82,rarity:"Elite",owned:false},
+  {id:193,name:"Mikel Oyarzabal",position:"FWD",power:83,rarity:"Elite",owned:false},
+  {id:194,name:"Álvaro Morata",position:"FWD",power:82,rarity:"Elite",owned:false},
+  {id:195,name:"Marco Asensio",position:"FWD",power:81,rarity:"Rare",owned:false},
+  {id:196,name:"Dani Olmo",position:"MID",power:84,rarity:"Elite",owned:false},
+  {id:197,name:"Raphinha",position:"FWD",power:85,rarity:"Ultra",owned:false},
+  {id:198,name:"Ronald Araújo",position:"DEF",power:85,rarity:"Ultra",owned:false},
+  {id:199,name:"Alejandro Balde",position:"DEF",power:81,rarity:"Rare",owned:false},
+  {id:200,name:"Cody Gakpo",position:"FWD",power:83,rarity:"Elite",owned:false},
+  {id:201,name:"Xavi Simons",position:"MID",power:82,rarity:"Elite",owned:false},
+  {id:202,name:"Memphis Depay",position:"FWD",power:84,rarity:"Elite",owned:false},
+  {id:203,name:"Matthijs de Ligt",position:"DEF",power:83,rarity:"Elite",owned:false},
+  {id:204,name:"Denzel Dumfries",position:"DEF",power:81,rarity:"Rare",owned:false},
+];
+const AVATARS = ["⚽","🦁","🐺","🦅","🔥","⭐","🐯","🦈","🐉","👑","💎","🚀","🛡️","⚡","🌟","🏆","🥷","🤖"];
+const TEAM_COLORS = [
+  {id:"green",hex:"#52D68A"},{id:"cyan",hex:"#4CC9F0"},{id:"pink",hex:"#FF6FB5"},
+  {id:"purple",hex:"#B784F0"},{id:"gold",hex:"#FFC94A"},{id:"red",hex:"#FF6B6B"},
+];
+const WIN_GEMS=20, LOSS_GEMS=5, DRAW_GEMS=10, STARTING_GEMS=60;
+// Odds tuned so a "good" pull (Elite tier or above) is genuinely rare on the
+// base pack -- about 1 in 20 opens (5%), matching "1000 packs opened, only
+// ~50 good ones" -- then scales up through the tiers from there.
+const PACKS = [
+  {id:"bronze",name:"Bronze Pack",cost:20,icon:"📦",blurb:"Great value — mostly Common & Uncommon (~5% chance of Elite+)",weights:{Common:48,Uncommon:30,Rare:13,Epic:4,Elite:3.5,Ultra:1,Legendary:0.4,Mythic:0.08,Icon:0.018,GOAT:0.002},grad:["#B87333","#8C5A2B"],glow:"#D08A4F"},
+  {id:"silver",name:"Silver Pack",cost:45,icon:"🎁",blurb:"Balanced odds across all rarities (~10% chance of Elite+)",weights:{Common:30,Uncommon:25,Rare:20,Epic:15,Elite:6,Ultra:2.5,Legendary:1.2,Mythic:0.25,Icon:0.045,GOAT:0.005},grad:["#C7D3E0","#7C8DA6"],glow:"#C0C0C0"},
+  {id:"gold",name:"Gold Pack",cost:90,icon:"💰",blurb:"Boosted Elite & Legendary+ odds (~25% chance of Elite+)",weights:{Common:10,Uncommon:15,Rare:25,Epic:25,Elite:15,Ultra:7,Legendary:2.5,Mythic:0.4,Icon:0.09,GOAT:0.01},grad:["#FFC94A","#FF9F4A"],glow:"#FFC94A"},
+  {id:"legendary",name:"Legendary Pack",cost:180,icon:"👑",blurb:"Guaranteed Elite tier or better!",weights:{Elite:45,Ultra:30,Legendary:18,Mythic:5,Icon:1.8,GOAT:0.2},grad:["#B784F0","#FF6FB5"],glow:"#B784F0"},
+];
+function pickWeighted(lockedPool, weights){
+  const buckets = RARITY_ORDER.map(r=>({r,pool:lockedPool.filter(p=>p.rarity===r),w:weights[r]||0})).filter(b=>b.pool.length>0 && b.w>0);
+  if(!buckets.length){ return lockedPool.length ? lockedPool[Math.floor(Math.random()*lockedPool.length)] : null; }
+  const totalW = buckets.reduce((s,b)=>s+b.w,0);
+  let roll = Math.random()*totalW;
+  for(const b of buckets){ if(roll<b.w) return b.pool[Math.floor(Math.random()*b.pool.length)]; roll -= b.w; }
+  return buckets[buckets.length-1].pool[Math.floor(Math.random()*buckets[buckets.length-1].pool.length)];
+}
+const FORMATIONS = {
+  balanced:{name:"Balanced (1-2-4-2)",counts:{GK:1,DEF:2,MID:4,FWD:2}},
+  defensive:{name:"Defensive (1-3-3-2)",counts:{GK:1,DEF:3,MID:3,FWD:2}},
+  attacking:{name:"Attacking (1-2-3-3)",counts:{GK:1,DEF:2,MID:3,FWD:3}},
+};
+const MY_Y = {GK:90,DEF:71,MID:51,FWD:30};
+const OPP_Y = {GK:10,DEF:29,MID:47,FWD:68};
+const ROW_XS = {1:[50],2:[28,72],3:[18,50,82],4:[12,37,63,88]};
+function buildSlots(formationKey, side){
+  const counts = FORMATIONS[formationKey].counts;
+  const yMap = side==="my" ? MY_Y : OPP_Y;
+  const slots = [];
+  ["GK","DEF","MID","FWD"].forEach(pos=>{
+    const n = counts[pos];
+    const xs = ROW_XS[n] || [50];
+    xs.forEach((x,i)=>slots.push({id:pos+(n>1?i+1:""),position:pos,label:pos,x,y:yMap[pos]}));
+  });
+  return slots;
+}
+function zoneOf(id){ return id.replace(/\d+$/,""); }
+function computeZone(zoneKey, myLU, oppLU){
+  const myTotal = Object.entries(myLU).reduce((s,[id,p])=>s+(zoneOf(id)===zoneKey&&p?p.power:0),0);
+  const oppTotal = Object.entries(oppLU).reduce((s,[id,p])=>s+(zoneOf(id)===zoneKey&&p?p.power:0),0);
+  const result = myTotal>oppTotal?"win":myTotal<oppTotal?"lose":"tie";
+  return {myTotal,oppTotal,result};
+}
+const ZONES = [{key:"GK",label:"Goalkeeper"},{key:"DEF",label:"Defense"},{key:"MID",label:"Midfield"},{key:"FWD",label:"Attack"}];
+const SEASON_CLUBS = ["Ironclad FC","Blaze United","Falcon Rovers","Crimson Athletic","Storm City","Aurora Sporting"];
+
+const RARITY_CODE = {Common:"C",Uncommon:"U",Rare:"R",Epic:"E",Elite:"X",Ultra:"T",Legendary:"L",Mythic:"M",Icon:"I",GOAT:"G"};
+const RARITY_FROM_CODE = {C:"Common",U:"Uncommon",R:"Rare",E:"Epic",X:"Elite",T:"Ultra",L:"Legendary",M:"Mythic",I:"Icon",G:"GOAT"};
+function b64encode(str){ return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function b64decode(str){ const pad = str.length%4===0 ? "" : "=".repeat(4-(str.length%4)); const b64 = str.replace(/-/g,"+").replace(/_/g,"/")+pad; return decodeURIComponent(escape(atob(b64))); }
+function encodeChallenge(formationKey, lineup, profile){
+  const pl = Object.values(lineup).filter(Boolean).map(p=>[p.name, p.position, p.power, RARITY_CODE[p.rarity]||"C"]);
+  const payload = {v:1, f:formationKey, tn:profile.teamName||"My Team", pn:profile.name||"Player", av:profile.avatar, cl:profile.color, pl};
+  return "LXI1-"+b64encode(JSON.stringify(payload));
+}
+function decodeChallenge(code){
+  try{
+    const raw = String(code).trim().replace(/^LXI1-/,"");
+    const payload = JSON.parse(b64decode(raw));
+    if(!payload || payload.v!==1 || !Array.isArray(payload.pl) || !payload.pl.length || !FORMATIONS[payload.f]) return null;
+    return payload;
+  }catch(e){ return null; }
+}
+const WIN_LINES = ["Absolute masterclass. 🏆","They never stood a chance.","That's a statement win.","Trophy cabinet's getting crowded.","Textbook. Pure textbook."];
+const LOSS_LINES = ["Rough one. Shake it off.","They caught a break. Run it back.","Not your day — next one is.","Tough draw. Regroup and go again.","So close. Adjust your tactics and retry."];
+const DRAW_LINES = ["Honours even. Sharp margins next time.","Dead heat — adjust and go again.","A fair result out there.","Neither side could find a way through.","Stalemate. Strike first next time."];
+const RANKS = [
+  {name:"Bronze",min:0,icon:"🥉",color:"#CD7F32"},{name:"Silver",min:5,icon:"🥈",color:"#C0C0C0"},
+  {name:"Gold",min:15,icon:"🥇",color:"#FFD700"},{name:"Diamond",min:30,icon:"💎",color:"#4CC9F0"},
+  {name:"Legend",min:50,icon:"👑",color:"#FFC94A"},
+];
+function rankForWins(wins){ let r=RANKS[0]; for(const t of RANKS) if(wins>=t.min) r=t; return r; }
+const ACHIEVEMENTS = [
+  {id:"first_win",label:"First Win",emoji:"🥇",check:s=>s.wins>=1},
+  {id:"hat_trick",label:"3 Win Streak",emoji:"🔥",check:s=>s.bestStreak>=3},
+  {id:"unstoppable",label:"5 Win Streak",emoji:"⚡",check:s=>s.bestStreak>=5},
+  {id:"century",label:"10 Wins",emoji:"💯",check:s=>s.wins>=10},
+  {id:"collector",label:"10 Cards Owned",emoji:"🗂️",check:(s,p)=>p.filter(x=>x.owned).length>=10},
+  {id:"legend_owner",label:"Own a Legendary",emoji:"🌟",check:(s,p)=>p.some(x=>x.owned&&isTopTier(x.rarity))},
+  {id:"high_roller",label:"Own an Exclusive",emoji:"💎",check:(s,p)=>p.some(x=>x.owned&&x.exclusive)},
+  {id:"full_squad",label:"Full Collection",emoji:"🏆",check:(s,p)=>p.filter(x=>!x.exclusive).every(x=>x.owned)},
+  {id:"gold_rank",label:"Reach Gold Rank",emoji:"🥇",check:s=>["Gold","Diamond","Legend"].includes(rankForWins(s.wins).name)},
+  {id:"season_champ",label:"Finish a Season",emoji:"📅",check:(s,p,e)=>e&&e.season&&e.season.number>=2},
+];
+const COMMENTARY = {
+  GK:{win:"🧤 Your keeper pulls off a stunning save!",lose:"😱 Their keeper denies you at the near post!",tie:"🧤 Both keepers stand tall — nothing gets through."},
+  DEF:{win:"🛡️ Your defense shuts them down completely!",lose:"💨 They slice right through your backline!",tie:"🛡️ Defenses holding firm on both ends."},
+  MID:{win:"⚙️ Your midfield is running the whole game!",lose:"⚙️ They're dominating the midfield battle!",tie:"⚙️ Midfield battle is dead even."},
+  FWD:{win:"⚡ GOAL! Your striker finds the net!",lose:"⚡ Ouch — they finish clinically up top!",tie:"⚡ Chances traded, nobody's finishing them."},
+};
+const GEM_PASSES = [{id:"p100",gems:100,price:5},{id:"p500",gems:500,price:25,bestValue:true},{id:"p1000",gems:1000,price:50}];
+const OBJECTIVES = [
+  {id:"obj_win3",label:"Win 3 Matches",desc:"Win 3 matches this season",reward:25,target:3,progress:(s,p,season)=>season.wins},
+  {id:"obj_collect10",label:"Collect 10 Cards",desc:"Own 10 different players",reward:20,target:10,progress:(s,p)=>p.filter(x=>x.owned).length},
+  {id:"obj_epic",label:"Pull a Big One",desc:"Own an Epic-tier card or better",reward:30,target:1,progress:(s,p)=>(p.some(x=>x.owned&&isHighTier(x.rarity))?1:0)},
+  {id:"obj_streak3",label:"Win Streak",desc:"Reach a 3-match win streak",reward:35,target:3,progress:(s)=>s.bestStreak},
+];
+const DAILY_REWARDS = [10,15,20,25,35,45,60];
+const SPIN_ITEM_W = 76, SPIN_GAP = 8, SPIN_STEP = SPIN_ITEM_W + SPIN_GAP, SPIN_FILLER_COUNT = 22;
+const NEWS_ITEMS = [
+  {v:"v7",text:"New Home hub — daily rewards, live objectives, and featured packs. Plus 70 real-world footballers added to the pool!"},
+  {v:"v6",text:"Packs now come in 4 tiers — Bronze, Silver, Gold, and Legendary — each with different odds."},
+  {v:"v5",text:"Real formations, half-time substitutions, and a 6-matchday Season with ranks are live."},
+];
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+// ---------- audio (native WebAudio, replaces Tone.js) ----------
+let actx=null;
+function ensureAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(actx && actx.state==="suspended") actx.resume(); }
+function tone(freq,dur,type,vol,delay){
+  if(!actx) return; type=type||"sine"; vol=vol||0.15; delay=delay||0;
+  const t0=actx.currentTime+delay, osc=actx.createOscillator(), gain=actx.createGain();
+  osc.type=type; osc.frequency.value=freq;
+  gain.gain.setValueAtTime(vol,t0); gain.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  osc.connect(gain); gain.connect(actx.destination); osc.start(t0); osc.stop(t0+dur+0.02);
+}
+function noiseBurst(dur,vol,delay){
+  if(!actx) return; vol=vol||0.1; delay=delay||0;
+  const t0=actx.currentTime+delay, len=Math.max(1,Math.floor(actx.sampleRate*dur));
+  const buffer=actx.createBuffer(1,len,actx.sampleRate), data=buffer.getChannelData(0);
+  for(let i=0;i<len;i++) data[i]=Math.random()*2-1;
+  const src=actx.createBufferSource(); src.buffer=buffer;
+  const gain=actx.createGain(); gain.gain.setValueAtTime(vol,t0); gain.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  src.connect(gain); gain.connect(actx.destination); src.start(t0);
+}
+function playWhistle(){ noiseBurst(0.15,0.12,0); }
+function playKick(){ tone(90,0.15,"triangle",0.25,0); }
+function playWin(){ tone(523,0.2,"sine",0.14,0); tone(659,0.2,"sine",0.14,0.12); tone(784,0.2,"sine",0.14,0.24); tone(1046,0.35,"sine",0.16,0.36); }
+function playLose(){ tone(220,0.2,"sawtooth",0.12,0); tone(196,0.2,"sawtooth",0.12,0.18); tone(175,0.35,"sawtooth",0.12,0.36); }
+function playTap(){ tone(1046,0.06,"sine",0.08,0); }
+function playChime(){ tone(659,0.14,"sine",0.12,0); tone(784,0.14,"sine",0.12,0.08); }
+function playSparkle(){ [523,659,784,1046,1318].forEach((n,i)=>tone(n,0.14,"sine",0.1,i*0.07)); }
+function playZoneWin(){ tone(880,0.15,"sine",0.14,0); }
+function playZoneLose(){ tone(294,0.15,"sine",0.14,0); }
+function playWhoosh(){ noiseBurst(0.4,0.08,0); }
+function playFanfare(){ [[523,659,784],[587,698,880],[659,784,1046]].forEach((chord,i)=>chord.forEach(n=>tone(n,0.18,"sine",0.1,i*0.18))); }
+function playImpact(){ tone(55,0.25,"sine",0.3,0); }
+
+// ---------- state ----------
+const SAVE_KEY = "legendxi-preview-save-v1";
+function loadSave(){
+  try{ const raw = localStorage.getItem(SAVE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
+  return null;
+}
+const saved = loadSave();
+const state = {
+  players: (saved && saved.players) || JSON.parse(JSON.stringify(STARTER_PLAYERS)),
+  tab: "home",
+  stats: (saved && saved.stats) || {wins:0,losses:0,draws:0,streak:0,bestStreak:0},
+  profile: (saved && saved.profile) || {name:"Player",avatar:"⚽",teamName:"My Team",number:7,color:COLORS.turf},
+  gems: (saved && typeof saved.gems==="number") ? saved.gems : STARTING_GEMS,
+  season: (saved && saved.season) || {number:1,matchday:1,points:0,wins:0,losses:0,draws:0},
+  home: (saved && saved.home) || {dailyLastClaim:null, dailyStreak:0, objectivesClaimed:[]},
+  newsOpen: false,
+  prevRankName: null,
+  rankUp: null,
+  play: {
+    formationKey:"balanced", myLineup:{}, activeSlot:null, subSlot:null, halfSubUsed:false,
+    phase:"building", currentHalf:1, oppSlots:[], oppLineup:null, firstHalfLineup:null,
+    finalResult:null, myGoals:0, oppGoals:0, commentary:"Kick off!", matchMinute:0,
+    zoneResultsLive:{}, seasonSummary:null, minuteInterval:null,
+    opponentMeta:null, isChallengeMatch:false, challengeOpen:false, challengeTab:"share",
+    pasteCode:"", pasteError:"", copyFeedback:false, ballOwnerKey:null, ballInterval:null,
+  },
+  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0 },
+  confirmReset:false,
+  confettiOn:false,
+  adminPlayers: { form:{name:"",position:"FWD",power:80,rarity:"Common"}, status:"", statusOk:true, list:null, listLoading:false },
+};
+state.prevRankName = rankForWins(state.stats.wins).name;
+
+let saveTimer=null;
+function persistNow(){
+  clearTimeout(saveTimer);
+  try{ localStorage.setItem(SAVE_KEY, JSON.stringify({players:state.players,stats:state.stats,profile:state.profile,gems:state.gems,season:state.season,home:state.home})); }catch(e){}
+}
+function persist(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(persistNow,300);
+}
+window.addEventListener("pagehide", persistNow);
+window.addEventListener("beforeunload", persistNow);
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") persistNow(); });
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+// Admin panel is gated on hostname, not a password: it only ever renders when the
+// page is loaded via the local server directly (localhost/127.0.0.1) -- i.e. only
+// on this machine, via the desktop shortcut or http://localhost:8080. Anyone playing
+// through the public tunnel URL or on their own phone loads a different hostname
+// and never sees it, regardless of save data.
+function isAdminDevice(){
+  try{ return location.hostname==="localhost" || location.hostname==="127.0.0.1"; }catch(e){ return false; }
+}
+// Global player-roster management. Talks to admin-server.ps1, a SEPARATE local-only
+// server (different port, never tunneled) -- see admin-server.ps1's header comment
+// for why that's what actually makes this safe against friends on the public link.
+const ADMIN_API = "http://localhost:8081";
+function adminPlayersStatus(msg, ok){ state.adminPlayers.status = msg; state.adminPlayers.statusOk = ok; render(); }
+function adminRefreshPlayers(){
+  state.adminPlayers.listLoading = true; render();
+  fetch(ADMIN_API+"/players", {cache:"no-store"}).then(r=>r.json()).then(list=>{
+    state.adminPlayers.list = list; state.adminPlayers.listLoading = false; render();
+  }).catch(()=>{
+    state.adminPlayers.listLoading = false;
+    adminPlayersStatus("Could not reach the local admin server — is admin-server.ps1 running?", false);
+  });
+}
+function adminAddPlayer(){
+  const f = state.adminPlayers.form;
+  const name = (f.name||"").trim();
+  const power = Math.max(1, Math.min(100, Number(f.power)||1));
+  if(!name){ adminPlayersStatus("Enter a player name first.", false); return; }
+  fetch(ADMIN_API+"/players", {cache:"no-store"}).then(r=>r.json()).then(list=>{
+    const nextId = list.reduce((m,p)=>Math.max(m,p.id),0) + 1;
+    const updated = [...list, {id:nextId, name, position:f.position, power, rarity:f.rarity, owned:false}];
+    return fetch(ADMIN_API+"/players", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(updated)})
+      .then(r=>r.json()).then(res=>{
+        if(res.ok){
+          adminPlayersStatus(`Added ${name} (${f.rarity}) — now live for everyone.`, true);
+          state.adminPlayers.form = {name:"", position:"FWD", power:80, rarity:"Common"};
+          adminRefreshPlayers();
+        } else { adminPlayersStatus("Server rejected the player data.", false); }
+      });
+  }).catch(()=>{ adminPlayersStatus("Could not reach the local admin server — is admin-server.ps1 running?", false); });
+}
+function adminDeletePlayer(id){
+  fetch(ADMIN_API+"/players", {cache:"no-store"}).then(r=>r.json()).then(list=>{
+    const updated = list.filter(p=>p.id!==id);
+    return fetch(ADMIN_API+"/players", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(updated)})
+      .then(r=>r.json()).then(res=>{
+        if(res.ok){ adminPlayersStatus("Player removed from the global catalog.", true); adminRefreshPlayers(); }
+        else { adminPlayersStatus("Server rejected the update.", false); }
+      });
+  }).catch(()=>{ adminPlayersStatus("Could not reach the local admin server — is admin-server.ps1 running?", false); });
+}
+
+// ---------- icons (Lucide path data, inlined - no external requests) ----------
+const ICONS = {
+  Award: '<path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526" /><circle cx="12" cy="8" r="6" />',
+  Check: '<path d="M20 6 9 17l-5-5" />',
+  Coins: '<path d="M13.744 17.736a6 6 0 1 1-7.48-7.48" /><path d="M15 6h1v4" /><path d="m6.134 14.768.866-.5 2 3.464" /><circle cx="16" cy="8" r="6" />',
+  Flame: '<path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4" />',
+  Gem: '<path d="M10.5 3 8 9l4 13 4-13-2.5-6" /><path d="M17 3a2 2 0 0 1 1.6.8l3 4a2 2 0 0 1 .013 2.382l-7.99 10.986a2 2 0 0 1-3.247 0l-7.99-10.986A2 2 0 0 1 2.4 7.8l2.998-3.997A2 2 0 0 1 7 3z" /><path d="M2 9h20" />',
+  Gift: '<path d="M12 7v14" /><path d="M20 11v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8" /><path d="M7.5 7a1 1 0 0 1 0-5A4.8 8 0 0 1 12 7a4.8 8 0 0 1 4.5-5 1 1 0 0 1 0 5" /><rect x="3" y="7" width="18" height="4" rx="1" />',
+  Home: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />',
+  Layers: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />',
+  List: '<path d="M3 5h.01" /><path d="M3 12h.01" /><path d="M3 19h.01" /><path d="M8 5h13" /><path d="M8 12h13" /><path d="M8 19h13" />',
+  Lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />',
+  Newspaper: '<path d="M15 18h-5" /><path d="M18 14h-8" /><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2" /><rect width="8" height="4" x="10" y="6" rx="1" />',
+  PlayCircle: '<path d="M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z" /><circle cx="12" cy="12" r="10" />',
+  RefreshCw: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" />',
+  Repeat: '<path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" />',
+  ShoppingBag: '<path d="M16 10a4 4 0 0 1-8 0" /><path d="M3.103 6.034h17.794" /><path d="M3.4 5.467a2 2 0 0 0-.4 1.2V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.667a2 2 0 0 0-.4-1.2l-2-2.667A2 2 0 0 0 17 2H7a2 2 0 0 0-1.6.8z" />',
+  Sparkles: '<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /><path d="M20 2v4" /><path d="M22 4h-4" /><circle cx="4" cy="20" r="2" />',
+  Star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />',
+  Trophy: '<path d="M10 14.66v1.626a2 2 0 0 1-.976 1.696A5 5 0 0 0 7 21.978" /><path d="M14 14.66v1.626a2 2 0 0 0 .976 1.696A5 5 0 0 1 17 21.978" /><path d="M18 9h1.5a1 1 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z" /><path d="M6 9H4.5a1 1 0 0 1 0-5H6" />',
+  User: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />',
+  X: '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
+};
+function icon(name, size, color, extraStyle){
+  size = size||16; color = color||"currentColor"; extraStyle = extraStyle||"";
+  const body = ICONS[name] || "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;${extraStyle}">${body}</svg>`;
+}
+
+function render(){ persist(); document.getElementById("stage").innerHTML = appHTML(); }
+
+// ---------- shared bits ----------
+function railHeader(){
+  const rank = rankForWins(state.stats.wins);
+  return `
+  <div class="hdr">
+    <div class="row between">
+      <div>
+        <div class="row" style="gap:6px;margin-bottom:2px">
+          <span style="width:6px;height:6px;border-radius:50%;background:${COLORS.turf};box-shadow:0 0 6px ${COLORS.turf};animation:twinkle 1.8s ease-in-out infinite"></span>
+          <span style="font-size:9px;font-weight:800;color:${COLORS.muted};letter-spacing:.2em">MATCHDAY LIVE</span>
+        </div>
+        <div class="display" style="font-size:26px;color:${COLORS.cream}">TCG <span style="color:${COLORS.gold}">MANAGER</span></div>
+      </div>
+      <div class="row" style="gap:6px">
+        <div class="pill" style="border-bottom:2px solid ${COLORS.gold}">${icon("Coins",14,COLORS.gold)} <span class="display" style="color:${COLORS.gold}">${state.gems}</span></div>
+        ${state.stats.streak>=2 ? `<div class="pill" style="border-bottom:2px solid ${COLORS.danger}">${icon("Flame",14,COLORS.danger)} <span class="display" style="color:${COLORS.danger}">${state.stats.streak}</span></div>` : ""}
+        <div class="pill" style="border-bottom:2px solid ${COLORS.turf}">${icon("Trophy",16,COLORS.gold)} <span class="display" style="color:${COLORS.cream}">${state.stats.wins}</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+function tabBar(){
+  const tabs = [
+    {key:"home",label:"Home",icon:"Home"},{key:"index",label:"Index",icon:"List"},{key:"cards",label:"My Cards",icon:"Layers"},
+    {key:"shop",label:"Shop",icon:"ShoppingBag"},{key:"play",label:"Play",icon:"PlayCircle"},
+    {key:"profile",label:"Profile",icon:"User"},
+  ];
+  if(isAdminDevice()) tabs.push({key:"admin",label:"Admin",icon:"Lock"});
+  return `<div class="tabbar"><div class="row" style="justify-content:space-around">
+    ${tabs.map(t=>`
+      <button class="tabbtn scrimtap" data-action="nav-tab" data-tab="${t.key}">
+        ${icon(t.icon, 18, state.tab===t.key?COLORS.turf:COLORS.muted)}
+        <span class="display" style="font-size:10px;color:${state.tab===t.key?COLORS.turf:COLORS.muted}">${t.label.toUpperCase()}</span>
+        <span style="width:4px;height:4px;border-radius:50%;background:${state.tab===t.key?COLORS.turf:"transparent"}"></span>
+      </button>`).join("")}
+  </div></div>`;
+}
+function playerCard(p, opts){
+  opts = opts||{};
+  const rarity = RARITY[p.rarity];
+  const locked = opts.mode==="index" && !p.owned;
+  const clickAttr = opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "";
+  const disabled = opts.disabled ? "disabled" : "";
+  return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="border-left:4px solid ${rarity.color};opacity:${locked?0.45:1};${opts.disabled?"pointer-events:none":""}">
+    ${!locked && isTopTier(p.rarity) ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.35) 50%,transparent 60%);animation:shineSweep 3s ease-in-out infinite"></div>` : ""}
+    <div class="row between" style="margin-bottom:8px">
+      <span class="badge" style="background:${rarity.color}33;color:${rarity.color}">${rarity.label}</span>
+      ${locked ? `<span style="color:${COLORS.muted}">${icon("Lock",13,COLORS.muted)}</span>` : ""}
+    </div>
+    <div class="row" style="gap:12px">
+      <div class="avatarCircle" style="width:44px;height:44px;font-weight:900;font-size:16px;background:${locked?COLORS.panelLight:rarity.color};color:${locked?COLORS.muted:COLORS.bg}">${locked?"?":p.power}</div>
+      <div>
+        <div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${locked?"Locked":esc(p.name)}</div>
+        <div style="font-size:11px;color:${COLORS.muted}">${locked?"Coming soon":p.position}</div>
+      </div>
+    </div>
+  </button>`;
+}
+
+// ---------- Home view (FIFA Mobile-style hub) ----------
+function homeView(){
+  const owned = state.players.filter(p=>p.owned);
+  const rank = rankForWins(state.stats.wins);
+  const xp = state.stats.wins*15 + state.stats.losses*3 + owned.length*8 + state.stats.bestStreak*10;
+  const level = Math.floor(xp/150)+1, xpPct = Math.round(((xp%150)/150)*100);
+  const bestFive = [...owned].sort((a,b)=>b.power-a.power).slice(0,5);
+  const teamRating = bestFive.length ? Math.round(bestFive.reduce((s,p)=>s+p.power,0)/bestFive.length) : 0;
+  const dailyClaimed = state.home.dailyLastClaim === todayStr();
+  const currentDay = (state.home.dailyStreak % 7) + 1;
+
+  const newsModal = state.newsOpen ? `<div class="modalWrap" data-action="close-modal" data-modal="news">
+    <div class="modalSheet" data-action="noop">
+      <div class="row between" style="margin-bottom:12px"><div class="display" style="font-size:19px;color:${COLORS.cream}">What's New</div><button data-action="close-modal" data-modal="news" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
+      ${NEWS_ITEMS.map(n=>`<div class="panel" style="padding:10px;margin-bottom:8px"><span style="font-weight:900;font-size:10px;color:${COLORS.turf}">${n.v}</span><div style="font-size:12px;margin-top:4px;color:${COLORS.cream}">${esc(n.text)}</div></div>`).join("")}
+    </div>
+  </div>` : "";
+
+  return `<div class="view">
+    <div class="row" style="gap:8px;padding:8px 10px;border-radius:12px;margin-bottom:12px;background:linear-gradient(90deg, ${COLORS.purple}33, ${COLORS.pink}33);border:1px solid ${COLORS.pink}55">
+      <span style="font-size:16px">🔥</span>
+      <div><div style="font-size:10px;font-weight:900;color:${COLORS.pink}">WEEKEND LEAGUE LIVE</div><div style="font-size:9px;color:${COLORS.muted}">Win streaks earn bonus gems all week</div></div>
+    </div>
+
+    <div class="row" style="gap:12px;margin-bottom:16px">
+      <div class="avatarCircle" style="width:52px;height:52px;font-size:24px;position:relative;flex-shrink:0;background:linear-gradient(135deg, ${state.profile.color}, ${COLORS.purple})">
+        ${state.profile.avatar}
+        <div style="position:absolute;bottom:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:${COLORS.bg};border:2px solid ${state.profile.color};color:${state.profile.color};font-weight:900;font-size:9px;display:flex;align-items:center;justify-content:center">${level}</div>
+      </div>
+      <div style="flex:1">
+        <div class="row between" style="margin-bottom:4px"><span class="display" style="font-size:16px;color:${COLORS.cream}">${esc(state.profile.name||"Player")}</span><span style="font-size:10px;font-weight:900;color:${rank.color}">${rank.icon} ${rank.name.toUpperCase()}</span></div>
+        <div style="height:8px;border-radius:999px;overflow:hidden;background:${COLORS.panelLight}"><div style="height:100%;border-radius:999px;width:${xpPct}%;background:linear-gradient(90deg, ${state.profile.color}, ${COLORS.gold})"></div></div>
+      </div>
+    </div>
+
+    <div class="row" style="gap:12px;align-items:stretch">
+      <div class="col" style="gap:8px">
+        ${railBtn("Gift","DAILY", dailyClaimed?COLORS.muted:COLORS.gold, !dailyClaimed, "claim-daily", null, dailyClaimed)}
+        ${railBtn("Trophy","SEASON", COLORS.cyan, false, "nav-tab", "profile")}
+        ${railBtn("Award","AWARDS", COLORS.pink, false, "nav-tab", "profile")}
+        ${railBtn("Newspaper","NEWS", COLORS.turf, false, "open-news")}
+      </div>
+      <div class="col" style="gap:12px;flex:1">
+        <div class="col center" style="align-items:center;padding:20px 0;border-radius:16px;position:relative;overflow:hidden;background:radial-gradient(circle at 50% 20%, ${rank.color}22, ${COLORS.panel});border:1px solid ${COLORS.panelLight}">
+          <div style="font-size:38px;animation:floatBounce 3s ease-in-out infinite">${rank.icon}</div>
+          <div class="display" style="font-size:18px;color:${rank.color};letter-spacing:.03em">${rank.name.toUpperCase()}</div>
+          <div style="font-size:10px;font-weight:800;color:${COLORS.muted}">Season ${state.season.number} · Matchday ${state.season.matchday}/6</div>
+        </div>
+        <div class="panel" style="padding:10px">
+          <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:6px;color:${COLORS.muted}">MY TEAM</div>
+          <div class="row between">
+            <div class="row" style="gap:8px">
+              <div class="avatarCircle" style="width:32px;height:32px;font-size:15px;background:linear-gradient(135deg, ${state.profile.color}, ${COLORS.purple})">${state.profile.avatar}</div>
+              <div><div style="font-size:11px;font-weight:800;color:${COLORS.cream}">${esc(state.profile.teamName||"My Team")}</div><div style="font-size:9px;color:${COLORS.muted}">${owned.length} players owned</div></div>
+            </div>
+            <div style="text-align:center;padding:4px 8px;border-radius:12px;background:${COLORS.panelLight}"><div class="display" style="font-size:16px;color:${COLORS.gold};line-height:1">${teamRating}</div><div style="font-size:7px;font-weight:800;color:${COLORS.muted}">RATING</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:12px">
+      <button data-action="nav-tab" data-tab="play" class="panel scrimtap" style="padding:12px;text-align:left">
+        <div style="margin-bottom:6px">${icon("PlayCircle",18,COLORS.turf)}</div>
+        <div style="font-size:11px;font-weight:900;color:${COLORS.cream}">NEXT MATCH</div>
+        <div style="font-size:10px;color:${COLORS.muted}">vs ${currentClub()}</div>
+      </button>
+      <button data-action="nav-tab" data-tab="profile" class="panel scrimtap" style="padding:12px;text-align:left">
+        <div style="margin-bottom:6px">${icon("Trophy",18,COLORS.gold)}</div>
+        <div style="font-size:11px;font-weight:900;color:${COLORS.cream}">SEASON</div>
+        <div style="font-size:10px;color:${COLORS.muted}">${state.season.points} pts so far</div>
+      </button>
+    </div>
+
+    <div class="panel" style="padding:12px;margin-top:12px">
+      <div class="row between" style="margin-bottom:8px">
+        <div style="font-size:10px;font-weight:900;letter-spacing:.1em;color:${COLORS.muted}">DAILY REWARD</div>
+        ${dailyClaimed ? `<span class="row" style="gap:4px;font-size:9px;font-weight:800;color:${COLORS.turf}">${icon("Check",11,COLORS.turf)} Claimed today</span>` : ""}
+      </div>
+      <div class="row" style="gap:6px;margin-bottom:8px">
+        ${DAILY_REWARDS.map((amt,i)=>{ const dayNum=i+1; const isPast = dayNum<currentDay || (dayNum===currentDay && dailyClaimed); const isToday = dayNum===currentDay && !dailyClaimed;
+          return `<div class="col center" style="flex:1;padding:8px 0;border-radius:12px;background:${isToday?COLORS.gold+"22":COLORS.panelLight};border:1px solid ${isToday?COLORS.gold:"transparent"};opacity:${isPast?0.4:1}">
+            ${icon("Coins",13,isPast?COLORS.muted:COLORS.gold)}<span style="font-size:9px;font-weight:900;margin-top:2px;color:${isPast?COLORS.muted:COLORS.cream}">${amt}</span>
+          </div>`; }).join("")}
+      </div>
+      <button data-action="claim-daily" ${dailyClaimed?"disabled":""} class="btn scrimtap wfull" style="padding:8px 0;font-size:12px;background:${COLORS.gold};color:${COLORS.bg};opacity:${dailyClaimed?0.4:1}">${dailyClaimed?"COME BACK TOMORROW":`CLAIM +${DAILY_REWARDS[currentDay-1]} GEMS`}</button>
+    </div>
+
+    <div class="panel" style="padding:12px;margin-top:12px">
+      <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">OBJECTIVES</div>
+      <div class="col" style="gap:8px">
+        ${OBJECTIVES.map(o=>{
+          const claimed = state.home.objectivesClaimed.includes(o.id);
+          const val = Math.min(o.target, o.progress(state.stats, state.players, state.season));
+          const done = val>=o.target; const pct = Math.round((val/o.target)*100);
+          return `<div style="border-radius:12px;padding:8px;background:${COLORS.panelLight}">
+            <div class="row between" style="margin-bottom:4px"><span style="font-size:11px;font-weight:800;color:${COLORS.cream}">${o.label}</span><span class="row" style="gap:2px;font-size:9px;font-weight:800;color:${COLORS.gold}">+${o.reward} ${icon("Coins",11,COLORS.gold)}</span></div>
+            <div style="height:6px;border-radius:999px;overflow:hidden;margin-bottom:4px;background:${COLORS.bg}"><div style="height:100%;border-radius:999px;width:${pct}%;background:${done?COLORS.turf:COLORS.cyan}"></div></div>
+            <div class="row between">
+              <span style="font-size:9px;color:${COLORS.muted}">${o.desc} (${val}/${o.target})</span>
+              ${claimed ? `<span style="font-size:9px;font-weight:900;color:${COLORS.turf}">CLAIMED</span>` : `<button data-action="claim-objective" data-obj-id="${o.id}" data-reward="${o.reward}" ${!done?"disabled":""} class="btn scrimtap" style="font-size:9px;font-weight:900;padding:2px 8px;border-radius:999px;background:${done?COLORS.turf:COLORS.panel};color:${done?COLORS.bg:COLORS.muted}">CLAIM</button>`}
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">FEATURED PACKS</div>
+      <div class="row" style="gap:12px;overflow-x:auto;padding-bottom:4px">
+        ${[PACKS[2],PACKS[3]].map(pack=>`<button data-action="nav-tab" data-tab="shop" class="scrimtap" style="width:130px;flex-shrink:0;padding:12px;text-align:center;border:none;border-radius:16px;background:linear-gradient(160deg, ${pack.grad[0]}, ${pack.grad[1]});box-shadow:0 4px 14px ${pack.glow}44">
+          <div style="font-size:24px;margin-bottom:4px">${pack.icon}</div>
+          <div style="font-size:10px;font-weight:900;color:#fff">${pack.name}</div>
+          <div class="row center" style="gap:3px;font-size:9px;margin-top:4px;font-weight:800;color:#ffffffcc">${icon("Coins",11,"#ffffffcc")} ${pack.cost}</div>
+        </button>`).join("")}
+      </div>
+    </div>
+    ${newsModal}
+  </div>`;
+}
+function railBtn(iconName,label,accent,badge,action,dataTab,disabled){
+  return `<button data-action="${action}" ${dataTab?`data-tab="${dataTab}"`:""} ${disabled?"disabled":""} class="scrimtap" style="position:relative;width:56px;height:56px;border-radius:12px;border:1px solid ${COLORS.panelLight};background:${COLORS.panel};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;opacity:${disabled?0.5:1};${disabled?"pointer-events:none":""}">
+    ${badge ? `<span style="position:absolute;top:-4px;right:-4px;width:16px;height:16px;border-radius:50%;background:${COLORS.gold};color:${COLORS.bg};font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center">!</span>` : ""}
+    ${icon(iconName,18,accent)}
+    <span style="font-size:8px;font-weight:800;letter-spacing:.03em;color:${COLORS.muted}">${label}</span>
+  </button>`;
+}
+
+// ---------- Index view ----------
+function indexView(){
+  const owned = state.players.filter(p=>p.owned).length;
+  return `<div class="view">
+    <div class="panel row between" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight})">
+      <div><div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">COLLECTION</div>
+        <div style="font-size:26px;font-weight:900;color:${COLORS.cream}">${owned} <span style="color:${COLORS.muted};font-weight:700">/ ${state.players.length}</span></div></div>
+      <div>${icon("Layers",28,COLORS.gold)}</div>
+    </div>
+    <div class="grid2">${state.players.map(p=>playerCard(p,{mode:"index"})).join("")}</div>
+  </div>`;
+}
+function myCardsView(){
+  const owned = state.players.filter(p=>p.owned);
+  const groups = ["GK","DEF","MID","FWD"].map(pos=>({pos,cards:owned.filter(p=>p.position===pos)}));
+  return `<div class="view">
+    <div class="panel" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight})">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:4px">YOUR SQUAD</div>
+      <div style="font-size:26px;font-weight:900;color:${COLORS.cream}">${owned.length} <span style="color:${COLORS.muted};font-weight:700">players owned</span></div>
+    </div>
+    ${groups.map(g=>`
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">${g.pos} (${g.cards.length})</div>
+        ${g.cards.length===0 ? `<div style="font-size:13px;color:${COLORS.muted}">None yet — try the Shop.</div>` : `<div class="grid2">${g.cards.map(p=>playerCard(p,{mode:"index"})).join("")}</div>`}
+      </div>`).join("")}
+  </div>`;
+}
+
+// ---------- Shop view ----------
+function shopView(){
+  const s = state.shop;
+  const lockedCount = state.players.filter(p=>!p.owned && !p.exclusive).length;
+  let overlay = "";
+  if(s.phase==="revealed" && s.selectedPack){
+    const card = s.revealed;
+    const rarityColor = card ? RARITY[card.rarity].color : COLORS.gold;
+    const isLegendary = card && isTopTier(card.rarity);
+    overlay = `<div class="overlayFull" style="background:radial-gradient(circle at 50% 38%, ${rarityColor}22, transparent 65%), rgba(3,7,14,0.97)">
+      ${card ? `
+        ${isLegendary ? `<div class="display" style="font-size:22px;color:${rarityColor};margin-bottom:10px;text-align:center">⚡ ${RARITY[card.rarity].label} PULL ⚡</div>` : ""}
+        <div class="col center" style="align-items:center">
+          <div style="width:200px;padding:26px 18px;border-radius:16px;background:linear-gradient(165deg, ${COLORS.panelLight}, ${COLORS.panel});border:4px solid ${rarityColor};box-shadow:0 0 ${isLegendary?70:40}px ${rarityColor}aa;animation:riseIn .7s cubic-bezier(.2,.9,.25,1.1) both;text-align:center">
+            ${(isLegendary||isHighTier(card.rarity)) ? `<div style="margin-bottom:6px">${icon("Sparkles",20,rarityColor)}</div>` : ""}
+            <div class="avatarCircle" style="width:80px;height:80px;font-weight:900;font-size:26px;background:${rarityColor};color:${COLORS.bg};margin:0 auto 10px">${card.power}</div>
+            <div class="display" style="font-size:19px;color:${COLORS.cream}">${esc(card.name)}</div>
+            <div style="font-size:11px;font-weight:700;color:${COLORS.muted};margin-top:2px">${card.position}</div>
+            <div style="font-weight:900;font-size:11px;letter-spacing:.12em;color:${rarityColor};margin-top:6px">${RARITY[card.rarity].label}</div>
+          </div>
+        </div>`
+      : `<div style="text-align:center"><div class="display" style="font-size:22px;color:${COLORS.gold};margin-bottom:6px">Collection complete!</div><div style="font-size:13px;color:${COLORS.muted}">Here's a partial refund instead.</div></div>`}
+      <button data-action="close-reveal" class="display btn scrimtap" style="margin-top:26px;padding:12px 30px;font-size:16px;background:${rarityColor};color:${COLORS.bg};box-shadow:0 4px 0 rgba(0,0,0,.35)">CONTINUE</button>
+    </div>`;
+  } else if(s.phase==="spinning" && s.selectedPack){
+    const pack = s.selectedPack;
+    overlay = `<div class="overlayFull" style="background:radial-gradient(circle at 50% 20%, ${pack.grad[0]}33, transparent 65%), rgba(3,7,14,0.97)">
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:0">
+        <div style="width:300px;height:300px;border-radius:50%;background:conic-gradient(from 0deg, ${pack.grad[0]}, ${pack.grad[1]}, ${COLORS.cyan}, ${pack.grad[0]});animation:spinRays 1.3s linear infinite;opacity:.3;filter:blur(6px)"></div>
+      </div>
+      <div style="position:relative;z-index:2;text-align:center;width:100%">
+        <div style="font-size:10px;font-weight:900;letter-spacing:.15em;margin-bottom:4px;color:${pack.glow}">${pack.icon} ${pack.name.toUpperCase()}</div>
+        <div class="display" style="font-weight:800;letter-spacing:.15em;font-size:13px;margin-bottom:16px;color:${COLORS.gold}">SPINNING...</div>
+        <div id="spinStrip" style="position:relative;overflow:hidden;margin:0 auto;height:104px;width:100%;max-width:440px">
+          <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);z-index:10">
+            <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${COLORS.gold}"></div>
+          </div>
+          <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:${COLORS.gold};transform:translateX(-1px);opacity:.6;z-index:10"></div>
+          <div id="spinTrack" style="display:flex;align-items:center;position:absolute;top:8px;left:0;gap:${SPIN_GAP}px;transform:translateX(0px)">
+            ${s.spinItems.map(p=>{ const rc=RARITY[p.rarity].color; return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:12px;flex-shrink:0;width:${SPIN_ITEM_W}px;height:88px;background:${COLORS.panelLight};border:2px solid ${rc}55">
+              <div class="avatarCircle" style="width:36px;height:36px;font-weight:900;font-size:13px;background:${rc};color:${COLORS.bg}">${p.power}</div>
+              <div style="font-size:8px;color:${COLORS.muted};margin-top:4px;max-width:${SPIN_ITEM_W-8}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name.split(" ").slice(-1)[0])}</div>
+            </div>`; }).join("")}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+  return `<div class="view">
+    <div class="panel row between" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight})">
+      <div><div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">YOUR GEMS</div>
+        <div class="row" style="gap:4px;font-size:24px;font-weight:900;color:${COLORS.gold}">${icon("Coins",20,COLORS.gold)} ${state.gems}</div></div>
+      <div style="text-align:right"><div style="font-size:11px;color:${COLORS.muted}">Cards left to find</div><div style="font-size:18px;font-weight:900;color:${COLORS.cream}">${lockedCount}</div></div>
+    </div>
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">PLAYER PACKS</div>
+    <div class="grid2" style="margin-bottom:22px">
+      ${PACKS.map(pack=>`
+        <div class="panel" style="position:relative;padding:16px;text-align:center;overflow:hidden;background:linear-gradient(160deg, ${pack.grad[0]}, ${pack.grad[1]});box-shadow:0 4px 18px ${pack.glow}44;border:none">
+          <div style="font-size:34px;margin-bottom:4px;animation:floatBounce 2.4s ease-in-out infinite">${pack.icon}</div>
+          <div style="font-weight:900;font-size:12px;color:#fff;margin-bottom:4px">${pack.name}</div>
+          <div style="font-size:9px;color:#ffffffcc;margin-bottom:10px;min-height:22px">${pack.blurb}</div>
+          <button data-action="open-pack" data-pack-id="${pack.id}" ${state.gems<pack.cost||s.phase!=="list"?"disabled":""} class="btn scrimtap wfull row center" style="gap:3px;padding:8px 0;font-size:11px;background:#fff;color:${pack.grad[0]};opacity:${state.gems<pack.cost?0.4:1}">${icon("Coins",12,pack.grad[0])} ${pack.cost}</button>
+        </div>`).join("")}
+    </div>
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">GEM PASSES</div>
+    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">🚧 Demo only — these buttons add gems instantly for testing. A real app needs App Store / Google Play billing set up by an adult before it can charge real money.</div>
+    <div class="grid3" style="margin-bottom:22px">
+      ${GEM_PASSES.map(pass=>`
+        <div class="panel" style="position:relative;padding:12px;text-align:center;${pass.bestValue?`background:linear-gradient(160deg, ${COLORS.purple}, ${COLORS.pink});border:none`:""}">
+          ${pass.bestValue ? `<div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:900;padding:2px 8px;border-radius:999px;background:${COLORS.gold};color:${COLORS.bg}">BEST VALUE</div>` : ""}
+          <div class="row center" style="margin-bottom:4px">${icon("Gem",20,pass.bestValue?"#fff":COLORS.gold)}</div>
+          <div style="font-weight:900;font-size:14px;color:${pass.bestValue?"#fff":COLORS.cream}">${pass.gems}</div>
+          <div style="font-size:9px;margin-bottom:8px;color:${pass.bestValue?"#ffffffcc":COLORS.muted}">gems</div>
+          <button data-action="buy-gem-pass" data-pass-id="${pass.id}" class="btn scrimtap wfull row center" style="gap:4px;padding:6px 0;font-size:11px;background:${pass.bestValue?"#fff":COLORS.panelLight};color:${pass.bestValue?COLORS.purple:COLORS.gold}">${s.purchasedPass===pass.id?icon("Check",12,pass.bestValue?COLORS.purple:COLORS.gold)+" Added!":`€${pass.price}`}</button>
+        </div>`).join("")}
+    </div>
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">EXCLUSIVE CARDS</div>
+    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Guaranteed 100-rated cards — no luck involved, straight to your collection.</div>
+    <div class="col" style="gap:12px">
+      ${state.players.filter(p=>p.exclusive).map(card=>{
+        const bought = card.owned || s.purchasedExclusive===card.id;
+        return `<div class="row" style="gap:12px;padding:12px;border-radius:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight});border:2px solid ${COLORS.gold}">
+          <div class="avatarCircle" style="width:48px;height:48px;font-weight:900;font-size:17px;background:${COLORS.gold};color:${COLORS.bg};box-shadow:0 0 16px ${COLORS.gold}88;flex-shrink:0">${card.power}</div>
+          <div style="flex:1"><div style="font-weight:900;font-size:13px;color:${COLORS.cream}">${esc(card.name)}</div><div style="font-size:10px;font-weight:800;color:${COLORS.gold}">${card.position} · LEGENDARY</div></div>
+          <button data-action="buy-exclusive" data-card-id="${card.id}" ${bought?"disabled":""} class="btn scrimtap row center" style="gap:4px;padding:8px 12px;font-size:11px;flex-shrink:0;background:${bought?COLORS.turf:`linear-gradient(135deg, ${COLORS.gold}, #FF9F4A)`};color:${COLORS.bg}">${bought?icon("Check",12,COLORS.bg)+" Owned":`€${card.priceEUR}`}</button>
+        </div>`;
+      }).join("")}
+    </div>
+    ${overlay}
+  </div>`;
+}
+
+function startSpinAnimation(){
+  const s = state.shop;
+  const wrap = document.getElementById("spinStrip");
+  const track = document.getElementById("spinTrack");
+  if(!wrap || !track) return;
+  const tickTimes = [90,180,280,390,510,650,800,970,1160,1380,1630,1920,2260,2650];
+  tickTimes.forEach((t)=>setTimeout(()=>playTap(), t));
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      const width = wrap.offsetWidth;
+      const target = width/2 - SPIN_ITEM_W/2 - s.spinFinalIndex*SPIN_STEP;
+      track.style.transition = "transform 2.9s cubic-bezier(0.1,0.7,0.15,1)";
+      track.style.transform = `translateX(${target}px)`;
+    });
+  });
+  const onEnd = (e)=>{
+    if(e.propertyName !== "transform") return;
+    track.removeEventListener("transitionend", onEnd);
+    landPack();
+  };
+  track.addEventListener("transitionend", onEnd);
+}
+function landPack(){
+  const s = state.shop;
+  const pick = s.pendingPick;
+  if(!pick){ return; }
+  state.players = state.players.map(p=> p.id===pick.id ? {...p, owned:true} : p);
+  if(isTopTier(pick.rarity)){ playFanfare(); playImpact(); } else if(isHighTier(pick.rarity)) playSparkle(); else playChime();
+  s.revealed = pick; s.phase="revealed"; s.pendingPick=null;
+  render();
+}
+
+// ---------- Play view ----------
+function currentClub(){ return SEASON_CLUBS[(state.season.matchday-1)%SEASON_CLUBS.length]; }
+function pitchHTML(){
+  const pl = state.play;
+  const showMy = pl.phase!=="__never";
+  const mySlots = buildSlots(pl.formationKey,"my");
+  const showOpp = pl.phase!=="building";
+  const zr = pl.phase==="result" ? (pl.finalResult && pl.finalResult.zoneResults) : (pl.phase==="halftime"||pl.phase==="battling") ? pl.zoneResultsLive : null;
+  const bands = {FWD:[0,25],MID:[25,50],DEF:[50,75],GK:[75,100]};
+  const zoneShade = zr ? Object.keys(bands).map(z=>{
+    const [top,bottom]=bands[z]; const r=zr[z];
+    return `<div style="position:absolute;left:0;right:0;top:${top}%;height:${bottom-top}%;background:${r==="win"?COLORS.turf+"22":r==="lose"?COLORS.danger+"22":"transparent"}"></div>`;
+  }).join("") : "";
+  const WANDER_KF = ["wanderA","wanderB","wanderC","wanderD"];
+  function chip(p, isMy, key, i){
+    const hasBall = pl.phase==="battling" && key && pl.ballOwnerKey===key;
+    if(!p) return `<div class="avatarCircle" style="width:40px;height:40px;border:2px dashed ${COLORS.muted};color:${COLORS.muted};font-weight:900">+</div>`;
+    const rarity = RARITY[p.rarity];
+    const avatar = `<div id="${key?"avatar-"+key:""}" class="avatarCircle" style="width:40px;height:40px;font-weight:900;font-size:14px;background:${rarity.color};color:${COLORS.bg};border:2px solid ${hasBall?COLORS.gold:"rgba(255,255,255,.7)"};box-shadow:${hasBall?`0 0 14px ${COLORS.gold}cc`:`0 0 12px ${rarity.color}66`};transition:box-shadow .3s ease,border-color .3s ease">${p.power}</div>`;
+    const nameTag = `<div style="font-size:9px;font-weight:800;margin-top:2px;padding:0 4px;border-radius:4px;color:${COLORS.cream};background:rgba(0,0,0,.5)">${esc(p.name.split(" ").slice(-1)[0])}</div>`;
+    const inner = `<div class="col" style="align-items:center">${avatar}${nameTag}</div>`;
+    if(pl.phase!=="battling" || !key) return inner;
+    const kf = WANDER_KF[i%4], dur=(2.8+(i%4)*0.4).toFixed(1), delay=((i%5)*0.2).toFixed(1);
+    return `<div style="animation:${kf} ${dur}s ease-in-out infinite;animation-delay:${delay}s"><div id="chip-${key}" style="transform:scale(${hasBall?1.22:1});transition:transform .3s ease">${inner}</div></div>`;
+  }
+  const oppSlots = pl.oppSlots || [];
+  const battling = pl.phase==="battling";
+  const ballList = battling ? motionSlotList() : [];
+  const ballSlot = ballList.find(m=>m.key===pl.ballOwnerKey);
+  return `<div style="position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;height:340px;background:repeating-linear-gradient(180deg, ${COLORS.pitch} 0px, ${COLORS.pitch} 34px, #14351f 34px, #14351f 68px);box-shadow:inset 0 0 60px rgba(0,0,0,.45)">
+    <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:${COLORS.pitchLine}"></div>
+    <div style="position:absolute;width:80px;height:80px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;border:1px solid ${COLORS.pitchLine}"></div>
+    ${zoneShade}
+    ${showOpp ? oppSlots.map((slot,i)=>`<div style="position:absolute;left:${slot.x}%;top:${slot.y}%;transform:translate(-50%,-50%)">${chip((pl.oppLineup||{})[slot.id],false,"opp-"+slot.id,i)}</div>`).join("") : ""}
+    ${mySlots.map((slot,i)=>`<button data-action="${pl.phase==="building"?"open-slot-picker":"noop"}" data-slot-id="${slot.id}" style="position:absolute;left:${slot.x}%;top:${slot.y}%;transform:translate(-50%,-50%);background:none;border:none;padding:0" class="scrimtap">${chip(pl.myLineup[slot.id],true,"my-"+slot.id,i)}</button>`).join("")}
+    ${battling ? `<div id="ballMarker" style="position:absolute;left:${ballSlot?ballSlot.x:50}%;top:${ballSlot?ballSlot.y:50}%;transform:translate(-50%,-180%);font-size:16px;transition:left .4s ease, top .4s ease;display:${ballSlot?"block":"none"}">⚽</div>` : ""}
+    ${pl.phase==="battling" ? `<div style="position:absolute;top:8px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:900;letter-spacing:.15em;color:${COLORS.gold};animation:pulseLive 1.2s ease-in-out infinite">● LIVE</div>` : ""}
+  </div>`;
+}
+function playView(){
+  const pl = state.play;
+  const mySlots = buildSlots(pl.formationKey,"my");
+  const filled = Object.values(pl.myLineup).filter(Boolean).length;
+  const isComplete = filled===mySlots.length;
+  const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
+
+  let modals = "";
+  if(pl.activeSlot){
+    const slot = pl.activeSlot;
+    const options = state.players.filter(p=>p.owned && p.position===slot.position && !usedIds.includes(p.id));
+    modals += `<div class="modalWrap" data-action="close-modal" data-modal="active">
+      <div class="modalSheet" data-action="noop">
+        <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">Choose your ${slot.label}</div><button data-action="close-modal" data-modal="active" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
+        ${pl.myLineup[slot.id] ? `<button data-action="remove-slot" data-slot-id="${slot.id}" class="btn scrimtap wfull" style="padding:10px;margin-bottom:12px;font-size:13px;background:${COLORS.danger}22;color:${COLORS.danger}">Remove current player</button>` : ""}
+        <div class="grid2">
+          ${options.map(p=>playerCard(p,{mode:"select",action:"assign-player",disabled:false})).join("")}
+          ${options.length===0 ? `<div style="grid-column:1/3;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No available ${slot.position} cards. Try the Shop!</div>` : ""}
+        </div>
+      </div>
+    </div>`;
+  }
+  if(pl.subSlot){
+    const slot = pl.subSlot;
+    const bench = state.players.filter(p=>p.owned && p.position===slot.position && !usedIds.includes(p.id));
+    modals += `<div class="modalWrap" data-action="close-modal" data-modal="sub">
+      <div class="modalSheet" data-action="noop">
+        <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">Sub in a ${slot.position}</div><button data-action="close-modal" data-modal="sub" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
+        <div class="grid2">
+          ${bench.map(p=>playerCard(p,{mode:"select",action:"sub-player"})).join("")}
+          ${bench.length===0 ? `<div style="grid-column:1/3;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No bench ${slot.position} available.</div>` : ""}
+        </div>
+      </div>
+    </div>`;
+  }
+  if(pl.challengeOpen){
+    const challengeCode = isComplete ? encodeChallenge(pl.formationKey, pl.myLineup, state.profile) : "";
+    modals += `<div class="modalWrap" data-action="close-modal" data-modal="challenge">
+      <div class="modalSheet" data-action="noop">
+        <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">⚔️ Challenge a Friend</div><button data-action="close-modal" data-modal="challenge" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
+        <div class="row" style="gap:8px;margin-bottom:16px">
+          <button data-action="challenge-tab" data-tab="share" class="btn scrimtap" style="flex:1;padding:8px 0;font-size:11px;background:${pl.challengeTab==="share"?COLORS.turf:COLORS.panelLight};color:${pl.challengeTab==="share"?COLORS.bg:COLORS.muted}">SHARE MY SQUAD</button>
+          <button data-action="challenge-tab" data-tab="join" class="btn scrimtap" style="flex:1;padding:8px 0;font-size:11px;background:${pl.challengeTab==="join"?COLORS.turf:COLORS.panelLight};color:${pl.challengeTab==="join"?COLORS.bg:COLORS.muted}">ENTER A CODE</button>
+        </div>
+        ${pl.challengeTab==="share" ? (
+          isComplete ? `<div>
+            <div style="font-size:12px;margin-bottom:8px;color:${COLORS.muted}">Copy this code and send it to a friend any way you like (text, Discord, whatever). When they paste it into their own TCG Manager, their squad plays yours — real lineup vs real lineup.</div>
+            <div style="border-radius:12px;padding:12px;margin-bottom:12px;font-size:11px;word-break:break-all;font-family:monospace;background:${COLORS.panelLight};color:${COLORS.gold}">${esc(challengeCode)}</div>
+            <button data-action="copy-challenge" class="btn scrimtap wfull row center" style="gap:4px;padding:10px 0;font-size:13px;background:${COLORS.turf};color:${COLORS.bg}">${pl.copyFeedback?icon("Check",14,COLORS.bg)+" Copied!":"COPY CODE"}</button>
+          </div>` : `<div style="text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">Fill all ${mySlots.length} positions first, then come back to generate your code.</div>`
+        ) : `<div>
+          <div style="font-size:12px;margin-bottom:8px;color:${COLORS.muted}">Paste a friend's challenge code below to battle their real squad.</div>
+          <textarea data-field="pasteCode" rows="3" placeholder="Paste LXI1-... code here" style="width:100%;border-radius:12px;padding:10px;font-size:11px;outline:none;border:none;margin-bottom:8px;font-family:monospace;background:${COLORS.panelLight};color:${COLORS.cream}">${esc(pl.pasteCode)}</textarea>
+          ${pl.pasteError ? `<div style="font-size:11px;font-weight:800;margin-bottom:8px;color:${COLORS.danger}">${esc(pl.pasteError)}</div>` : ""}
+          <button data-action="join-challenge" class="btn scrimtap wfull" style="padding:10px 0;font-size:13px;background:${COLORS.gold};color:${COLORS.bg}">⚔️ BATTLE THIS SQUAD</button>
+        </div>`}
+      </div>
+    </div>`;
+  }
+
+  let body = "";
+  if(pl.phase==="building"){
+    body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.cyan};margin-bottom:8px">Season ${state.season.number} · Matchday ${state.season.matchday}/6 vs ${currentClub()}</div>
+    <div class="row" style="gap:8px;margin-bottom:12px">
+      ${Object.entries(FORMATIONS).map(([key,f])=>`<button data-action="set-formation" data-key="${key}" class="btn scrimtap" style="flex:1;padding:8px 0;font-size:10px;background:${pl.formationKey===key?COLORS.turf:COLORS.panel};color:${pl.formationKey===key?COLORS.bg:COLORS.muted}">${f.name}</button>`).join("")}
+    </div>`;
+  }
+  if(pl.phase==="battling"||pl.phase==="result"||pl.phase==="halftime"){
+    body += `<div class="row center" style="gap:16px;margin-bottom:8px">
+      <span style="font-size:12px;font-weight:800;color:${COLORS.muted}">YOU</span>
+      <div style="font-size:24px;font-weight:900;color:${COLORS.turf}">${pl.myGoals}</div>
+      <span style="font-size:13px;font-weight:900;color:${COLORS.muted}">—</span>
+      <div style="font-size:24px;font-weight:900;color:${COLORS.danger}">${pl.oppGoals}</div>
+      <span style="font-size:12px;font-weight:800;color:${COLORS.muted}">THEM</span>
+    </div>`;
+    if(pl.isChallengeMatch && pl.opponentMeta){
+      body += `<div style="text-align:center;font-size:11px;font-weight:800;margin-bottom:8px;color:${COLORS.pink}">⚔️ Friendly vs ${esc(pl.opponentMeta.profileName)}'s ${esc(pl.opponentMeta.teamName)} ${pl.opponentMeta.avatar}</div>`;
+    }
+  }
+  if(pl.phase==="battling") body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.gold};margin-bottom:8px">⏱ <span id="matchMinuteText">${pl.matchMinute}</span>'</div>`;
+  if(pl.phase==="halftime") body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.gold};margin-bottom:8px">⏸ HALF-TIME — 45'</div>`;
+  if(pl.phase==="result") body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.gold};margin-bottom:8px">FULL TIME — 90'</div>`;
+
+  body += pitchHTML();
+
+  if(pl.phase==="battling"||pl.phase==="result"||pl.phase==="halftime"){
+    body += `<div class="panel" style="padding:10px 12px;margin-bottom:16px;text-align:center;font-size:13px;font-weight:800;color:${COLORS.cream};min-height:20px">${pl.commentary}</div>`;
+  }
+
+  if(pl.phase==="building"){
+    body += `<div style="text-align:center;font-size:12px;color:${COLORS.muted};margin-bottom:12px">${filled}/${mySlots.length} positions filled — tap a slot to assign a player</div>
+    <button data-action="kickoff" ${!isComplete?"disabled":""} class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C;opacity:${!isComplete?0.4:1}">▶️ KICK OFF</button>
+    <button data-action="open-challenge" class="btn scrimtap wfull" style="padding:10px 0;margin-top:8px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.pink};border:1px solid ${COLORS.pink}55">⚔️ CHALLENGE A FRIEND</button>`;
+  }
+  if(pl.phase==="halftime"){
+    body += `<div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">${pl.halfSubUsed?"SUBSTITUTION USED":"ONE SUBSTITUTION AVAILABLE"}</div>
+    <div class="col" style="gap:8px;margin-bottom:16px">
+      ${mySlots.map(slot=>{ const p=pl.myLineup[slot.id]; if(!p) return ""; return `
+        <div class="row panel" style="padding:8px;gap:12px">
+          <div class="avatarCircle" style="width:34px;height:34px;font-weight:900;font-size:13px;background:${RARITY[p.rarity].color};color:${COLORS.bg}">${p.power}</div>
+          <div style="flex:1"><div style="font-size:12px;font-weight:800;color:${COLORS.cream}">${esc(p.name)}</div><div style="font-size:10px;color:${COLORS.muted}">${slot.position}</div></div>
+          <button data-action="open-sub" data-slot-id="${slot.id}" ${pl.halfSubUsed?"disabled":""} class="btn scrimtap row center" style="gap:4px;padding:6px 12px;font-size:10px;background:${COLORS.panelLight};color:${COLORS.gold};opacity:${pl.halfSubUsed?0.3:1}">${icon("Repeat",12,COLORS.gold)} SWAP</button>
+        </div>`; }).join("")}
+    </div>
+    <button data-action="continue-second-half" class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C">KICK OFF 2ND HALF</button>`;
+  }
+  if(pl.phase==="result" && pl.finalResult){
+    const fr = pl.finalResult;
+    body += `<div style="border-radius:16px;padding:20px;margin-bottom:16px;text-align:center;background:${fr.won?COLORS.turf+"22":fr.isDraw?COLORS.cyan+"22":COLORS.danger+"22"};border:2px solid ${fr.won?COLORS.turf:fr.isDraw?COLORS.cyan:COLORS.danger};animation:${fr.won||fr.isDraw?"popIn .4s ease":"shake .4s ease"}">
+      <div style="font-size:22px;font-weight:900;margin-bottom:4px;color:${fr.won?COLORS.turf:fr.isDraw?COLORS.cyan:COLORS.danger}">${fr.won?"VICTORY! 🎉":fr.isDraw?"DRAW":"DEFEAT"}</div>
+      <div style="font-size:13px;margin-bottom:4px;color:${COLORS.cream}">${fr.line}</div>
+      <div style="font-size:11px;margin-bottom:8px;color:${COLORS.muted}">Zones won: ${fr.myZoneWins} - ${fr.oppZoneWins}</div>
+      <div style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:999px;background:${COLORS.panelLight}">${icon("Coins",14,COLORS.gold)} <span style="font-size:13px;font-weight:800;color:${COLORS.gold}">+${fr.gemsEarned} gems</span></div>
+    </div>
+    <div class="grid2" style="margin-bottom:16px">
+      ${ZONES.map(z=>`<div class="row between panel" style="padding:8px 10px;border:1px solid ${fr.zoneResults[z.key]==="win"?COLORS.turf:fr.zoneResults[z.key]==="lose"?COLORS.danger:COLORS.muted}">
+        <span style="font-size:12px;font-weight:800;color:${COLORS.cream}">${z.label}</span>
+        <span style="font-size:12px;font-weight:900;color:${fr.zoneResults[z.key]==="win"?COLORS.turf:fr.zoneResults[z.key]==="lose"?COLORS.danger:COLORS.muted}">${fr.zoneResults[z.key]==="win"?"WON":fr.zoneResults[z.key]==="lose"?"LOST":"TIE"}</span>
+      </div>`).join("")}
+    </div>
+    ${pl.isChallengeMatch ? `<div style="font-size:10px;text-align:center;margin-bottom:16px;color:${COLORS.muted}">⚔️ Friendly challenge — season & matchday weren't affected.</div>` : ""}
+    ${pl.seasonSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:linear-gradient(135deg, ${COLORS.purple}, ${COLORS.pink})">
+      <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:#fff">🏁 Season ${pl.seasonSummary.number} Complete!</div>
+      <div style="font-size:13px;margin-bottom:4px;color:#ffffffdd">${pl.seasonSummary.wins}W - ${pl.seasonSummary.draws||0}D - ${pl.seasonSummary.losses}L · ${pl.seasonSummary.points} pts</div>
+      <div style="font-size:13px;font-weight:800;margin-bottom:10px;color:${COLORS.gold}">+${pl.seasonSummary.bonus} bonus gems!</div>
+      <button data-action="close-season-summary" class="btn scrimtap" style="padding:8px 16px;font-size:13px;background:#fff;color:${COLORS.purple}">Awesome!</button>
+    </div>` : ""}
+    <button data-action="play-again" class="btn scrimtap wfull" style="padding:16px 0;font-size:17px;font-weight:900;letter-spacing:.02em;background:${COLORS.panelLight};color:${COLORS.cream}">PLAY AGAIN</button>`;
+  }
+
+  const confetti = (state.confettiOn && pl.phase==="result" && pl.finalResult && pl.finalResult.won) ? confettiHTML() : "";
+  return `<div class="view" style="padding-top:8px">
+    ${confetti}
+    ${state.stats.streak>=2 && pl.phase==="building" ? `<div class="row center" style="gap:6px;margin-bottom:8px;font-size:13px;font-weight:800;color:${COLORS.gold}">${icon("Flame",16,COLORS.gold)} ${state.stats.streak} win streak — opponents are getting tougher!</div>` : ""}
+    ${body}
+    ${modals}
+  </div>`;
+}
+function confettiHTML(){
+  let pieces = "";
+  const emo = ["⚽","🎉","⭐","✨","🔥"];
+  for(let i=0;i<32;i++){
+    const left = Math.random()*100, delay=(Math.random()*0.4).toFixed(2), dur=(1.6+Math.random()).toFixed(2), size=(14+Math.random()*10).toFixed(0);
+    pieces += `<div class="confettiPiece" style="left:${left}%;font-size:${size}px;animation:confettiFall ${dur}s ease-in ${delay}s forwards">${emo[i%emo.length]}</div>`;
+  }
+  return `<div style="position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:45">${pieces}</div>`;
+}
+
+// ---------- Profile view ----------
+function profileView(){
+  const owned = state.players.filter(p=>p.owned);
+  const bestCard = owned.reduce((best,p)=> p.power>(best?best.power:0) ? p : best, null);
+  const total = state.stats.wins+state.stats.losses+(state.stats.draws||0);
+  const winRate = total ? Math.round((state.stats.wins/total)*100) : 0;
+  const rank = rankForWins(state.stats.wins);
+  const xp = state.stats.wins*15 + state.stats.losses*3 + owned.length*8 + state.stats.bestStreak*10;
+  const level = Math.floor(xp/150)+1, xpInto = xp%150, xpPct = Math.round((xpInto/150)*100);
+  return `<div class="view">
+    <div class="panel" style="padding:20px;margin-bottom:16px;text-align:center;background:linear-gradient(160deg, ${COLORS.panel}, ${COLORS.panelLight})">
+      <div class="avatarCircle" style="width:76px;height:76px;font-size:30px;margin:0 auto 8px;position:relative;background:linear-gradient(135deg, ${state.profile.color}, ${COLORS.purple});box-shadow:0 0 20px ${state.profile.color}66">
+        ${state.profile.avatar}
+        <div style="position:absolute;bottom:-4px;right:-4px;width:24px;height:24px;border-radius:50%;background:${COLORS.bg};border:2px solid ${state.profile.color};color:${state.profile.color};font-weight:900;font-size:10px;display:flex;align-items:center;justify-content:center">${state.profile.number}</div>
+      </div>
+      <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:8px;color:${rank.color}">${rank.icon} ${rank.name.toUpperCase()}</div>
+      <div class="grid2" style="margin-bottom:10px">
+        <input data-field="name" value="${esc(state.profile.name)}" placeholder="Your name" maxlength="16" style="text-align:center;font-weight:800;border-radius:12px;padding:8px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        <input data-field="teamName" value="${esc(state.profile.teamName)}" placeholder="Team name" maxlength="18" style="text-align:center;font-weight:800;border-radius:12px;padding:8px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+      </div>
+      <div class="row center" style="gap:8px;margin-bottom:10px">
+        <span style="font-size:10px;font-weight:800;color:${COLORS.muted}">JERSEY #</span>
+        <input data-field="number" type="number" min="1" max="99" value="${state.profile.number}" style="width:52px;text-align:center;font-weight:900;border-radius:12px;padding:4px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${state.profile.color}" />
+      </div>
+      <div class="row wrap center" style="gap:6px;margin-bottom:10px">
+        ${AVATARS.map(a=>`<button data-action="set-avatar" data-avatar="${a}" class="scrimtap" style="font-size:16px;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${a===state.profile.avatar?state.profile.color+"44":"transparent"};border:1px solid ${a===state.profile.avatar?state.profile.color:"transparent"}">${a}</button>`).join("")}
+      </div>
+      <div class="row center" style="gap:8px">
+        ${TEAM_COLORS.map(c=>`<button data-action="set-color" data-color="${c.hex}" class="scrimtap" style="width:22px;height:22px;border-radius:50%;background:${c.hex};border:2px solid ${state.profile.color===c.hex?"#fff":"transparent"}"></button>`).join("")}
+      </div>
+    </div>
+
+    <div class="panel" style="padding:16px;margin-bottom:16px">
+      <div class="row between" style="margin-bottom:8px"><div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">FAN LEVEL</div><div style="font-weight:900;font-size:13px;color:${state.profile.color}">LV ${level}</div></div>
+      <div style="height:10px;border-radius:999px;overflow:hidden;background:${COLORS.panelLight}"><div style="height:100%;border-radius:999px;width:${xpPct}%;background:linear-gradient(90deg, ${state.profile.color}, ${COLORS.gold})"></div></div>
+      <div style="font-size:10px;margin-top:4px;color:${COLORS.muted}">${xpInto} / 150 XP to next level</div>
+    </div>
+
+    <div class="panel" style="padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">THIS SEASON</div>
+      <div class="row between" style="font-size:13px"><span style="color:${COLORS.cream}">Season ${state.season.number} · Matchday ${state.season.matchday}/6</span><span style="font-weight:900;color:${COLORS.gold}">${state.season.points} pts</span></div>
+      <div style="font-size:10px;margin-top:4px;color:${COLORS.muted}">${state.season.wins}W - ${state.season.draws||0}D - ${state.season.losses}L this season</div>
+    </div>
+
+    <div class="grid4" style="margin-bottom:16px">
+      ${statBox("Wins",state.stats.wins,COLORS.turf)}${statBox("Losses",state.stats.losses,COLORS.danger)}${statBox("Win rate",winRate+"%",COLORS.gold)}${statBox("Best streak",state.stats.bestStreak,COLORS.pink)}
+    </div>
+
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">ACHIEVEMENTS</div>
+    <div class="grid4" style="margin-bottom:16px">
+      ${ACHIEVEMENTS.map(a=>{ const unlocked = a.check(state.stats, state.players, {season:state.season, gems:state.gems});
+        return `<div class="col center" style="text-align:center;border-radius:12px;padding:8px;background:${unlocked?COLORS.panelLight:COLORS.panel};opacity:${unlocked?1:0.4};border:1px solid ${unlocked?COLORS.gold:"transparent"}">
+          <div style="font-size:17px;margin-bottom:2px">${a.emoji}</div>
+          <div style="font-size:8px;font-weight:800;line-height:1.2;color:${unlocked?COLORS.cream:COLORS.muted}">${a.label}</div>
+        </div>`; }).join("")}
+    </div>
+
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">BEST CARD</div>
+    ${bestCard ? playerCard(bestCard,{mode:"index"}) : `<div style="font-size:13px;margin-bottom:16px;color:${COLORS.muted}">No cards yet.</div>`}
+
+    <button data-action="${state.confirmReset?"do-reset":"confirm-reset"}" class="btn scrimtap wfull" style="margin-top:16px;padding:12px 0;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;background:${state.confirmReset?COLORS.danger:COLORS.panel};color:${state.confirmReset?"#fff":COLORS.muted}">${icon("RefreshCw",14,state.confirmReset?"#fff":COLORS.muted)} ${state.confirmReset?"Tap again to confirm reset":"Reset progress"}</button>
+  </div>`;
+}
+function adminPlayersSection(){
+  const ap = state.adminPlayers;
+  const list = ap.list || [];
+  const sorted = [...list].sort((a,b)=>b.id-a.id).slice(0,15);
+  return `
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">MANAGE PLAYERS (GLOBAL)</div>
+    <div class="panel" style="padding:12px;margin-bottom:12px">
+      <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Adding or removing here goes live for <b>every connected player</b> (including friends on the public link) next time their game reloads — it calls a local-only API on this PC, separate from the shared game file.</div>
+      ${ap.status ? `<div style="font-size:11px;font-weight:700;margin-bottom:10px;color:${ap.statusOk?COLORS.turf:COLORS.danger}">${esc(ap.status)}</div>` : ""}
+      <div class="grid2" style="gap:8px;margin-bottom:8px">
+        <input data-field="adminName" value="${esc(ap.form.name)}" placeholder="Player name" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        <input data-field="adminPower" type="number" min="1" max="100" value="${ap.form.power}" placeholder="Power" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+      </div>
+      <div class="grid2" style="gap:8px;margin-bottom:10px">
+        <select data-field="adminPosition" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}">
+          ${["GK","DEF","MID","FWD"].map(pos=>`<option value="${pos}" ${ap.form.position===pos?"selected":""}>${pos}</option>`).join("")}
+        </select>
+        <select data-field="adminRarity" style="border-radius:10px;padding:8px;border:none;outline:none;font-size:12px;background:${COLORS.panelLight};color:${COLORS.cream}">
+          ${RARITY_ORDER.map(r=>`<option value="${r}" ${ap.form.rarity===r?"selected":""}>${r}</option>`).join("")}
+        </select>
+      </div>
+      <button data-action="admin-players-add" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;background:${COLORS.turf};color:${COLORS.bg};margin-bottom:8px">Add Player Globally</button>
+      <button data-action="admin-players-refresh" class="btn scrimtap wfull panel" style="padding:8px 0;font-size:11px;color:${COLORS.muted}">${ap.listLoading?"Loading…":"Refresh list ("+list.length+" total)"}</button>
+    </div>
+    ${list.length ? `<div class="panel" style="padding:8px;margin-bottom:16px;max-height:220px;overflow-y:auto">
+      ${sorted.map(p=>`<div class="row between" style="padding:6px 4px;border-bottom:1px solid ${COLORS.panelLight}">
+        <div style="font-size:11px;color:${COLORS.cream}">${esc(p.name)} <span style="color:${COLORS.muted}">· ${p.position} · ${p.power} · ${p.rarity}</span></div>
+        <button data-action="admin-players-delete" data-player-id="${p.id}" class="scrimtap" style="background:none;border:none;color:${COLORS.danger};font-size:11px;font-weight:800">✕</button>
+      </div>`).join("")}
+    </div>` : `<div style="font-size:12px;color:${COLORS.muted};margin-bottom:16px">Tap "Refresh list" to load the current global catalog.</div>`}
+  `;
+}
+function adminView(){
+  const ownedCount = state.players.filter(p=>p.owned).length;
+  const totalCount = state.players.length;
+  const debugState = { gems: state.gems, stats: state.stats, season: state.season, home: state.home, profile: state.profile };
+  return `<div class="view">
+    <div class="panel" style="padding:16px;margin-bottom:16px;border:1px solid ${COLORS.danger}55">
+      <div class="row" style="gap:6px;margin-bottom:4px">${icon("Lock",14,COLORS.danger)}<span style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.danger}">DEVICE-ONLY ADMIN PANEL</span></div>
+      <div style="font-size:12px;color:${COLORS.muted}">Only visible when the game is opened on this machine (localhost). Friends playing via the public link or their own phone never see this tab.</div>
+    </div>
+
+    ${adminPlayersSection()}
+
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">GEMS (${state.gems})</div>
+    <div class="grid4" style="margin-bottom:16px">
+      <button data-action="admin-add-gems" data-amount="100" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+100</button>
+      <button data-action="admin-add-gems" data-amount="1000" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+1,000</button>
+      <button data-action="admin-add-gems" data-amount="100000" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">+100k</button>
+      <button data-action="admin-set-gems-zero" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.danger}">Zero</button>
+    </div>
+
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">COLLECTION (${ownedCount}/${totalCount} owned)</div>
+    <div class="row" style="gap:8px;margin-bottom:16px">
+      <button data-action="admin-unlock-all" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;background:${COLORS.turf};color:${COLORS.bg}">Unlock all cards</button>
+      <button data-action="admin-lock-all" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;background:${COLORS.panel};color:${COLORS.muted}">Reset to starters</button>
+    </div>
+
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">PROGRESS</div>
+    <div class="grid3" style="margin-bottom:16px">
+      <button data-action="admin-add-wins" data-amount="1" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.cream}">+1 Win</button>
+      <button data-action="admin-add-wins" data-amount="10" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.cream}">+10 Wins</button>
+      <button data-action="admin-advance-matchday" class="btn scrimtap panel" style="padding:10px 0;font-size:12px;color:${COLORS.cream}">Next Matchday</button>
+    </div>
+
+    <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">RAW STATE (read-only, for debugging)</div>
+    <textarea readonly style="width:100%;height:160px;border-radius:12px;padding:10px;font-size:10px;font-family:monospace;border:none;outline:none;margin-bottom:16px;background:${COLORS.panelLight};color:${COLORS.cream}">${esc(JSON.stringify(debugState, null, 2))}</textarea>
+  </div>`;
+}
+function statBox(label,value,color){
+  return `<div class="panel" style="padding:8px;text-align:center"><div style="font-size:16px;font-weight:900;color:${color}">${value}</div><div style="font-size:9px;letter-spacing:.03em;color:${COLORS.muted}">${label}</div></div>`;
+}
+
+// ---------- app shell ----------
+function appHTML(){
+  const rankUpBanner = state.rankUp ? `<div style="position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:8px;padding:calc(12px + env(safe-area-inset-top)) 12px 12px;background:linear-gradient(90deg, ${state.rankUp.color}, ${COLORS.gold})">
+    <span style="font-size:22px">${state.rankUp.icon}</span><span style="font-weight:900;font-size:13px;color:${COLORS.bg}">PROMOTED TO ${state.rankUp.name.toUpperCase()}!</span>
+  </div>` : "";
+  let view = "";
+  if(state.tab==="home") view = homeView();
+  else if(state.tab==="index") view = indexView();
+  else if(state.tab==="cards") view = myCardsView();
+  else if(state.tab==="shop") view = shopView();
+  else if(state.tab==="play") view = playView();
+  else if(state.tab==="profile") view = profileView();
+  else if(state.tab==="admin" && isAdminDevice()) view = adminView();
+  return `${rankUpBanner}${railHeader()}${view}${tabBar()}`;
+}
+
+// ---------- actions ----------
+function checkRankUp(){
+  const r = rankForWins(state.stats.wins);
+  if(r.name !== state.prevRankName){
+    state.prevRankName = r.name;
+    state.rankUp = r; playFanfare();
+    setTimeout(()=>{ state.rankUp=null; render(); }, 3200);
+  }
+}
+function clearMinuteInterval(){ if(state.play.minuteInterval){ clearInterval(state.play.minuteInterval); state.play.minuteInterval=null; } }
+function clearBallInterval(){ if(state.play.ballInterval){ clearInterval(state.play.ballInterval); state.play.ballInterval=null; } }
+function motionSlotList(){
+  const pl = state.play;
+  const mySlots = buildSlots(pl.formationKey,"my");
+  const oppSlots = pl.oppSlots || [];
+  return [
+    ...mySlots.map(s=>({key:"my-"+s.id, x:s.x, y:s.y})),
+    ...oppSlots.map(s=>({key:"opp-"+s.id, x:s.x, y:s.y})),
+  ];
+}
+function updateBallDOM(prevKey, nextKey){
+  if(prevKey){ const el=document.getElementById("chip-"+prevKey); if(el) el.style.transform="scale(1)"; const av=document.getElementById("avatar-"+prevKey); if(av){ av.style.boxShadow=""; av.style.borderColor="rgba(255,255,255,.7)"; } }
+  if(nextKey){ const el=document.getElementById("chip-"+nextKey); if(el) el.style.transform="scale(1.22)"; const av=document.getElementById("avatar-"+nextKey); if(av){ av.style.boxShadow=`0 0 14px ${COLORS.gold}cc`; av.style.borderColor=COLORS.gold; } }
+  const marker = document.getElementById("ballMarker");
+  const list = motionSlotList();
+  const slot = list.find(m=>m.key===nextKey);
+  if(marker && slot){ marker.style.left=slot.x+"%"; marker.style.top=slot.y+"%"; marker.style.display="block"; }
+}
+function startBallInterval(){
+  const pl = state.play;
+  clearBallInterval();
+  const motionList = motionSlotList();
+  if(!motionList.length) return;
+  let current = motionList[Math.floor(Math.random()*motionList.length)].key;
+  pl.ballOwnerKey = current;
+  updateBallDOM(null, current);
+  pl.ballInterval = setInterval(()=>{
+    const list = motionSlotList();
+    const teamPrefix = current.split("-")[0];
+    const stayTeam = Math.random()<0.8;
+    const pool = list.filter(m=>m.key!==current && (stayTeam ? m.key.startsWith(teamPrefix) : !m.key.startsWith(teamPrefix)));
+    const fallback = list.filter(m=>m.key!==current);
+    const choices = pool.length ? pool : fallback;
+    if(!choices.length) return;
+    const prev = current;
+    current = choices[Math.floor(Math.random()*choices.length)].key;
+    pl.ballOwnerKey = current;
+    updateBallDOM(prev, current);
+  }, 850);
+}
+
+function beginMatch(newOppSlots, opp, label){
+  const pl = state.play;
+  ensureAudio(); playWhistle(); setTimeout(playKick,150);
+
+  pl.oppSlots = newOppSlots; pl.oppLineup = opp;
+  pl.firstHalfLineup = {...pl.myLineup};
+  pl.currentHalf=1; pl.phase="battling"; pl.myGoals=0; pl.oppGoals=0;
+  pl.commentary = `Kick off ${label}!`; pl.matchMinute=0; pl.zoneResultsLive={};
+  render();
+  startBallInterval();
+
+  const t0 = performance.now();
+  clearMinuteInterval();
+  pl.minuteInterval = setInterval(()=>{
+    const elapsed = performance.now()-t0;
+    const m = Math.min(45, Math.floor((elapsed/15000)*45));
+    pl.matchMinute = Math.min(90, m);
+    const el = document.getElementById("matchMinuteText");
+    if(el) el.textContent = pl.matchMinute;
+  }, 250);
+
+  const reveal = (zoneKey, delay)=> setTimeout(()=>{
+    const {result} = computeZone(zoneKey, pl.firstHalfLineup, pl.oppLineup);
+    pl.zoneResultsLive = {...pl.zoneResultsLive, [zoneKey]:result};
+    pl.commentary = COMMENTARY[zoneKey][result];
+    if(result==="win"){ playZoneWin(); pl.myGoals++; } else if(result==="lose"){ playZoneLose(); pl.oppGoals++; } else playTap();
+    render();
+  }, delay);
+  reveal("GK",6000); reveal("DEF",13000);
+
+  setTimeout(()=>{ clearMinuteInterval(); clearBallInterval(); playWhistle(); pl.commentary="⏸️ Half-time — make a substitution if you need one."; pl.phase="halftime"; render(); }, 15000);
+}
+function kickOff(){
+  const pl = state.play;
+  const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
+  const formationKeys = Object.keys(FORMATIONS);
+  const chosenOppFormation = formationKeys[Math.floor(Math.random()*formationKeys.length)];
+  const newOppSlots = buildSlots(chosenOppFormation,"opp");
+  const toughness = Math.min(state.stats.streak + (state.season.number-1), 8);
+  const opp = {};
+  newOppSlots.forEach(slot=>{
+    const pool = state.players.filter(p=>p.position===slot.position && !usedIds.includes(p.id));
+    let source = pool.length ? pool : state.players.filter(p=>p.position===slot.position);
+    if(toughness>=2){ const sorted=[...source].sort((a,b)=>b.power-a.power); source = sorted.slice(0, Math.max(1, Math.ceil(sorted.length*(1-toughness*0.06)))); }
+    opp[slot.id] = source[Math.floor(Math.random()*source.length)];
+  });
+  pl.opponentMeta = null; pl.isChallengeMatch = false;
+  beginMatch(newOppSlots, opp, `vs ${currentClub()}`);
+}
+function startChallengeMatch(payload){
+  const pl = state.play;
+  const newOppSlots = buildSlots(payload.f,"opp");
+  const byPos = {};
+  payload.pl.forEach(([name, position, power, rc], i)=>{
+    (byPos[position] = byPos[position] || []).push({ id:`chal-${i}-${position}-${power}`, name, position, power, rarity: RARITY_FROM_CODE[rc]||"Common", owned:true });
+  });
+  const opp = {};
+  newOppSlots.forEach(slot=>{ const pool = byPos[slot.position]||[]; opp[slot.id] = pool.shift() || null; });
+  pl.opponentMeta = { teamName: payload.tn, profileName: payload.pn, avatar: payload.av, color: payload.cl };
+  pl.isChallengeMatch = true;
+  pl.challengeOpen = false;
+  beginMatch(newOppSlots, opp, `vs ${payload.pn}'s ${payload.tn}`);
+}
+function continueSecondHalf(){
+  const pl = state.play;
+  const secondHalfLineup = {...pl.myLineup};
+  playWhistle(); pl.currentHalf=2; pl.phase="battling"; pl.commentary="Second half underway!"; render();
+  startBallInterval();
+
+  const t0 = performance.now();
+  clearMinuteInterval();
+  pl.minuteInterval = setInterval(()=>{
+    const elapsed = performance.now()-t0;
+    const m = Math.min(45, Math.floor((elapsed/15000)*45));
+    pl.matchMinute = Math.min(90, 45+m);
+    const el = document.getElementById("matchMinuteText");
+    if(el) el.textContent = pl.matchMinute;
+  }, 250);
+
+  const reveal = (zoneKey, delay)=> setTimeout(()=>{
+    const {result} = computeZone(zoneKey, secondHalfLineup, pl.oppLineup);
+    pl.zoneResultsLive = {...pl.zoneResultsLive, [zoneKey]:result};
+    pl.commentary = COMMENTARY[zoneKey][result];
+    if(result==="win"){ playZoneWin(); pl.myGoals++; } else if(result==="lose"){ playZoneLose(); pl.oppGoals++; } else playTap();
+    render();
+  }, delay);
+  reveal("MID",6000); reveal("FWD",13000);
+
+  setTimeout(()=>{
+    clearMinuteInterval();
+    clearBallInterval();
+    const zGK = computeZone("GK", pl.firstHalfLineup, pl.oppLineup);
+    const zDEF = computeZone("DEF", pl.firstHalfLineup, pl.oppLineup);
+    const zMID = computeZone("MID", secondHalfLineup, pl.oppLineup);
+    const zFWD = computeZone("FWD", secondHalfLineup, pl.oppLineup);
+    const zr = {GK:zGK.result,DEF:zDEF.result,MID:zMID.result,FWD:zFWD.result};
+    let myWins=0, oppWins=0;
+    [zGK,zDEF,zMID,zFWD].forEach(z=>{ if(z.result==="win") myWins++; else if(z.result==="lose") oppWins++; });
+    const myTotalPower = zGK.myTotal+zDEF.myTotal+zMID.myTotal+zFWD.myTotal;
+    const oppTotalPower = zGK.oppTotal+zDEF.oppTotal+zMID.oppTotal+zFWD.oppTotal;
+    const outcome = myWins!==oppWins
+      ? (myWins>oppWins ? "win" : "loss")
+      : (myTotalPower===oppTotalPower ? "draw" : (myTotalPower>oppTotalPower ? "win" : "loss"));
+    const won = outcome==="win";
+    const isDraw = outcome==="draw";
+    const gemsEarned = won ? WIN_GEMS : isDraw ? DRAW_GEMS : LOSS_GEMS;
+
+    const ns = won ? state.stats.streak+1 : 0;
+    state.stats = { wins: state.stats.wins+(won?1:0), losses: state.stats.losses+(!won&&!isDraw?1:0), draws: (state.stats.draws||0)+(isDraw?1:0), streak: ns, bestStreak: Math.max(state.stats.bestStreak, ns) };
+    state.gems += gemsEarned;
+
+    if(!pl.isChallengeMatch){
+      const s = state.season;
+      const pts = s.points+(won?3:isDraw?1:0), w = s.wins+(won?1:0), l = s.losses+(!won&&!isDraw?1:0), d = (s.draws||0)+(isDraw?1:0);
+      if(s.matchday>=6){
+        const bonus = pts*2; state.gems += bonus;
+        pl.seasonSummary = {number:s.number, points:pts, wins:w, losses:l, draws:d, bonus};
+        state.season = {number:s.number+1, matchday:1, points:0, wins:0, losses:0, draws:0};
+      } else {
+        state.season = {...s, matchday:s.matchday+1, points:pts, wins:w, losses:l, draws:d};
+      }
+    }
+    won ? playWin() : isDraw ? playChime() : playLose();
+    pl.commentary = won ? "FULL TIME — What a performance! 🏆" : isDraw ? "FULL TIME — honours even." : "FULL TIME — tough result today.";
+    pl.matchMinute = 90;
+    pl.finalResult = { won, isDraw, zoneResults:zr, myZoneWins:myWins, oppZoneWins:oppWins, gemsEarned, line: won ? WIN_LINES[Math.floor(Math.random()*WIN_LINES.length)] : isDraw ? DRAW_LINES[Math.floor(Math.random()*DRAW_LINES.length)] : LOSS_LINES[Math.floor(Math.random()*LOSS_LINES.length)] };
+    pl.phase = "result";
+    state.confettiOn = won;
+    checkRankUp();
+    render();
+  }, 15000);
+}
+
+document.getElementById("stage").addEventListener("click", function(e){
+  const el = e.target.closest("[data-action]");
+  if(!el) return;
+  const action = el.dataset.action;
+  if(action==="noop") return;
+  ensureAudio();
+  const pl = state.play;
+  switch(action){
+    case "nav-tab":
+      state.tab = el.dataset.tab; playTap();
+      if(state.tab==="admin" && isAdminDevice() && !state.adminPlayers.list) adminRefreshPlayers();
+      render(); break;
+    case "open-slot-picker": {
+      const slot = buildSlots(pl.formationKey,"my").find(s=>s.id===el.dataset.slotId);
+      pl.activeSlot = slot; render(); break;
+    }
+    case "close-modal":
+      if(el.dataset.modal==="active") pl.activeSlot=null; else if(el.dataset.modal==="sub") pl.subSlot=null; else if(el.dataset.modal==="news") state.newsOpen=false; else if(el.dataset.modal==="challenge") pl.challengeOpen=false;
+      render(); break;
+    case "open-news":
+      state.newsOpen = true; render(); break;
+    case "claim-daily": {
+      const dailyClaimed = state.home.dailyLastClaim === todayStr();
+      if(dailyClaimed) break;
+      playChime();
+      const reward = DAILY_REWARDS[state.home.dailyStreak % 7];
+      state.gems += reward;
+      state.home = { ...state.home, dailyLastClaim: todayStr(), dailyStreak: state.home.dailyStreak+1 };
+      render(); break;
+    }
+    case "claim-objective": {
+      const id = el.dataset.objId, reward = Number(el.dataset.reward);
+      if(state.home.objectivesClaimed.includes(id)) break;
+      playSparkle();
+      state.gems += reward;
+      state.home = { ...state.home, objectivesClaimed: [...state.home.objectivesClaimed, id] };
+      render(); break;
+    }
+    case "assign-player": {
+      const p = state.players.find(x=>x.id===Number(el.dataset.playerId));
+      if(p && pl.activeSlot){ playTap(); pl.myLineup = {...pl.myLineup, [pl.activeSlot.id]:p}; pl.activeSlot=null; render(); }
+      break;
+    }
+    case "remove-slot": {
+      const id = el.dataset.slotId; pl.myLineup = {...pl.myLineup, [id]:null}; pl.activeSlot=null; render(); break;
+    }
+    case "set-formation":
+      pl.formationKey = el.dataset.key; pl.myLineup = {}; playTap(); render(); break;
+    case "kickoff":
+      kickOff(); break;
+    case "open-sub": {
+      if(pl.halfSubUsed) break;
+      const slot = buildSlots(pl.formationKey,"my").find(s=>s.id===el.dataset.slotId);
+      pl.subSlot = slot; render(); break;
+    }
+    case "sub-player": {
+      const p = state.players.find(x=>x.id===Number(el.dataset.playerId));
+      if(p && pl.subSlot){ playTap(); pl.myLineup = {...pl.myLineup, [pl.subSlot.id]:p}; pl.halfSubUsed=true; pl.subSlot=null; render(); }
+      break;
+    }
+    case "continue-second-half":
+      continueSecondHalf(); break;
+    case "close-season-summary":
+      pl.seasonSummary = null; render(); break;
+    case "play-again":
+      state.confettiOn=false;
+      state.play = {...pl, activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false};
+      render(); break;
+    case "open-challenge":
+      pl.challengeOpen = true; pl.challengeTab = "share"; pl.pasteError=""; render(); break;
+    case "challenge-tab":
+      pl.challengeTab = el.dataset.tab; render(); break;
+    case "copy-challenge": {
+      const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
+      const mySlots = buildSlots(pl.formationKey,"my");
+      const filled = Object.values(pl.myLineup).filter(Boolean).length;
+      if(filled !== mySlots.length) break;
+      const code = encodeChallenge(pl.formationKey, pl.myLineup, state.profile);
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(code).catch(()=>{}); }
+      playTap(); pl.copyFeedback = true; render();
+      setTimeout(()=>{ pl.copyFeedback=false; render(); }, 1800);
+      break;
+    }
+    case "join-challenge": {
+      const mySlots = buildSlots(pl.formationKey,"my");
+      const filled = Object.values(pl.myLineup).filter(Boolean).length;
+      if(filled !== mySlots.length){ pl.pasteError = `Fill all ${mySlots.length} of your own positions before battling.`; render(); break; }
+      const payload = decodeChallenge(pl.pasteCode);
+      if(!payload){ pl.pasteError = "That code doesn't look right — double-check and try again."; render(); break; }
+      startChallengeMatch(payload);
+      break;
+    }
+    case "open-pack": {
+      const pack = PACKS.find(p=>p.id===el.dataset.packId);
+      const s = state.shop;
+      if(state.gems<pack.cost || s.phase!=="list") break;
+      playWhoosh(); state.gems -= pack.cost;
+      const locked = state.players.filter(p=>!p.owned && !p.exclusive);
+      const pick = pickWeighted(locked, pack.weights);
+      s.selectedPack = pack;
+      if(!pick){ state.gems += Math.round(pack.cost/3); playTap(); s.revealed=null; s.phase="revealed"; render(); break; }
+      const spinPool = state.players.filter(p=>!p.exclusive);
+      const items = Array.from({length: SPIN_FILLER_COUNT}, ()=> spinPool[Math.floor(Math.random()*spinPool.length)]);
+      // Land on the real pick at a randomized position in the strip (not always
+      // the very last slot) so the reel doesn't visually stop in the same spot
+      // every time -- keep at least 10 cards of spin distance so it never feels
+      // like it barely moved.
+      const insertAt = Math.floor(Math.random() * (SPIN_FILLER_COUNT - 10 + 1)) + 10;
+      items.splice(insertAt, 0, pick);
+      s.spinItems = items;
+      s.spinFinalIndex = insertAt;
+      s.pendingPick = pick;
+      s.phase = "spinning";
+      render();
+      startSpinAnimation();
+      break;
+    }
+    case "close-reveal": {
+      const s = state.shop; s.phase="list"; s.revealed=null; s.pendingPick=null; s.selectedPack=null; render(); break;
+    }
+    case "buy-gem-pass": {
+      const pass = GEM_PASSES.find(p=>p.id===el.dataset.passId);
+      playChime(); state.gems += pass.gems; state.shop.purchasedPass = pass.id; render();
+      setTimeout(()=>{ state.shop.purchasedPass=null; render(); }, 1800);
+      break;
+    }
+    case "buy-exclusive": {
+      const card = state.players.find(p=>p.id===Number(el.dataset.cardId));
+      if(card.owned) break;
+      playFanfare(); state.players = state.players.map(p=> p.id===card.id ? {...p, owned:true} : p);
+      state.shop.purchasedExclusive = card.id; render(); break;
+    }
+    case "set-avatar":
+      playTap(); state.profile.avatar = el.dataset.avatar; render(); break;
+    case "set-color":
+      playTap(); state.profile.color = el.dataset.color; render(); break;
+    case "confirm-reset":
+      state.confirmReset = true; render();
+      setTimeout(()=>{ state.confirmReset=false; render(); }, 4000);
+      break;
+    case "do-reset":
+      state.players = JSON.parse(JSON.stringify(STARTER_PLAYERS));
+      state.stats = {wins:0,losses:0,draws:0,streak:0,bestStreak:0};
+      state.profile = {name:"Player",avatar:"⚽",teamName:"My Team",number:7,color:COLORS.turf};
+      state.gems = STARTING_GEMS;
+      state.season = {number:1,matchday:1,points:0,wins:0,losses:0,draws:0};
+      state.home = {dailyLastClaim:null, dailyStreak:0, objectivesClaimed:[]};
+      state.prevRankName = "Bronze";
+      state.confirmReset = false;
+      clearMinuteInterval(); clearBallInterval();
+      state.play = { formationKey:"balanced", myLineup:{}, activeSlot:null, subSlot:null, halfSubUsed:false, phase:"building", currentHalf:1, oppSlots:[], oppLineup:null, firstHalfLineup:null, finalResult:null, myGoals:0, oppGoals:0, commentary:"Kick off!", matchMinute:0, zoneResultsLive:{}, seasonSummary:null, minuteInterval:null, ballOwnerKey:null, ballInterval:null };
+      render(); break;
+    case "admin-add-gems":
+      if(!isAdminDevice()) break;
+      state.gems += Number(el.dataset.amount)||0; playChime(); render(); break;
+    case "admin-set-gems-zero":
+      if(!isAdminDevice()) break;
+      state.gems = 0; render(); break;
+    case "admin-unlock-all":
+      if(!isAdminDevice()) break;
+      state.players = state.players.map(p=>({...p, owned:true})); playFanfare(); render(); break;
+    case "admin-lock-all": {
+      if(!isAdminDevice()) break;
+      const starterIds = new Set(STARTER_PLAYERS.filter(p=>p.owned).map(p=>p.id));
+      state.players = state.players.map(p=>({...p, owned:starterIds.has(p.id)})); render(); break;
+    }
+    case "admin-add-wins": {
+      if(!isAdminDevice()) break;
+      const n = Number(el.dataset.amount)||0;
+      state.stats.wins += n; state.stats.streak += n;
+      state.stats.bestStreak = Math.max(state.stats.bestStreak, state.stats.streak);
+      checkRankUp(); render(); break;
+    }
+    case "admin-advance-matchday": {
+      if(!isAdminDevice()) break;
+      const s = state.season;
+      if(s.matchday>=6){ state.season = {number:s.number+1, matchday:1, points:0, wins:0, losses:0, draws:0}; }
+      else { state.season = {...s, matchday:s.matchday+1}; }
+      render(); break;
+    }
+    case "admin-players-add":
+      if(!isAdminDevice()) break;
+      adminAddPlayer(); break;
+    case "admin-players-refresh":
+      if(!isAdminDevice()) break;
+      adminRefreshPlayers(); break;
+    case "admin-players-delete":
+      if(!isAdminDevice()) break;
+      adminDeletePlayer(Number(el.dataset.playerId)); break;
+  }
+});
+function handleFieldInput(e){
+  const field = e.target.dataset.field;
+  if(!field) return;
+  if(field==="pasteCode"){ state.play.pasteCode = e.target.value; state.play.pasteError=""; return; }
+  if(field==="adminName"){ state.adminPlayers.form.name = e.target.value; return; }
+  if(field==="adminPower"){ state.adminPlayers.form.power = e.target.value; return; }
+  if(field==="adminPosition"){ state.adminPlayers.form.position = e.target.value; return; }
+  if(field==="adminRarity"){ state.adminPlayers.form.rarity = e.target.value; return; }
+  if(field==="number"){ state.profile.number = Math.max(1, Math.min(99, Number(e.target.value)||1)); }
+  else { state.profile[field] = e.target.value; }
+  persist();
+}
+document.getElementById("stage").addEventListener("input", handleFieldInput);
+document.getElementById("stage").addEventListener("change", handleFieldInput);
+
+// ---------- global roster catalog (players.json) ----------
+// The game boots instantly from local save / STARTER_PLAYERS above, then
+// quietly checks players.json in the background for admin-added/edited
+// cards and folds them in. This is what lets the admin-only "Manage
+// Players" panel add new cards for every connected player (including
+// friends on the public link) without needing anyone to update the app --
+// they just need to reload. Existing local ownership is never touched by
+// this merge; it only adds brand-new ids (always starting unowned) and
+// refreshes stats/rarity on ids that already exist.
+function mergeCatalog(remoteList){
+  if(!Array.isArray(remoteList)) return false;
+  const byId = {};
+  state.players.forEach(p=>{ byId[p.id] = p; });
+  let changed = false;
+  remoteList.forEach(rp=>{
+    if(!rp || typeof rp.id!=="number" || !rp.name || !rp.position || !rp.rarity) return;
+    const existing = byId[rp.id];
+    if(existing){
+      if(existing.name!==rp.name || existing.position!==rp.position || existing.power!==rp.power || existing.rarity!==rp.rarity){
+        existing.name = rp.name; existing.position = rp.position; existing.power = rp.power; existing.rarity = rp.rarity;
+        changed = true;
+      }
+    } else {
+      const fresh = {id:rp.id, name:rp.name, position:rp.position, power:rp.power, rarity:rp.rarity, owned:false};
+      if(rp.exclusive){ fresh.exclusive = true; fresh.priceEUR = rp.priceEUR; }
+      state.players.push(fresh);
+      changed = true;
+    }
+  });
+  return changed;
+}
+function loadRemoteCatalog(){
+  fetch("players.json", {cache:"no-store"}).then(r=> r.ok ? r.json() : null).then(data=>{
+    if(mergeCatalog(data)){ persist(); render(); }
+  }).catch(()=>{});
+}
+
+render();
+loadRemoteCatalog();
+})();
+</script>

@@ -1,0 +1,14 @@
+# Portable tool installs - huge, not source
+nodejs/
+git/
+
+# mobile/ is already its own independent git repo
+mobile/
+
+# Misc
+scratch/
+*.log
+node_modules/
+.expo/
+.env
+.env.local
