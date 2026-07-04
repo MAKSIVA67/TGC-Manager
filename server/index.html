@@ -837,7 +837,7 @@ function shopView(){
         </div>`).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">EXCLUSIVE CARDS</div>
-    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Guaranteed 100-rated cards — no luck involved, straight to your collection.</div>
+    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Guaranteed 100-rated cards — no luck involved, straight to your collection. 🚧 Demo only for now — grants the card instantly without charging anything, until real payment is connected.</div>
     <div class="col" style="gap:12px">
       ${state.players.filter(p=>p.exclusive).map(card=>{
         const bought = card.owned || s.purchasedExclusive===card.id;
@@ -1944,7 +1944,9 @@ document.getElementById("stage").addEventListener("click", function(e){
       const card = state.players.find(p=>p.id===Number(el.dataset.cardId));
       if(card.owned) break;
       playFanfare(); state.players = state.players.map(p=> p.id===card.id ? {...p, owned:true} : p);
-      state.shop.purchasedExclusive = card.id; render(); break;
+      state.shop.purchasedExclusive = card.id; render();
+      commitExclusivePurchase(card.id);
+      break;
     }
     case "set-avatar":
       playTap(); state.profile.avatar = el.dataset.avatar; render(); updateProfile({avatar: el.dataset.avatar}); break;
