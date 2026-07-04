@@ -474,6 +474,16 @@ const state = {
     trade: { friendId:null, friendName:"", friendCollection:[], offerIds:[], requestIds:[], gems:0, status:"", loading:false },
     trades: [], tradesLoaded: false, viewingTradeId: null, tradeActionStatus: "",
   },
+  // Admin (Phase F) -- populated by lib/admin-api.js. Real permission check
+  // is is_admin()-gated RLS server-side; this UI just needs the flag to
+  // decide whether to render the tab at all.
+  adminUI: {
+    section: "catalog",
+    cards: [], cardsLoaded: false, cardFilter: "All", editingCard: null,
+    cardForm: { name:"", position:"GK", power:50, rarity:"Common" }, cardStatus: "",
+    playerSearchTerm: "", playerSearchResults: [], playerSearchStatus: "",
+    viewingPlayerId: null, viewingPlayer: null, playerStatus: "", gemsInput: "",
+  },
 };
 state.prevRankName = rankForWins(state.stats.wins).name;
 
@@ -487,6 +497,10 @@ function scheduleProfileSave(){
   }, 500);
 }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+// Real permission check (replaces the old isAdminDevice() hostname trick)
+// -- state.profileRow is the raw DB row applyProfileRow() (lib/auth.js)
+// stashes alongside the view-shaped state.profile.
+function isAdmin(){ return !!(state.profileRow && state.profileRow.is_admin); }
 
 // ---------- icons (Lucide path data, inlined - no external requests) ----------
 const ICONS = {
@@ -557,6 +571,7 @@ function tabBar(){
     {key:"friends",label:"Friends",icon:"Users"},
     {key:"profile",label:"Profile",icon:"User"},
   ];
+  if(isAdmin()) tabs.push({key:"admin",label:"Admin",icon:"Lock"});
   return `<div class="tabbar"><div class="row" style="justify-content:space-around">
     ${tabs.map(t=>`
       <button class="tabbtn scrimtap" data-action="nav-tab" data-tab="${t.key}">
@@ -1406,6 +1421,136 @@ function bannedView(){
     <button data-action="acknowledge-ban" class="btn scrimtap" style="padding:12px 24px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.cream}">Back to Sign In</button>
   </div>`;
 }
+
+// ---------- Admin view (Phase F) ----------
+function adminView(){
+  const ui = state.adminUI;
+  return `<div class="view">
+    <div class="row" style="gap:8px;margin-bottom:16px">
+      <button data-action="admin-section" data-section="catalog" class="btn scrimtap" style="flex:1;padding:10px 0;font-size:11px;font-weight:800;background:${ui.section==="catalog"?COLORS.turf:COLORS.panel};color:${ui.section==="catalog"?COLORS.bg:COLORS.muted}">CARD CATALOG</button>
+      <button data-action="admin-section" data-section="players" class="btn scrimtap" style="flex:1;padding:10px 0;font-size:11px;font-weight:800;background:${ui.section==="players"?COLORS.turf:COLORS.panel};color:${ui.section==="players"?COLORS.bg:COLORS.muted}">PLAYERS</button>
+    </div>
+    ${ui.section==="catalog" ? adminCatalogSection() : adminPlayersManagementSection()}
+  </div>`;
+}
+function adminCatalogSection(){
+  const ui = state.adminUI;
+  if(ui.editingCard!=null) return adminCardFormSection();
+  if(!ui.cardsLoaded) return `<div style="font-size:12px;color:${COLORS.muted}">Loading…</div>`;
+  const positions = ["All","GK","DEF","MID","FWD"];
+  const filtered = ui.cardFilter==="All" ? ui.cards : ui.cards.filter(c=>c.position===ui.cardFilter);
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <div style="font-size:12px;color:${COLORS.muted}">${ui.cards.length} cards total</div>
+      <button data-action="admin-card-new" class="btn scrimtap" style="padding:6px 14px;font-size:11px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">+ Add Card</button>
+    </div>
+    <div class="row wrap" style="gap:6px;margin-bottom:12px">
+      ${positions.map(p=>`<button data-action="admin-card-filter" data-position="${p}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;background:${ui.cardFilter===p?COLORS.turf:COLORS.panel};color:${ui.cardFilter===p?COLORS.bg:COLORS.muted}">${p}</button>`).join("")}
+    </div>
+    <div class="grid2">
+      ${filtered.map(c=>`<button data-action="admin-card-edit-open" data-card-id="${c.id}" class="cardTile scrimtap" style="border-left:4px solid ${RARITY[c.rarity].color};text-align:left">
+        <div class="row between" style="margin-bottom:8px"><span class="badge" style="background:${RARITY[c.rarity].color}33;color:${RARITY[c.rarity].color}">${RARITY[c.rarity].label}</span></div>
+        <div class="row" style="gap:12px">
+          <div class="avatarCircle" style="width:44px;height:44px;font-weight:900;font-size:16px;background:${RARITY[c.rarity].color};color:${COLORS.bg}">${c.power}</div>
+          <div><div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${esc(c.name)}</div><div style="font-size:11px;color:${COLORS.muted}">${c.position}</div></div>
+        </div>
+      </button>`).join("")}
+    </div>
+  `;
+}
+function adminCardFormSection(){
+  const ui = state.adminUI;
+  const f = ui.cardForm;
+  const isNew = ui.editingCard==="new";
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <button data-action="admin-card-form-close" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">${isNew?"Add Card":"Edit Card"}</div>
+      <span style="width:40px"></span>
+    </div>
+    ${ui.cardStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(ui.cardStatus)}</div>` : ""}
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">NAME (no real footballers)</div>
+      <input data-field="adminCardName" value="${esc(f.name)}" placeholder="Player name" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+    </div>
+    <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:6px;color:${COLORS.muted}">POSITION</div>
+    <div class="row wrap" style="gap:6px;margin-bottom:10px">
+      ${["GK","DEF","MID","FWD"].map(pos=>`<button data-action="admin-card-set-position" data-position="${pos}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;background:${f.position===pos?COLORS.turf:COLORS.panel};color:${f.position===pos?COLORS.bg:COLORS.muted}">${pos}</button>`).join("")}
+    </div>
+    <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:6px;color:${COLORS.muted}">RARITY</div>
+    <div class="row wrap" style="gap:6px;margin-bottom:10px">
+      ${RARITY_ORDER.map(r=>`<button data-action="admin-card-set-rarity" data-rarity="${r}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;background:${f.rarity===r?RARITY[r].color:COLORS.panel};color:${f.rarity===r?COLORS.bg:COLORS.muted}">${r}</button>`).join("")}
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">POWER (1-100)</div>
+      <input data-field="adminCardPower" type="number" min="1" max="100" value="${f.power}" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+    </div>
+    <button data-action="admin-card-form-save" class="btn scrimtap wfull" style="padding:12px 0;font-size:13px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg};margin-bottom:8px">Save</button>
+    ${!isNew ? `<button data-action="admin-card-delete" data-card-id="${ui.editingCard}" class="btn scrimtap wfull panel" style="padding:12px 0;font-size:13px;color:${COLORS.danger}">Delete Card</button>` : ""}
+  `;
+}
+function adminPlayersManagementSection(){
+  const ui = state.adminUI;
+  if(ui.viewingPlayerId!=null) return adminPlayerDetailSection();
+  return `
+    <div class="row" style="gap:8px;margin-bottom:12px">
+      <input data-field="adminPlayerSearch" value="${esc(ui.playerSearchTerm)}" placeholder="Search by name or team" style="flex:1;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+      <button data-action="admin-player-search-submit" class="btn scrimtap" style="padding:10px 16px;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Search</button>
+    </div>
+    ${ui.playerSearchStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(ui.playerSearchStatus)}</div>` : ""}
+    ${ui.playerSearchResults.map(p=>`
+      <div class="panel" style="padding:14px;margin-bottom:10px">
+        <div class="row between" style="gap:10px">
+          <div>
+            <div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${esc(p.display_name||"Player")} ${p.is_admin?`<span style="color:${COLORS.gold};font-size:10px">ADMIN</span>`:""} ${p.banned?`<span style="color:${COLORS.danger};font-size:10px">BANNED</span>`:""}</div>
+            <div style="font-size:11px;color:${COLORS.muted}">${esc(p.team_name||"")} · ${p.gems} gems</div>
+          </div>
+          <button data-action="admin-player-view" data-player-id="${p.id}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.cyan}">View</button>
+        </div>
+      </div>
+    `).join("")}
+  `;
+}
+function adminPlayerDetailSection(){
+  const ui = state.adminUI;
+  const p = ui.viewingPlayer;
+  const backBtn = `<button data-action="admin-player-close" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>`;
+  if(!p) return `<div class="row between" style="margin-bottom:12px">${backBtn}</div><div style="font-size:12px;color:${COLORS.muted}">${esc(ui.playerStatus||"Loading…")}</div>`;
+  const myId = state.session.user.id;
+  const isSelf = p.id===myId;
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      ${backBtn}
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">${esc(p.display_name||"Player")}</div>
+      <span style="width:40px"></span>
+    </div>
+    <div style="text-align:center;margin-bottom:12px">
+      ${p.is_admin?`<span style="color:${COLORS.gold};font-size:11px;font-weight:800;margin-right:8px">ADMIN</span>`:""}
+      ${p.banned?`<span style="color:${COLORS.danger};font-size:11px;font-weight:800">BANNED</span>`:""}
+    </div>
+    ${ui.playerStatus ? `<div style="font-size:12px;margin-bottom:12px;text-align:center;color:${COLORS.muted}">${esc(ui.playerStatus)}</div>` : ""}
+    <div class="panel" style="padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">GIVE GEMS</div>
+      <div class="row" style="gap:8px">
+        <input data-field="adminGemsInput" type="number" min="0" value="${esc(ui.gemsInput)}" style="flex:1;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        <button data-action="admin-set-gems-submit" class="btn scrimtap" style="padding:10px 16px;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Set Gems</button>
+      </div>
+    </div>
+    <div class="panel" style="padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">BAN STATUS</div>
+      ${isSelf ? `<div style="font-size:12px;color:${COLORS.muted}">You can't ban yourself.</div>`
+        : p.banned ? `<button data-action="admin-toggle-ban" data-banned="0" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Unban Player</button>`
+        : `<button data-action="admin-toggle-ban" data-banned="1" class="btn scrimtap wfull" style="padding:10px 0;font-size:12px;font-weight:800;background:${COLORS.danger};color:#fff">Ban Player</button>`}
+    </div>
+    <div class="panel" style="padding:14px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">ADMIN STATUS</div>
+      ${isSelf ? `<div style="font-size:12px;color:${COLORS.muted}">You can't change your own admin status.</div>`
+        : p.is_admin ? `<button data-action="admin-toggle-admin" data-is-admin="0" class="btn scrimtap wfull panel" style="padding:10px 0;font-size:12px;color:${COLORS.danger}">Revoke Admin</button>`
+        : `<button data-action="admin-toggle-admin" data-is-admin="1" class="btn scrimtap wfull panel" style="padding:10px 0;font-size:12px;color:${COLORS.gold}">Grant Admin</button>`}
+    </div>
+  `;
+}
+
 function statBox(label,value,color){
   return `<div class="panel" style="padding:8px;text-align:center"><div style="font-size:16px;font-weight:900;color:${color}">${value}</div><div style="font-size:9px;letter-spacing:.03em;color:${COLORS.muted}">${label}</div></div>`;
 }
@@ -1426,6 +1571,7 @@ function appHTML(){
   else if(state.tab==="play") view = playView();
   else if(state.tab==="friends") view = friendsView();
   else if(state.tab==="profile") view = profileView();
+  else if(state.tab==="admin" && isAdmin()) view = adminView();
   return `${rankUpBanner}${railHeader()}${view}${tabBar()}`;
 }
 
@@ -1636,6 +1782,7 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "nav-tab":
       state.tab = el.dataset.tab; playTap();
       if(state.tab==="friends"){ refreshFriendsList(); refreshFriendRequests(); refreshChallenges(); refreshTrades(); }
+      if(state.tab==="admin" && isAdmin() && !state.adminUI.cardsLoaded){ refreshAdminCards(); }
       render(); break;
     case "open-slot-picker": {
       const slot = buildSlots(pl.formationKey,"my").find(s=>s.id===el.dataset.slotId);
@@ -1728,6 +1875,36 @@ document.getElementById("stage").addEventListener("click", function(e){
       else submitCancelTrade(tradeId);
       break;
     }
+    case "admin-section":
+      state.adminUI.section = el.dataset.section; render(); break;
+    case "admin-card-filter":
+      state.adminUI.cardFilter = el.dataset.position; render(); break;
+    case "admin-card-new":
+      openCardForm(null); break;
+    case "admin-card-edit-open":
+      openCardForm(Number(el.dataset.cardId)); break;
+    case "admin-card-form-close":
+      closeCardForm(); break;
+    case "admin-card-set-position":
+      state.adminUI.cardForm.position = el.dataset.position; render(); break;
+    case "admin-card-set-rarity":
+      state.adminUI.cardForm.rarity = el.dataset.rarity; render(); break;
+    case "admin-card-form-save":
+      submitCardForm(); break;
+    case "admin-card-delete":
+      submitDeleteCard(Number(el.dataset.cardId)); break;
+    case "admin-player-search-submit":
+      submitPlayerSearch(state.adminUI.playerSearchTerm); break;
+    case "admin-player-view":
+      openPlayerDetail(el.dataset.playerId); break;
+    case "admin-player-close":
+      closePlayerDetail(); break;
+    case "admin-set-gems-submit":
+      submitSetGems(); break;
+    case "admin-toggle-ban":
+      submitToggleBan(el.dataset.banned==="1"); break;
+    case "admin-toggle-admin":
+      submitToggleAdmin(el.dataset.isAdmin==="1"); break;
     case "open-pack": {
       const pack = PACKS.find(p=>p.id===el.dataset.packId);
       const s = state.shop;
@@ -1831,6 +2008,10 @@ function handleFieldInput(e){
   if(field==="friendSearch"){ state.friendsUI.searchTerm = e.target.value; return; }
   if(field==="chatDraft"){ state.friendsUI.chat.draft = e.target.value; return; }
   if(field==="tradeGems"){ state.friendsUI.trade.gems = Math.max(0, Number(e.target.value)||0); return; }
+  if(field==="adminCardName"){ state.adminUI.cardForm.name = e.target.value; return; }
+  if(field==="adminCardPower"){ state.adminUI.cardForm.power = e.target.value; return; }
+  if(field==="adminPlayerSearch"){ state.adminUI.playerSearchTerm = e.target.value; return; }
+  if(field==="adminGemsInput"){ state.adminUI.gemsInput = e.target.value; return; }
   if(field==="number"){ state.profile.number = Math.max(1, Math.min(99, Number(e.target.value)||1)); }
   else { state.profile[field] = e.target.value; }
   scheduleProfileSave();
