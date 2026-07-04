@@ -17,19 +17,6 @@ if (-not $serverUp) {
     Start-Sleep -Seconds 1
 }
 
-# Admin API (player roster editing) - local-only, separate port, never tunneled.
-$adminUp = $false
-try {
-    $adminResp = Invoke-WebRequest -Uri "http://localhost:8081/players" -UseBasicParsing -TimeoutSec 2
-    if ($adminResp.StatusCode -eq 200) { $adminUp = $true }
-} catch {}
-
-if (-not $adminUp) {
-    Start-Process powershell.exe -ArgumentList @(
-        "-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File","`"$root\admin-server.ps1`""
-    ) -WindowStyle Hidden
-}
-
 Start-Process $chrome -ArgumentList @(
     "--app=http://localhost:8080/",
     "--window-size=430,932",
