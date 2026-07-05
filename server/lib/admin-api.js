@@ -23,16 +23,42 @@ function updateCard(id, fields) {
 function deleteCard(id) {
   return sb.from("cards").delete().eq("id", id).then(({ error }) => ({ error: friendlyAdminError(error) }));
 }
+// profiles has no email column (it only ever lived in the protected
+// auth.users table) -- admin_profiles() is a SECURITY DEFINER RPC that
+// joins across into it, gated on is_admin() server-side. One function
+// covers all three shapes below (single/search/paginated); see schema.sql.
 function fetchProfileById(id) {
-  return sb.from("profiles").select("id, display_name, team_name, gems, is_admin, banned").eq("id", id).single()
-    .then(({ data, error }) => ({ data, error: error ? error.message : null }));
+  return sb.rpc("admin_profiles", { target_id: id })
+    .then(({ data, error }) => ({ data: (data && data[0]) || null, error: error ? error.message : null }));
 }
 function searchProfiles(term) {
-  const pattern = `%${(term || "").trim()}%`;
-  return sb.from("profiles").select("id, display_name, team_name, gems, is_admin, banned")
-    .or(`display_name.ilike.${pattern},team_name.ilike.${pattern}`)
-    .order("display_name").limit(25)
+  return sb.rpc("admin_profiles", { search_term: term })
     .then(({ data, error }) => ({ data: data || [], error: error ? error.message : null }));
+}
+const PLAYERS_PAGE_SIZE = 20;
+function fetchAllProfilesPage(page) {
+  const pageOffset = page * PLAYERS_PAGE_SIZE;
+  return Promise.all([
+    sb.rpc("admin_profiles", { page_offset: pageOffset, page_limit: PLAYERS_PAGE_SIZE }),
+    sb.rpc("admin_profiles_count"),
+  ]).then(([listRes, countRes]) => ({
+    data: listRes.data || [],
+    count: countRes.data || 0,
+    error: (listRes.error && listRes.error.message) || (countRes.error && countRes.error.message) || null,
+  }));
+}
+function updateProfileInfo(targetId, fields) {
+  return sb.from("profiles").update(fields).eq("id", targetId).then(({ error }) => ({ error: error ? error.message : null }));
+}
+// Resets one player back to a fresh-signup-like state (cards, squad, match
+// history, gems, streaks, season). Starter ids computed here (same logic as
+// signup's initializeNewAccountIfNeeded) and passed to the SECURITY DEFINER
+// RPC, which is the only thing actually allowed to touch another user's
+// user_cards/squads/matches rows (their RLS only permits the owner).
+function resetPlayerProgress(targetId) {
+  const starterIds = pickStarterCardIds(window.state.players);
+  return sb.rpc("admin_reset_player_progress", { target_id: targetId, starter_card_ids: starterIds })
+    .then(({ error }) => ({ error: error ? error.message : null }));
 }
 function setGems(targetId, newGems) {
   return sb.from("profiles").update({ gems: newGems }).eq("id", targetId).then(({ error }) => ({ error: error ? error.message : null }));
@@ -109,14 +135,33 @@ function submitPlayerSearch(term) {
     window.render();
   });
 }
+// Paginated "browse every user" list, shown when the search box is empty.
+function refreshAllPlayers(page) {
+  const ui = window.state.adminUI;
+  ui.allPlayersStatus = "Loading…";
+  window.render();
+  fetchAllProfilesPage(page).then(({ data, count, error }) => {
+    ui.allPlayers = data;
+    ui.allPlayersPage = page;
+    ui.allPlayersTotal = count;
+    ui.allPlayersLoaded = true;
+    ui.allPlayersStatus = error || "";
+    window.render();
+  });
+}
 function openPlayerDetail(playerId) {
   window.state.adminUI.viewingPlayerId = playerId;
   window.state.adminUI.viewingPlayer = null;
   window.state.adminUI.playerStatus = "Loading…";
+  window.state.adminUI.resetConfirming = false;
+  window.state.adminUI.resetStatus = "";
   window.render();
   fetchProfileById(playerId).then(({ data, error }) => {
     window.state.adminUI.viewingPlayer = data;
     window.state.adminUI.gemsInput = data ? String(data.gems) : "";
+    window.state.adminUI.editDisplayName = data ? (data.display_name || "") : "";
+    window.state.adminUI.editTeamName = data ? (data.team_name || "") : "";
+    window.state.adminUI.profileInfoStatus = "";
     window.state.adminUI.playerStatus = error || "";
     window.render();
   });
@@ -134,6 +179,19 @@ function submitSetGems() {
     if (!error) openPlayerDetail(ui.viewingPlayerId); else window.render();
   });
 }
+function submitProfileInfo() {
+  const ui = window.state.adminUI;
+  const displayName = (ui.editDisplayName || "").trim();
+  const teamName = (ui.editTeamName || "").trim();
+  if (!displayName) { ui.profileInfoStatus = "Enter a display name."; window.render(); return; }
+  ui.profileInfoStatus = "Saving…";
+  window.render();
+  updateProfileInfo(ui.viewingPlayerId, { display_name: displayName, team_name: teamName }).then(({ error }) => {
+    ui.profileInfoStatus = error || "Saved.";
+    if (!error) ui.viewingPlayer = { ...ui.viewingPlayer, display_name: displayName, team_name: teamName };
+    window.render();
+  });
+}
 function submitToggleBan(banned) {
   const ui = window.state.adminUI;
   const callerId = window.state.session.user.id;
@@ -148,5 +206,29 @@ function submitToggleAdmin(isAdminFlag) {
   setAdmin(ui.viewingPlayerId, isAdminFlag, callerId).then(({ error }) => {
     ui.playerStatus = error || "";
     if (!error) openPlayerDetail(ui.viewingPlayerId); else window.render();
+  });
+}
+function armResetProgress() {
+  window.state.adminUI.resetConfirming = true;
+  window.render();
+}
+function cancelResetProgress() {
+  window.state.adminUI.resetConfirming = false;
+  window.render();
+}
+function submitResetProgress() {
+  const ui = window.state.adminUI;
+  const targetId = ui.viewingPlayerId;
+  ui.resetStatus = "Resetting…";
+  window.render();
+  resetPlayerProgress(targetId).then(({ error }) => {
+    ui.resetConfirming = false;
+    if (error) { ui.resetStatus = error; window.render(); return; }
+    fetchProfileById(targetId).then(({ data }) => {
+      ui.viewingPlayer = data;
+      ui.gemsInput = data ? String(data.gems) : "";
+      ui.resetStatus = "Progress reset.";
+      window.render();
+    });
   });
 }

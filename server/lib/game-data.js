@@ -199,7 +199,7 @@ function commitPackOpen(cardId) {
   return sb.from("user_cards").insert({ user_id: userId, card_id: cardId }).then(({ error }) => {
     if (error) { console.error("commitPackOpen insert failed:", error.message); return; }
     return updateProfile({ gems: window.state.gems });
-  }).then(() => window.render());
+  });
 }
 function commitPackRefund() {
   return updateProfile({ gems: window.state.gems }).then(() => window.render());
