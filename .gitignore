@@ -1,6 +1,8 @@
 # Portable tool installs - huge, not source
 nodejs/
 git/
+jdk/
+android-studio/
 
 # mobile/ is already its own independent git repo
 mobile/

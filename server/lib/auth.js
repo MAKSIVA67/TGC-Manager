@@ -22,6 +22,32 @@ function authChangePassword(newPassword) {
   return sb.auth.updateUser({ password: newPassword }).then(({ error }) => ({ error: error ? error.message : null }));
 }
 
+// Username/full name are collected on the signup form (see authView() in
+// index.html) but can't be written straight into `profiles` from there --
+// there's no session yet at that point (email confirmation may not happen
+// for minutes/days), and profiles has no client-facing INSERT policy
+// anyway (only the SECURITY DEFINER trigger can insert the row). Stashed
+// here and applied the first time this account actually gets a session --
+// same "survive the gap until a real session shows up" idea as
+// LEGACY_SAVE_KEY in game-data.js, just for different data.
+const PENDING_SIGNUP_PROFILE_KEY = "tcg-pending-signup-profile-v1";
+function stashPendingSignupProfile(username, fullName) {
+  try { localStorage.setItem(PENDING_SIGNUP_PROFILE_KEY, JSON.stringify({ username, fullName })); } catch (e) {}
+}
+function applyPendingSignupProfile() {
+  if (window.state.profileRow && window.state.profileRow.username) return Promise.resolve();
+  let pending = null;
+  try { pending = JSON.parse(localStorage.getItem(PENDING_SIGNUP_PROFILE_KEY) || "null"); } catch (e) {}
+  if (!pending || !pending.username) return Promise.resolve();
+  return updateProfile({ username: pending.username, full_name: pending.fullName || null }).then(({ error }) => {
+    // Left in place on failure (e.g. the username got taken by someone else
+    // in the meantime) so it's retried on the next sign-in rather than the
+    // account being permanently stuck with no username at all.
+    if (error) { console.error("applyPendingSignupProfile failed:", error); return; }
+    try { localStorage.removeItem(PENDING_SIGNUP_PROFILE_KEY); } catch (e) {}
+  });
+}
+
 // Maps a `profiles` row (snake_case DB columns, shared with the mobile app)
 // onto the exact shape the existing view code already reads on
 // window.state.profile/stats/gems/home -- so homeView()/profileView()/etc
@@ -38,6 +64,8 @@ function applyProfileRow(row) {
     teamName: row.team_name || "My Team",
     number: row.jersey_number || 7,
     color: s.profile.color || loadLocalTeamColor(),
+    username: row.username || "",
+    fullName: row.full_name || "",
   };
   s.gems = row.gems;
   s.stats = { wins: row.wins, losses: row.losses, draws: row.draws, streak: row.win_streak, bestStreak: row.best_streak };
@@ -92,6 +120,7 @@ function initAuthListener() {
     } else {
       lastHandledUserId = null;
       unsubscribeFromChat();
+      unsubscribeFromNotifications();
       window.state.authReady = true;
       window.state.tab = "home";
       window.render();
@@ -100,19 +129,28 @@ function initAuthListener() {
 }
 
 // Runs once per sign-in (fresh session found at boot, or a just-completed
-// signin/signup): load profile, catalog+ownership, squad, and match
-// history/season record, then (new accounts only) either import this
-// browser's old local save or grant the fixed starter set, before the
-// first real render.
+// signin/signup): apply any pending signup-time username/full name, load
+// profile, catalog+ownership, squad, match history/season record, and the
+// friends/requests/challenges/trades lists notifications are derived from,
+// seed the notifications "already viewed" baseline (first sign-in on this
+// browser only), start the live notifications subscription, then (new
+// accounts only) either import this browser's old local save or grant the
+// fixed starter set, before the first real render.
 function handleSignedIn(userId) {
   lastHandledUserId = userId;
   loadProfile(userId).then(({ error }) => {
     if (error || window.state.justBanned) { window.state.authReady = true; window.render(); return; }
-    Promise.all([
-      loadCatalogAndOwnership(userId),
-      loadSquad(userId),
-      loadRecentMatchesAndSeason(userId),
-    ])
+    applyPendingSignupProfile()
+      .then(() => Promise.all([
+        loadCatalogAndOwnership(userId),
+        loadSquad(userId),
+        loadRecentMatchesAndSeason(userId),
+        refreshFriendsList(),
+        refreshFriendRequests(),
+        refreshChallenges(),
+        refreshTrades(),
+      ]))
+      .then(() => { ensureNotifStateSeeded(userId); subscribeToNotifications(userId); })
       .then(() => initializeNewAccountIfNeeded(userId))
       .then(() => { window.state.authReady = true; window.render(); });
   });

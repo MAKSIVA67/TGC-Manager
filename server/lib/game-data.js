@@ -205,6 +205,25 @@ function commitPackRefund() {
   return updateProfile({ gems: window.state.gems }).then(() => window.render());
 }
 
+// Promo codes (Phase F addendum #3). The actual grant happens entirely
+// server-side inside the redeem_promo_code() RPC (SECURITY DEFINER, so it
+// can validate against the admin-only promo_codes table and credit gems
+// atomically) -- this just calls it and reloads the profile so state.gems
+// reflects whatever the RPC actually applied, same "write then reload"
+// pattern as updateProfile() in auth.js.
+function redeemPromoCode(code) {
+  const session = window.state.session;
+  const userId = session && session.user && session.user.id;
+  if (!userId) return Promise.resolve({ gemsGranted: 0, error: "Not signed in." });
+  return sb.rpc("redeem_promo_code", { p_code: code }).then(({ data, error }) => {
+    if (error) return { gemsGranted: 0, error: error.message };
+    return loadProfile(userId).then(() => {
+      window.render();
+      return { gemsGranted: data, error: null };
+    });
+  });
+}
+
 // matchSeasonNumber/matchMatchday are passed explicitly (captured by the
 // caller BEFORE any season-rollover reassignment) since a match must be
 // recorded under the season/matchday it was actually played in, not

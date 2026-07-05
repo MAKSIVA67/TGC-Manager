@@ -13,8 +13,8 @@ function searchPlayers(term, excludeId) {
   const trimmed = (term || "").trim();
   if (!trimmed) return Promise.resolve({ data: [], error: null });
   const pattern = `%${trimmed}%`;
-  return sb.from("profiles").select("id, display_name, team_name, avatar")
-    .or(`display_name.ilike.${pattern},team_name.ilike.${pattern}`)
+  return sb.from("profiles").select("id, display_name, team_name, avatar, username")
+    .or(`display_name.ilike.${pattern},team_name.ilike.${pattern},username.ilike.${pattern}`)
     .neq("id", excludeId).order("display_name").limit(25)
     .then(({ data, error }) => ({ data: data || [], error: error ? error.message : null }));
 }
@@ -156,6 +156,9 @@ let chatChannel = null;
 function openChat(friendId, friendName) {
   const myId = window.state.session.user.id;
   window.state.friendsUI.chat = { friendId, friendName, messages: [], draft: "", loading: true };
+  // Opening the conversation is the read receipt -- drop this friend from
+  // the unread set immediately, before messages even finish loading.
+  window.state.friendsUI.chatUnreadFriendIds = window.state.friendsUI.chatUnreadFriendIds.filter(id => id !== friendId);
   window.render();
   listMessages(myId, friendId).then(({ data }) => {
     window.state.friendsUI.chat.messages = data;
@@ -322,14 +325,17 @@ function submitAcceptChallenge(challengeId) {
   resolveChallengeAccept(challengeId, pl.formationKey, lineupIds).then(({ error, data }) => {
     if (error) { window.state.friendsUI.challengeStatus = error; window.render(); return; }
     window.state.friendsUI.challengeStatus = "";
+    markChallengeViewed(window.state.session.user.id, challengeId);
     refreshChallenges();
     window.beginChallengeMatch(data.challenge, data.challengerLU);
   });
 }
 function submitDeclineChallenge(challengeId) {
+  markChallengeViewed(window.state.session.user.id, challengeId);
   declineChallengeRow(challengeId).then(() => refreshChallenges());
 }
 function viewChallengeResult(challengeId) {
+  markChallengeViewed(window.state.session.user.id, challengeId);
   window.state.friendsUI.viewingChallengeId = challengeId;
   window.render();
 }
@@ -429,6 +435,7 @@ function refreshTrades() {
   });
 }
 function viewTrade(tradeId) {
+  markTradeViewed(window.state.session.user.id, tradeId);
   window.state.friendsUI.viewingTradeId = tradeId;
   window.render();
 }
@@ -442,14 +449,106 @@ function submitAcceptTrade(tradeId) {
   window.render();
   acceptTrade(tradeId).then(({ error }) => {
     if (error) { window.state.friendsUI.tradeActionStatus = error; window.render(); return; }
+    markTradeViewed(window.state.session.user.id, tradeId);
     closeTradeView();
     refreshTrades();
     refreshGameState();
   });
 }
 function submitDeclineTrade(tradeId) {
+  markTradeViewed(window.state.session.user.id, tradeId);
   declineTrade(tradeId).then(() => { closeTradeView(); refreshTrades(); });
 }
 function submitCancelTrade(tradeId) {
+  markTradeViewed(window.state.session.user.id, tradeId);
   cancelTrade(tradeId).then(() => { closeTradeView(); refreshTrades(); });
+}
+
+// ---- Notifications (Phase H) ----
+// "Unread" for trades/challenges/friend requests is entirely derived from
+// data already being fetched (a pending item awaiting MY action is always
+// a notification; nothing extra to track) -- the only thing that needs
+// local bookkeeping is "a resolved trade/challenge I haven't looked at yet"
+// (localStorage, per account) and "chat messages that arrived while I
+// wasn't looking" (in-memory only, cleared the moment a conversation is
+// opened -- see openChat() above).
+function notifStorageKey(userId) { return "tcg-notif-viewed-v1-" + userId; }
+function loadNotifState(userId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(notifStorageKey(userId)));
+    return raw && typeof raw === "object"
+      ? { viewedChallengeIds: raw.viewedChallengeIds || [], viewedTradeIds: raw.viewedTradeIds || [] }
+      : { viewedChallengeIds: [], viewedTradeIds: [] };
+  } catch (e) { return { viewedChallengeIds: [], viewedTradeIds: [] }; }
+}
+function saveNotifState(userId, s) { try { localStorage.setItem(notifStorageKey(userId), JSON.stringify(s)); } catch (e) {} }
+function markChallengeViewed(userId, challengeId) {
+  const s = loadNotifState(userId);
+  if (!s.viewedChallengeIds.includes(challengeId)) { s.viewedChallengeIds.push(challengeId); saveNotifState(userId, s); }
+}
+function markTradeViewed(userId, tradeId) {
+  const s = loadNotifState(userId);
+  if (!s.viewedTradeIds.includes(tradeId)) { s.viewedTradeIds.push(tradeId); saveNotifState(userId, s); }
+}
+// First-ever load for this account on this browser: everything already
+// resolved before notifications existed is retroactively "viewed" so
+// existing trade/challenge history doesn't dump a fake backlog of
+// notifications on people the moment this feature ships. Only called once,
+// right after the initial challenges/trades fetch at sign-in (see
+// handleSignedIn() in auth.js) -- a no-op every time after the first.
+function ensureNotifStateSeeded(userId) {
+  if (localStorage.getItem(notifStorageKey(userId)) != null) return;
+  const fUI = window.state.friendsUI;
+  saveNotifState(userId, {
+    viewedChallengeIds: (fUI.challenges || []).filter(c => c.resolved_at).map(c => c.id),
+    viewedTradeIds: (fUI.trades || []).filter(t => t.resolved_at).map(t => t.id),
+  });
+}
+// Read by index.html to badge the Friends tab and its Requests/Trades
+// sub-tabs, and to dot each friend row's Chat button.
+function notifBadges() {
+  const session = window.state.session;
+  const uid = session && session.user && session.user.id;
+  if (!uid) return { requests: 0, challenges: 0, trades: 0, chat: 0, total: 0 };
+  const s = loadNotifState(uid);
+  const fUI = window.state.friendsUI;
+  const requests = (fUI.requests.incoming || []).length;
+  const challenges = (fUI.challenges || []).filter(c =>
+    c.status === "pending" ? c.opponent_id === uid : (!!c.resolved_at && !s.viewedChallengeIds.includes(c.id))
+  ).length;
+  const trades = (fUI.trades || []).filter(t =>
+    t.status === "pending" ? t.recipient_id === uid : (!!t.resolved_at && !s.viewedTradeIds.includes(t.id))
+  ).length;
+  const chat = (fUI.chatUnreadFriendIds || []).length;
+  return { requests, challenges, trades, chat, total: requests + challenges + trades + chat };
+}
+
+// One realtime channel per session covering every event type that should
+// raise a notification. friend_requests/challenges/trades need no column
+// filter -- Supabase Realtime authorizes each change against the same RLS
+// policy a normal SELECT would use, so this only ever receives rows this
+// user is actually a party to. messages keeps the same recipient_id filter
+// subscribeToChat() uses, for the same reason noted there.
+let notifChannel = null;
+function subscribeToNotifications(userId) {
+  unsubscribeFromNotifications();
+  notifChannel = sb.channel("notifications-" + userId)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "friend_requests" }, () => refreshFriendRequests())
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "friend_requests" }, () => { refreshFriendRequests(); refreshFriendsList(); })
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "challenges" }, () => refreshChallenges())
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "challenges" }, () => refreshChallenges())
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "trades" }, () => refreshTrades())
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "trades" }, () => refreshTrades())
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `recipient_id=eq.${userId}` }, (payload) => {
+      const fUI = window.state.friendsUI;
+      if (payload.new.sender_id === fUI.chat.friendId) return; // conversation is already open, not a "notification"
+      if (!fUI.chatUnreadFriendIds.includes(payload.new.sender_id)) {
+        fUI.chatUnreadFriendIds = [...fUI.chatUnreadFriendIds, payload.new.sender_id];
+        window.render();
+      }
+    })
+    .subscribe();
+}
+function unsubscribeFromNotifications() {
+  if (notifChannel) { sb.removeChannel(notifChannel); notifChannel = null; }
 }

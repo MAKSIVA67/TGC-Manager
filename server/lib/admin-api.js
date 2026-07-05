@@ -8,6 +8,7 @@
 function friendlyAdminError(error) {
   if (!error) return null;
   if (error.code === "23503") return "Can't delete this card -- one or more players already own it.";
+  if (error.code === "23505") return "A promo code with that name already exists.";
   return error.message;
 }
 
@@ -22,6 +23,22 @@ function updateCard(id, fields) {
 }
 function deleteCard(id) {
   return sb.from("cards").delete().eq("id", id).then(({ error }) => ({ error: friendlyAdminError(error) }));
+}
+// Promo codes (Phase F addendum #3). Plain CRUD gated by the same
+// is_admin()-enforced RLS shape as cards above -- redemption itself goes
+// through the redeem_promo_code() RPC in game-data.js, not through here.
+function fetchAllPromoCodes() {
+  return sb.from("promo_codes").select("*").order("created_at", { ascending: false })
+    .then(({ data, error }) => ({ data: data || [], error: friendlyAdminError(error) }));
+}
+function createPromoCode(input) {
+  return sb.from("promo_codes").insert(input).select().single().then(({ data, error }) => ({ data, error: friendlyAdminError(error) }));
+}
+function updatePromoCode(code, fields) {
+  return sb.from("promo_codes").update(fields).eq("code", code).then(({ error }) => ({ error: friendlyAdminError(error) }));
+}
+function deletePromoCode(code) {
+  return sb.from("promo_codes").delete().eq("code", code).then(({ error }) => ({ error: friendlyAdminError(error) }));
 }
 // profiles has no email column (it only ever lived in the protected
 // auth.users table) -- admin_profiles() is a SECURITY DEFINER RPC that
@@ -124,6 +141,62 @@ function submitDeleteCard(cardId) {
     closeCardForm();
     refreshAdminCards();
     refreshGameState();
+  });
+}
+function refreshPromoCodes() {
+  return fetchAllPromoCodes().then(({ data }) => {
+    window.state.adminUI.promoCodes = data;
+    window.state.adminUI.promoCodesLoaded = true;
+    window.render();
+  });
+}
+function openPromoCodeForm(code) {
+  const ui = window.state.adminUI;
+  if (code == null) {
+    ui.editingPromoCode = "new";
+    ui.promoCodeForm = { code: "", gems: 5000, maxRedemptions: "", expiresAt: "", active: true };
+  } else {
+    const pc = ui.promoCodes.find(c => c.code === code);
+    ui.editingPromoCode = code;
+    ui.promoCodeForm = {
+      code: pc.code,
+      gems: pc.gems,
+      maxRedemptions: pc.max_redemptions == null ? "" : String(pc.max_redemptions),
+      expiresAt: pc.expires_at ? pc.expires_at.slice(0, 10) : "",
+      active: pc.active,
+    };
+  }
+  ui.promoCodeStatus = "";
+  window.render();
+}
+function closePromoCodeForm() {
+  window.state.adminUI.editingPromoCode = null;
+  window.render();
+}
+function submitPromoCodeForm() {
+  const ui = window.state.adminUI;
+  const f = ui.promoCodeForm;
+  const isNew = ui.editingPromoCode === "new";
+  const code = (f.code || "").trim().toUpperCase();
+  const gems = Math.max(1, Number(f.gems) || 0);
+  if (isNew && !code) { ui.promoCodeStatus = "Enter a code."; window.render(); return; }
+  const maxRedemptions = f.maxRedemptions === "" ? null : Math.max(1, Number(f.maxRedemptions) || 1);
+  const expiresAt = f.expiresAt ? new Date(f.expiresAt + "T23:59:59").toISOString() : null;
+  const fields = { gems, max_redemptions: maxRedemptions, expires_at: expiresAt, active: !!f.active };
+  ui.promoCodeStatus = "Saving…";
+  window.render();
+  const op = isNew ? createPromoCode({ code, ...fields }) : updatePromoCode(ui.editingPromoCode, fields);
+  op.then(({ error }) => {
+    if (error) { ui.promoCodeStatus = error; window.render(); return; }
+    closePromoCodeForm();
+    refreshPromoCodes();
+  });
+}
+function submitDeletePromoCode(code) {
+  deletePromoCode(code).then(({ error }) => {
+    if (error) { window.state.adminUI.promoCodeStatus = error; window.render(); return; }
+    closePromoCodeForm();
+    refreshPromoCodes();
   });
 }
 function submitPlayerSearch(term) {

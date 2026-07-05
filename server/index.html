@@ -62,7 +62,7 @@ input,textarea{font-family:inherit;font-size:16px}
 .btn{border:none;border-radius:12px;font-weight:800}
 .scrimtap{transition:transform 160ms var(--ease-out-strong)}
 .scrimtap:active{transform:scale(0.95)}
-.tabbar{position:sticky;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--panelLight);z-index:20;padding-bottom:env(safe-area-inset-bottom)}
+.tabbar{position:fixed;bottom:0;left:50%;width:100%;max-width:480px;transform:translateX(-50%);background:var(--panel);border-top:1px solid var(--panelLight);z-index:20;padding-bottom:env(safe-area-inset-bottom)}
 .tabbtn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;background:transparent}
 .hdr{padding:calc(18px + env(safe-area-inset-top)) 16px 12px;border-bottom:1px solid var(--panelLight);position:sticky;top:0;background:var(--bg);z-index:15}
 .pill{display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:12px;background:var(--panel)}
@@ -493,7 +493,7 @@ const state = {
   session: null,
   authReady: false,
   justBanned: false,
-  authUI: { mode:"signin", email:"", password:"", confirmPassword:"", error:"", loading:false, checkEmail:false },
+  authUI: { mode:"signin", email:"", password:"", confirmPassword:"", username:"", fullName:"", error:"", loading:false, checkEmail:false },
   // Friends (Phase B) -- populated by lib/social.js.
   friendsUI: {
     subTab:"friends", friends:[], friendsLoaded:false,
@@ -502,6 +502,10 @@ const state = {
     // Chat (Phase C) -- a friendId set here means "chat is open", overlaying
     // whatever sub-tab was showing.
     chat: { friendId:null, friendName:"", messages:[], draft:"", loading:false },
+    // Friend ids with a chat message that arrived while that conversation
+    // wasn't open -- populated live by lib/social.js's notifications
+    // subscription, cleared the moment openChat() is called for that friend.
+    chatUnreadFriendIds: [],
     // Challenges (Phase D) -- populated by lib/social.js.
     challenges: [], challengesLoaded: false, challengeStatus: "", viewingChallengeId: null,
     // Trading (Phase E) -- populated by lib/social.js.
@@ -520,7 +524,13 @@ const state = {
     viewingPlayerId: null, viewingPlayer: null, playerStatus: "", gemsInput: "",
     editDisplayName: "", editTeamName: "", profileInfoStatus: "",
     resetConfirming: false, resetStatus: "",
+    // Promo codes (Phase F addendum #3) -- populated by lib/admin-api.js.
+    promoCodes: [], promoCodesLoaded: false, editingPromoCode: null,
+    promoCodeForm: { code:"", gems:5000, maxRedemptions:"", expiresAt:"", active:true }, promoCodeStatus: "",
   },
+  // Redeem-a-code UI on the Profile tab -- populated/consumed by
+  // redeemPromoCode() in lib/game-data.js.
+  redeemUI: { code: "", status: "", loading: false },
 };
 state.prevRankName = rankForWins(state.stats.wins).name;
 
@@ -602,10 +612,11 @@ function railHeader(){
   </div>`;
 }
 function tabBar(){
+  const badges = state.session ? notifBadges() : {total:0};
   const tabs = [
     {key:"home",label:"Home",icon:"Home"},{key:"index",label:"Index",icon:"List"},{key:"cards",label:"My Cards",icon:"Layers"},
     {key:"shop",label:"Shop",icon:"ShoppingBag"},{key:"play",label:"Play",icon:"PlayCircle"},
-    {key:"friends",label:"Friends",icon:"Users"},
+    {key:"friends",label:"Friends",icon:"Users",badge:badges.total},
     {key:"profile",label:"Profile",icon:"User"},
   ];
   if(isAdmin()) tabs.push({key:"admin",label:"Admin",icon:"Lock"});
@@ -613,7 +624,10 @@ function tabBar(){
     ${tabs.map(t=>`
       <button class="tabbtn scrimtap${state.tab===t.key?" tabActive":""}" data-action="nav-tab" data-tab="${t.key}">
         <span class="tabPill"></span>
-        ${icon(t.icon, 18, state.tab===t.key?COLORS.turf:COLORS.muted)}
+        <span style="position:relative;display:inline-flex">
+          ${icon(t.icon, 18, state.tab===t.key?COLORS.turf:COLORS.muted)}
+          ${t.badge ? `<span style="position:absolute;top:-5px;right:-7px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:${COLORS.danger};color:#fff;font-size:9px;font-weight:900;line-height:14px;text-align:center">${t.badge>9?"9+":t.badge}</span>` : ""}
+        </span>
         <span class="display" style="font-size:10px;color:${state.tab===t.key?COLORS.turf:COLORS.muted}">${t.label.toUpperCase()}</span>
       </button>`).join("")}
   </div></div>`;
@@ -1097,17 +1111,23 @@ function friendsView(){
   if(ui.trade.friendId) return `<div class="view">${tradeComposerSection()}</div>`;
   if(ui.viewingTradeId) return `<div class="view">${tradeReviewSection()}</div>`;
   const sub = ui.subTab;
+  const badges = notifBadges();
+  // "Friends" carries challenge + chat notifications (both surface inline
+  // per-friend row there, not on their own sub-tab) -- Requests/Trades each
+  // have their own dedicated sub-tab already, so their counts go there.
   const tabs = [
-    {key:"friends", label:"Friends"},
-    {key:"requests", label:"Requests"+(ui.requestsLoaded && ui.requests.incoming.length ? ` (${ui.requests.incoming.length})` : "")},
-    {key:"trades", label:"Trades"},
+    {key:"friends", label:"Friends", count: badges.challenges + badges.chat},
+    {key:"requests", label:"Requests", count: badges.requests},
+    {key:"trades", label:"Trades", count: badges.trades},
     {key:"find", label:"Find"},
   ];
   return `<div class="view">
     <div class="row" style="gap:8px;margin-bottom:16px">
-      ${tabs.map(t=>`
-        <button data-action="friends-subtab" data-subtab="${t.key}" class="btn scrimtap" style="flex:1;padding:10px 4px;font-size:11px;font-weight:800;background:${sub===t.key?COLORS.turf:COLORS.panel};color:${sub===t.key?COLORS.bg:COLORS.muted}">${t.label.toUpperCase()}</button>
-      `).join("")}
+      ${tabs.map(t=>{
+        const active = sub===t.key;
+        const textColor = active ? COLORS.bg : (t.count ? COLORS.danger : COLORS.muted);
+        return `<button data-action="friends-subtab" data-subtab="${t.key}" class="btn scrimtap" style="flex:1;padding:10px 4px;font-size:11px;font-weight:800;background:${active?COLORS.turf:COLORS.panel};color:${textColor}">${t.label.toUpperCase()}${t.count?` (${t.count})`:""}</button>`;
+      }).join("")}
     </div>
     ${sub==="friends" ? friendsListSection() : sub==="requests" ? friendsRequestsSection() : sub==="trades" ? friendsTradesSection() : friendsFindSection()}
   </div>`;
@@ -1142,7 +1162,7 @@ function friendsListSection(){
           </div>
         </div>
         <div class="row" style="gap:6px">
-          <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat</button>
+          <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="position:relative;padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat${ui.chatUnreadFriendIds.includes(f.id) ? `<span style="position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:999px;background:${COLORS.danger}"></span>` : ""}</button>
           <button data-action="trade-open-composer" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.gold}">Trade</button>
         </div>
       </div>
@@ -1356,7 +1376,8 @@ function profileView(){
         ${state.profile.avatar}
         <div style="position:absolute;bottom:-4px;right:-4px;width:24px;height:24px;border-radius:50%;background:${COLORS.bg};border:2px solid ${state.profile.color};color:${state.profile.color};font-weight:900;font-size:10px;display:flex;align-items:center;justify-content:center">${state.profile.number}</div>
       </div>
-      <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:8px;color:${rank.color}">${rank.icon} ${rank.name.toUpperCase()}</div>
+      <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:2px;color:${rank.color}">${rank.icon} ${rank.name.toUpperCase()}</div>
+      ${state.profile.username ? `<div style="font-size:11px;margin-bottom:8px;color:${COLORS.muted}">@${esc(state.profile.username)}</div>` : ""}
       <div class="grid2" style="margin-bottom:10px">
         <input data-field="name" value="${esc(state.profile.name)}" placeholder="Your name" maxlength="16" style="text-align:center;font-weight:800;border-radius:12px;padding:8px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
         <input data-field="teamName" value="${esc(state.profile.teamName)}" placeholder="Team name" maxlength="18" style="text-align:center;font-weight:800;border-radius:12px;padding:8px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
@@ -1401,6 +1422,15 @@ function profileView(){
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">BEST CARD</div>
     ${bestCard ? playerCard(bestCard,{mode:"index"}) : `<div style="font-size:13px;margin-bottom:16px;color:${COLORS.muted}">No cards yet.</div>`}
 
+    <div class="panel" style="padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">REDEEM A CODE</div>
+      <div class="row" style="gap:8px">
+        <input data-field="redeemCode" value="${esc(state.redeemUI.code)}" placeholder="Enter promo code" maxlength="24" style="flex:1;text-transform:uppercase;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        <button data-action="redeem-code-submit" class="btn scrimtap" style="padding:10px 16px;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">${state.redeemUI.loading?"…":"Redeem"}</button>
+      </div>
+      ${state.redeemUI.status ? `<div style="font-size:12px;margin-top:8px;color:${state.redeemUI.status.startsWith("Redeemed")?COLORS.turf:COLORS.danger}">${esc(state.redeemUI.status)}</div>` : ""}
+    </div>
+
     ${isAdmin() ? `
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin:16px 0 8px;color:${COLORS.gold}">ADMIN SHORTCUTS (your account only)</div>
     <div class="grid3" style="margin-bottom:8px">
@@ -1437,6 +1467,15 @@ function authView(){
         <div style="font-size:13px;margin-bottom:14px;color:${COLORS.turf}">Check your email for a confirmation link, then come back and sign in.</div>
         <button data-action="auth-tab" data-mode="signin" class="btn scrimtap wfull" style="padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Back to Sign In</button>
       ` : `
+        ${ui.mode==="signup" ? `
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">USERNAME</div>
+          <input data-field="authUsername" value="${esc(ui.username)}" placeholder="3-20 letters, numbers, underscore" maxlength="20" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        </div>
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">FULL NAME</div>
+          <input data-field="authFullName" value="${esc(ui.fullName)}" placeholder="Your full name" maxlength="60" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+        </div>` : ""}
         <div style="margin-bottom:10px">
           <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">EMAIL</div>
           <input data-field="authEmail" type="email" value="${esc(ui.email)}" placeholder="you@example.com" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
@@ -1481,8 +1520,9 @@ function adminView(){
     <div class="row" style="gap:8px;margin-bottom:16px">
       <button data-action="admin-section" data-section="catalog" class="btn scrimtap" style="flex:1;padding:10px 0;font-size:11px;font-weight:800;background:${ui.section==="catalog"?COLORS.turf:COLORS.panel};color:${ui.section==="catalog"?COLORS.bg:COLORS.muted}">CARD CATALOG</button>
       <button data-action="admin-section" data-section="players" class="btn scrimtap" style="flex:1;padding:10px 0;font-size:11px;font-weight:800;background:${ui.section==="players"?COLORS.turf:COLORS.panel};color:${ui.section==="players"?COLORS.bg:COLORS.muted}">PLAYERS</button>
+      <button data-action="admin-section" data-section="promos" class="btn scrimtap" style="flex:1;padding:10px 0;font-size:11px;font-weight:800;background:${ui.section==="promos"?COLORS.turf:COLORS.panel};color:${ui.section==="promos"?COLORS.bg:COLORS.muted}">PROMO CODES</button>
     </div>
-    ${ui.section==="catalog" ? adminCatalogSection() : adminPlayersManagementSection()}
+    ${ui.section==="catalog" ? adminCatalogSection() : ui.section==="players" ? adminPlayersManagementSection() : adminPromoCodesSection()}
   </div>`;
 }
 function adminCatalogSection(){
@@ -1643,6 +1683,68 @@ function adminPlayerDetailSection(){
   `;
 }
 
+function adminPromoCodesSection(){
+  const ui = state.adminUI;
+  if(ui.editingPromoCode!=null) return adminPromoCodeFormSection();
+  if(!ui.promoCodesLoaded) return `<div style="font-size:12px;color:${COLORS.muted}">Loading…</div>`;
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <div style="font-size:12px;color:${COLORS.muted}">${ui.promoCodes.length} code${ui.promoCodes.length===1?"":"s"}</div>
+      <button data-action="admin-promo-new" class="btn scrimtap" style="padding:6px 14px;font-size:11px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">+ New Code</button>
+    </div>
+    ${ui.promoCodes.length===0 ? `<div style="font-size:12px;color:${COLORS.muted}">No promo codes yet.</div>` : ""}
+    ${ui.promoCodes.map(pc=>{
+      const expired = pc.expires_at && new Date(pc.expires_at) < new Date();
+      const usedUp = pc.max_redemptions!=null && pc.redemption_count>=pc.max_redemptions;
+      const isLive = pc.active && !expired && !usedUp;
+      return `<button data-action="admin-promo-edit-open" data-code="${esc(pc.code)}" class="panel scrimtap" style="display:block;width:100%;text-align:left;padding:14px;margin-bottom:10px;border:none">
+        <div class="row between" style="gap:10px">
+          <div>
+            <div style="font-weight:800;font-size:13px;letter-spacing:.04em;color:${COLORS.cream}">${esc(pc.code)}</div>
+            <div style="font-size:11px;color:${COLORS.muted}">${pc.gems} gems · ${pc.redemption_count}${pc.max_redemptions!=null?`/${pc.max_redemptions}`:""} redeemed${pc.expires_at?` · expires ${esc(pc.expires_at.slice(0,10))}`:""}</div>
+          </div>
+          <span class="badge" style="background:${isLive?COLORS.turf+"33":COLORS.muted+"33"};color:${isLive?COLORS.turf:COLORS.muted}">${isLive?"LIVE":expired?"EXPIRED":usedUp?"USED UP":"OFF"}</span>
+        </div>
+      </button>`;
+    }).join("")}
+  `;
+}
+function adminPromoCodeFormSection(){
+  const ui = state.adminUI;
+  const f = ui.promoCodeForm;
+  const isNew = ui.editingPromoCode==="new";
+  return `
+    <div class="row between" style="margin-bottom:12px;align-items:center">
+      <button data-action="admin-promo-form-close" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">${isNew?"New Promo Code":esc(ui.editingPromoCode)}</div>
+      <span style="width:40px"></span>
+    </div>
+    ${ui.promoCodeStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(ui.promoCodeStatus)}</div>` : ""}
+    ${isNew ? `
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">CODE</div>
+      <input data-field="adminPromoCode" value="${esc(f.code)}" placeholder="e.g. WELCOME2026" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream};text-transform:uppercase" />
+    </div>` : ""}
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">GEMS REWARD</div>
+      <input data-field="adminPromoGems" type="number" min="1" value="${f.gems}" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+    </div>
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">MAX REDEMPTIONS (blank = unlimited)</div>
+      <input data-field="adminPromoMaxRedemptions" type="number" min="1" value="${esc(f.maxRedemptions)}" placeholder="Unlimited" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">EXPIRES (blank = never)</div>
+      <input data-field="adminPromoExpiresAt" type="date" value="${esc(f.expiresAt)}" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+    </div>
+    <div class="row between" style="margin-bottom:16px;align-items:center">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.06em;color:${COLORS.muted}">ACTIVE</div>
+      <button data-action="admin-promo-toggle-active" class="btn scrimtap" style="padding:6px 16px;font-size:11px;font-weight:800;background:${f.active?COLORS.turf:COLORS.panel};color:${f.active?COLORS.bg:COLORS.muted}">${f.active?"ON":"OFF"}</button>
+    </div>
+    <button data-action="admin-promo-form-save" class="btn scrimtap wfull" style="padding:12px 0;font-size:13px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg};margin-bottom:8px">Save</button>
+    ${!isNew ? `<button data-action="admin-promo-delete" data-code="${esc(ui.editingPromoCode)}" class="btn scrimtap wfull panel" style="padding:12px 0;font-size:13px;color:${COLORS.danger}">Delete Code</button>` : ""}
+  `;
+}
 function statBox(label,value,color){
   return `<div class="panel" style="padding:8px;text-align:center"><div style="font-size:16px;font-weight:900;color:${color}">${value}</div><div style="font-size:9px;letter-spacing:.03em;color:${COLORS.muted}">${label}</div></div>`;
 }
@@ -1983,6 +2085,7 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "admin-section":
       state.adminUI.section = el.dataset.section;
       if(el.dataset.section==="players" && !state.adminUI.allPlayersLoaded) refreshAllPlayers(0);
+      if(el.dataset.section==="promos" && !state.adminUI.promoCodesLoaded) refreshPromoCodes();
       render(); break;
     case "admin-players-page":
       refreshAllPlayers(Number(el.dataset.page)); break;
@@ -2022,6 +2125,32 @@ document.getElementById("stage").addEventListener("click", function(e){
       cancelResetProgress(); break;
     case "admin-reset-confirm":
       submitResetProgress(); break;
+    case "admin-promo-new":
+      openPromoCodeForm(null); break;
+    case "admin-promo-edit-open":
+      openPromoCodeForm(el.dataset.code); break;
+    case "admin-promo-form-close":
+      closePromoCodeForm(); break;
+    case "admin-promo-toggle-active":
+      state.adminUI.promoCodeForm.active = !state.adminUI.promoCodeForm.active; render(); break;
+    case "admin-promo-form-save":
+      submitPromoCodeForm(); break;
+    case "admin-promo-delete":
+      submitDeletePromoCode(el.dataset.code); break;
+    case "redeem-code-submit": {
+      const ui = state.redeemUI;
+      const code = (ui.code || "").trim();
+      if(!code || ui.loading) break;
+      ui.loading = true; ui.status = ""; render();
+      redeemPromoCode(code).then(({ gemsGranted, error })=>{
+        ui.loading = false;
+        if(error){ ui.status = error; render(); return; }
+        playFanfare();
+        ui.code = ""; ui.status = `Redeemed! +${gemsGranted} gems.`;
+        render();
+      });
+      break;
+    }
     case "open-pack": {
       const pack = PACKS.find(p=>p.id===el.dataset.packId);
       const s = state.shop;
@@ -2070,13 +2199,15 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "set-color":
       playTap(); state.profile.color = el.dataset.color; saveLocalTeamColor(el.dataset.color); render(); break;
     case "auth-tab":
-      state.authUI = { mode: el.dataset.mode, email:"", password:"", confirmPassword:"", error:"", loading:false, checkEmail:false };
+      state.authUI = { mode: el.dataset.mode, email:"", password:"", confirmPassword:"", username:"", fullName:"", error:"", loading:false, checkEmail:false };
       render(); break;
     case "auth-submit": {
       const ui = state.authUI;
       if(ui.loading) break;
       if(!ui.email || !ui.password){ ui.error = "Enter an email and password."; render(); break; }
       if(ui.mode==="signup" && ui.password !== ui.confirmPassword){ ui.error = "Passwords don't match."; render(); break; }
+      if(ui.mode==="signup" && !/^[a-zA-Z0-9_]{3,20}$/.test(ui.username.trim())){ ui.error = "Username must be 3-20 characters: letters, numbers, underscore only."; render(); break; }
+      if(ui.mode==="signup" && !ui.fullName.trim()){ ui.error = "Enter your full name."; render(); break; }
       ui.loading = true; ui.error = ""; render();
       if(ui.mode==="signin"){
         authSignIn(ui.email, ui.password).then(({error})=>{
@@ -2084,6 +2215,7 @@ document.getElementById("stage").addEventListener("click", function(e){
           if(error){ ui.error = error; render(); }
         });
       } else if(ui.mode==="signup"){
+        stashPendingSignupProfile(ui.username.trim(), ui.fullName.trim());
         authSignUp(ui.email, ui.password).then(({data, error})=>{
           ui.loading = false;
           if(error){ ui.error = error; render(); return; }
@@ -2131,6 +2263,8 @@ function handleFieldInput(e){
   if(field==="authEmail"){ state.authUI.email = e.target.value; state.authUI.error=""; return; }
   if(field==="authPassword"){ state.authUI.password = e.target.value; state.authUI.error=""; return; }
   if(field==="authConfirmPassword"){ state.authUI.confirmPassword = e.target.value; state.authUI.error=""; return; }
+  if(field==="authUsername"){ state.authUI.username = e.target.value; state.authUI.error=""; return; }
+  if(field==="authFullName"){ state.authUI.fullName = e.target.value; state.authUI.error=""; return; }
   if(field==="friendSearch"){ state.friendsUI.searchTerm = e.target.value; return; }
   if(field==="chatDraft"){ state.friendsUI.chat.draft = e.target.value; return; }
   if(field==="tradeGems"){ state.friendsUI.trade.gems = Math.max(0, Number(e.target.value)||0); return; }
@@ -2140,6 +2274,11 @@ function handleFieldInput(e){
   if(field==="adminGemsInput"){ state.adminUI.gemsInput = e.target.value; return; }
   if(field==="adminEditDisplayName"){ state.adminUI.editDisplayName = e.target.value; return; }
   if(field==="adminEditTeamName"){ state.adminUI.editTeamName = e.target.value; return; }
+  if(field==="adminPromoCode"){ state.adminUI.promoCodeForm.code = e.target.value; return; }
+  if(field==="adminPromoGems"){ state.adminUI.promoCodeForm.gems = e.target.value; return; }
+  if(field==="adminPromoMaxRedemptions"){ state.adminUI.promoCodeForm.maxRedemptions = e.target.value; return; }
+  if(field==="adminPromoExpiresAt"){ state.adminUI.promoCodeForm.expiresAt = e.target.value; return; }
+  if(field==="redeemCode"){ state.redeemUI.code = e.target.value; state.redeemUI.status=""; return; }
   if(field==="number"){ state.profile.number = Math.max(1, Math.min(99, Number(e.target.value)||1)); }
   else { state.profile[field] = e.target.value; }
   scheduleProfileSave();
