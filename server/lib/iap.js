@@ -1,17 +1,19 @@
-// TCG Manager -- native in-app purchases via direct Google Play Billing
-// (@capgo/native-purchases), for the Capacitor Android wrapper only -- the
-// plain web version keeps its existing "demo" purchase buttons untouched.
-// No third-party purchase account/dashboard involved -- Google Play
-// Console is the only place products are defined, and every purchase is
-// verified server-side (the verify-purchase Edge Function, which checks
-// the token against Google's own Play Developer API) before anything is
-// credited. RevenueCat was dropped in favor of this once the project
-// became Android-only -- see the checklist below for what's still needed.
-// UNTESTED: there is no Android device/simulator in this environment, so
-// none of the calls below have ever actually run. Verify on a real device
-// before trusting this.
+// TCG Manager -- real-money purchases, split by channel:
+//   - Android app: native Google Play Billing (@capgo/native-purchases).
+//     Every purchase is verified server-side against Google's own Play
+//     Developer API (verify-purchase Edge Function) before anything is
+//     credited. UNTESTED: no Android device/simulator in this environment.
+//   - Web / iOS "Add to Home Screen": Stripe Checkout (startWebCheckout
+//     below). The Edge Function only creates the hosted checkout page --
+//     the actual credit happens in the stripe-webhook Edge Function once
+//     Stripe confirms the payment completed, after the browser has fully
+//     navigated away to Stripe and back. UNTESTED end to end: no real
+//     Stripe purchase has been run against this yet.
+// Both channels write into the same iap_purchases table / call the same
+// credit_verified_purchase RPC, deduped by whatever opaque token/session id
+// that channel provides -- see schema.sql's "Phase I" block.
 //
-// Checklist to make this live (all outside what code alone can do):
+// Checklist to make Android live (all outside what code alone can do):
 //   1. Create the real in-app products in Play Console (Monetize ->
 //      Products -> In-app products): gems_100, gems_500, gems_1000,
 //      exclusive_27, exclusive_28, exclusive_29 -- ids must match PRODUCTS
@@ -24,6 +26,18 @@
 //      and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY from that JSON as secrets.
 //   4. Run the "Phase I" block in mobile/supabase/schema.sql if not done
 //      already (iap_purchases table + credit_verified_purchase RPC).
+//
+// Checklist to make Stripe (web/iOS) live -- see the header comments in
+// mobile/supabase/functions/create-checkout-session/index.ts and
+// mobile/supabase/functions/stripe-webhook/index.ts for the full detail:
+//   1. Deploy both of those Edge Functions. Turn OFF "Enforce JWT
+//      Verification" for stripe-webhook specifically.
+//   2. Set STRIPE_SECRET_KEY (Edge Function secret) from Stripe Dashboard ->
+//      Developers -> API keys.
+//   3. Stripe Dashboard -> Developers -> Webhooks -> Add endpoint, pointed
+//      at the deployed stripe-webhook URL, events checkout.session.completed
+//      + checkout.session.async_payment_succeeded. Set the whsec_... it
+//      gives you as STRIPE_WEBHOOK_SECRET (Edge Function secret).
 "use strict";
 
 function isNativeApp() {
@@ -67,4 +81,49 @@ function verifyPurchaseOnServer(productId, purchaseToken) {
       return { error: null };
     })
     .catch(err => ({ error: err.message || String(err) }));
+}
+
+// Web / iOS-PWA purchase path. Redirects the whole page to Stripe's hosted
+// checkout, so unlike purchaseProduct() above there's no "success" callback
+// on this same page load -- the credit happens server-side while the user
+// is on Stripe's page, and handleStripeReturn() below picks up the result
+// after Stripe redirects back.
+function startWebCheckout(productId) {
+  return sb.functions.invoke("create-checkout-session", {
+    body: { productId, returnUrl: window.location.origin + window.location.pathname }
+  }).then(({ data, error }) => {
+    if (error) return { error: error.message || String(error) };
+    if (data && data.error) return { error: data.error };
+    if (!data || !data.url) return { error: "Checkout session did not return a URL." };
+    window.location.href = data.url;
+    return { error: null };
+  }).catch(err => ({ error: err.message || String(err) }));
+}
+
+// Called once per app boot (after sign-in resolves) to notice a return trip
+// from Stripe Checkout. The actual gems/card are credited by the
+// stripe-webhook Edge Function, which may land slightly before or after
+// this redirect -- refreshGameState() is called twice (immediately, then
+// again after a short delay) to give that race a little room without
+// polling indefinitely.
+function handleStripeReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const checkout = params.get("checkout");
+  if (!checkout) return;
+
+  history.replaceState(null, "", window.location.pathname);
+  if (!window.state || !window.state.shop) return;
+
+  window.state.shop.checkoutNotice = checkout === "success"
+    ? "Payment received -- crediting your purchase now."
+    : "Checkout cancelled -- no charge was made.";
+  window.render();
+
+  if (checkout === "success") {
+    refreshGameState();
+    setTimeout(refreshGameState, 2500);
+  }
+  setTimeout(() => {
+    if (window.state && window.state.shop) { window.state.shop.checkoutNotice = null; window.render(); }
+  }, 5000);
 }

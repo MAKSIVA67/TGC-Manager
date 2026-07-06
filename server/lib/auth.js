@@ -152,6 +152,6 @@ function handleSignedIn(userId) {
       ]))
       .then(() => { ensureNotifStateSeeded(userId); subscribeToNotifications(userId); })
       .then(() => initializeNewAccountIfNeeded(userId))
-      .then(() => { window.state.authReady = true; window.render(); });
+      .then(() => { window.state.authReady = true; window.render(); handleStripeReturn(); });
   });
 }

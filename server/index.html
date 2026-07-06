@@ -487,7 +487,7 @@ const state = {
     zoneResultsLive:{}, seasonSummary:null, minuteInterval:null,
     opponentMeta:null, isChallengeMatch:false, ballOwnerKey:null, ballInterval:null,
   },
-  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"" },
+  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
   confettiOn:false,
   // Auth/account state (Phase A) -- populated by lib/auth.js.
   session: null,
@@ -881,7 +881,8 @@ function shopView(){
         </div>`).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">GEM PASSES</div>
-    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">${isNativeApp() ? "Real purchases via Google Play." : "🚧 Demo only on the web — these buttons add gems instantly for testing. The Android app charges real money via Google Play."}</div>
+    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">${isNativeApp() ? "Real purchases via Google Play." : "Real purchases via Stripe -- you'll be taken to a secure checkout page."}</div>
+    ${s.checkoutNotice ? `<div style="font-size:11px;font-weight:700;margin-bottom:10px;color:${COLORS.turf}">${esc(s.checkoutNotice)}</div>` : ""}
     ${s.purchaseError ? `<div style="font-size:11px;font-weight:700;margin-bottom:10px;color:${COLORS.danger}">${esc(s.purchaseError)}</div>` : ""}
     <div class="grid3" style="margin-bottom:22px">
       ${GEM_PASSES.map(pass=>`
@@ -894,7 +895,7 @@ function shopView(){
         </div>`).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">EXCLUSIVE CARDS</div>
-    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Guaranteed 100-rated cards — no luck involved, straight to your collection. ${isNativeApp() ? "" : "🚧 Demo only on the web for now — grants the card instantly without charging anything. The Android app charges real money via Google Play."}</div>
+    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Guaranteed 100-rated cards — no luck involved, straight to your collection. ${isNativeApp() ? "" : "Real purchases via Stripe -- you'll be taken to a secure checkout page."}</div>
     <div class="col" style="gap:12px">
       ${state.players.filter(p=>p.exclusive).map(card=>{
         const bought = card.owned || s.purchasedExclusive===card.id;
@@ -2196,9 +2197,14 @@ document.getElementById("stage").addEventListener("click", function(e){
         });
         break;
       }
-      // Demo mode (plain web) -- grants instantly, no real charge.
-      playChime(); state.gems += pass.gems; state.shop.purchasedPass = pass.id; render();
-      setTimeout(()=>{ state.shop.purchasedPass=null; render(); }, 1800);
+      // Web / iOS-PWA -- redirects to Stripe Checkout; the gems are only
+      // ever credited by the stripe-webhook Edge Function after a real
+      // payment completes (see handleStripeReturn() in lib/iap.js).
+      state.shop.purchasePending = pass.id; state.shop.purchaseError = ""; render();
+      startWebCheckout(pass.id).then(({error})=>{
+        if(error){ state.shop.purchasePending = null; state.shop.purchaseError = error; render(); }
+        // On success the page is already navigating away to Stripe.
+      });
       break;
     }
     case "buy-exclusive": {
@@ -2216,10 +2222,14 @@ document.getElementById("stage").addEventListener("click", function(e){
         });
         break;
       }
-      // Demo mode (plain web) -- grants instantly, no real charge.
-      playFanfare(); state.players = state.players.map(p=> p.id===card.id ? {...p, owned:true} : p);
-      state.shop.purchasedExclusive = card.id; render();
-      commitExclusivePurchase(card.id);
+      // Web / iOS-PWA -- redirects to Stripe Checkout; the card is only
+      // ever granted by the stripe-webhook Edge Function after a real
+      // payment completes (see handleStripeReturn() in lib/iap.js).
+      state.shop.purchasePending = productId; state.shop.purchaseError = ""; render();
+      startWebCheckout(productId).then(({error})=>{
+        if(error){ state.shop.purchasePending = null; state.shop.purchaseError = error; render(); }
+        // On success the page is already navigating away to Stripe.
+      });
       break;
     }
     case "set-avatar":

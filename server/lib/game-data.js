@@ -80,19 +80,6 @@ function loadCatalogAndOwnership(userId) {
   });
 }
 
-// Exclusive cards are bought directly (no gems involved) -- currently a
-// demo-mode grant (see the "Demo only" note in shopView()) until real
-// payment is wired up; still writes to user_cards for real so ownership
-// persists exactly like any other card once that happens.
-function commitExclusivePurchase(cardId) {
-  const session = window.state.session;
-  const userId = session && session.user && session.user.id;
-  if (!userId) return Promise.resolve();
-  return sb.from("user_cards").insert({ user_id: userId, card_id: cardId }).then(({ error }) => {
-    if (error) console.error("commitExclusivePurchase failed:", error.message);
-  });
-}
-
 function loadSquad(userId) {
   return sb.from("squads").select("*").eq("user_id", userId).maybeSingle().then(({ data }) => {
     if (data) {
