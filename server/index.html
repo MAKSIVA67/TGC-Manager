@@ -414,7 +414,7 @@ const COMMENTARY = {
   MID:{win:"⚙️ Your midfield is running the whole game!",lose:"⚙️ They're dominating the midfield battle!",tie:"⚙️ Midfield battle is dead even."},
   FWD:{win:"⚡ GOAL! Your striker finds the net!",lose:"⚡ Ouch — they finish clinically up top!",tie:"⚡ Chances traded, nobody's finishing them."},
 };
-const GEM_PASSES = [{id:"p100",gems:100,price:5},{id:"p500",gems:500,price:25,bestValue:true},{id:"p1000",gems:1000,price:50}];
+const GEM_PASSES = [{id:"gems_100",gems:100,price:5},{id:"gems_500",gems:500,price:25,bestValue:true},{id:"gems_1000",gems:1000,price:50}];
 const OBJECTIVES = [
   {id:"obj_win3",label:"Win 3 Matches",desc:"Win 3 matches this season",reward:25,target:3,progress:(s,p,season)=>season.wins},
   {id:"obj_collect10",label:"Collect 10 Cards",desc:"Own 10 different players",reward:20,target:10,progress:(s,p)=>p.filter(x=>x.owned).length},
@@ -487,7 +487,7 @@ const state = {
     zoneResultsLive:{}, seasonSummary:null, minuteInterval:null,
     opponentMeta:null, isChallengeMatch:false, ballOwnerKey:null, ballInterval:null,
   },
-  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0 },
+  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"" },
   confettiOn:false,
   // Auth/account state (Phase A) -- populated by lib/auth.js.
   session: null,
@@ -881,7 +881,8 @@ function shopView(){
         </div>`).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">GEM PASSES</div>
-    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">🚧 Demo only — these buttons add gems instantly for testing. A real app needs App Store / Google Play billing set up by an adult before it can charge real money.</div>
+    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">${isNativeApp() ? "Real purchases via Google Play." : "🚧 Demo only on the web — these buttons add gems instantly for testing. The Android app charges real money via Google Play."}</div>
+    ${s.purchaseError ? `<div style="font-size:11px;font-weight:700;margin-bottom:10px;color:${COLORS.danger}">${esc(s.purchaseError)}</div>` : ""}
     <div class="grid3" style="margin-bottom:22px">
       ${GEM_PASSES.map(pass=>`
         <div class="panel" style="position:relative;padding:12px;text-align:center;${pass.bestValue?`background:linear-gradient(160deg, ${COLORS.purple}, ${COLORS.pink});border:none`:""}">
@@ -889,18 +890,19 @@ function shopView(){
           <div class="row center" style="margin-bottom:4px">${icon("Gem",20,pass.bestValue?"#fff":COLORS.gold)}</div>
           <div style="font-weight:900;font-size:14px;color:${pass.bestValue?"#fff":COLORS.cream}">${pass.gems}</div>
           <div style="font-size:9px;margin-bottom:8px;color:${pass.bestValue?"#ffffffcc":COLORS.muted}">gems</div>
-          <button data-action="buy-gem-pass" data-pass-id="${pass.id}" class="btn scrimtap wfull row center" style="gap:4px;padding:6px 0;font-size:11px;background:${pass.bestValue?"#fff":COLORS.panelLight};color:${pass.bestValue?COLORS.purple:COLORS.gold}">${s.purchasedPass===pass.id?icon("Check",12,pass.bestValue?COLORS.purple:COLORS.gold)+" Added!":`€${pass.price}`}</button>
+          <button data-action="buy-gem-pass" data-pass-id="${pass.id}" ${s.purchasePending?"disabled":""} class="btn scrimtap wfull row center" style="gap:4px;padding:6px 0;font-size:11px;background:${pass.bestValue?"#fff":COLORS.panelLight};color:${pass.bestValue?COLORS.purple:COLORS.gold}">${s.purchasedPass===pass.id?icon("Check",12,pass.bestValue?COLORS.purple:COLORS.gold)+" Added!":s.purchasePending===pass.id?"…":`€${pass.price}`}</button>
         </div>`).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">EXCLUSIVE CARDS</div>
-    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Guaranteed 100-rated cards — no luck involved, straight to your collection. 🚧 Demo only for now — grants the card instantly without charging anything, until real payment is connected.</div>
+    <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">Guaranteed 100-rated cards — no luck involved, straight to your collection. ${isNativeApp() ? "" : "🚧 Demo only on the web for now — grants the card instantly without charging anything. The Android app charges real money via Google Play."}</div>
     <div class="col" style="gap:12px">
       ${state.players.filter(p=>p.exclusive).map(card=>{
         const bought = card.owned || s.purchasedExclusive===card.id;
+        const productId = "exclusive_"+card.id;
         return `<div class="row" style="gap:12px;padding:12px;border-radius:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight});border:2px solid ${COLORS.gold}">
           <div class="avatarCircle" style="width:48px;height:48px;font-weight:900;font-size:17px;background:${COLORS.gold};color:${COLORS.bg};box-shadow:0 0 16px ${COLORS.gold}88;flex-shrink:0">${card.power}</div>
           <div style="flex:1"><div style="font-weight:900;font-size:13px;color:${COLORS.cream}">${esc(card.name)}</div><div style="font-size:10px;font-weight:800;color:${COLORS.gold}">${card.position} · LEGENDARY</div></div>
-          <button data-action="buy-exclusive" data-card-id="${card.id}" ${bought?"disabled":""} class="btn scrimtap row center" style="gap:4px;padding:8px 12px;font-size:11px;flex-shrink:0;background:${bought?COLORS.turf:`linear-gradient(135deg, ${COLORS.gold}, #FF9F4A)`};color:${COLORS.bg}">${bought?icon("Check",12,COLORS.bg)+" Owned":`€${card.priceEUR}`}</button>
+          <button data-action="buy-exclusive" data-card-id="${card.id}" ${bought||s.purchasePending?"disabled":""} class="btn scrimtap row center" style="gap:4px;padding:8px 12px;font-size:11px;flex-shrink:0;background:${bought?COLORS.turf:`linear-gradient(135deg, ${COLORS.gold}, #FF9F4A)`};color:${COLORS.bg}">${bought?icon("Check",12,COLORS.bg)+" Owned":s.purchasePending===productId?"…":`€${card.priceEUR}`}</button>
         </div>`;
       }).join("")}
     </div>
@@ -2182,13 +2184,39 @@ document.getElementById("stage").addEventListener("click", function(e){
     }
     case "buy-gem-pass": {
       const pass = GEM_PASSES.find(p=>p.id===el.dataset.passId);
+      if(state.shop.purchasePending) break;
+      if(isNativeApp()){
+        state.shop.purchasePending = pass.id; state.shop.purchaseError = ""; render();
+        purchaseProduct(pass.id).then(({error})=>{
+          state.shop.purchasePending = null;
+          if(error){ state.shop.purchaseError = error; render(); return; }
+          playChime(); state.shop.purchasedPass = pass.id; render();
+          refreshGameState();
+          setTimeout(()=>{ state.shop.purchasedPass=null; render(); }, 1800);
+        });
+        break;
+      }
+      // Demo mode (plain web) -- grants instantly, no real charge.
       playChime(); state.gems += pass.gems; state.shop.purchasedPass = pass.id; render();
       setTimeout(()=>{ state.shop.purchasedPass=null; render(); }, 1800);
       break;
     }
     case "buy-exclusive": {
       const card = state.players.find(p=>p.id===Number(el.dataset.cardId));
-      if(card.owned) break;
+      if(card.owned || state.shop.purchasePending) break;
+      if(isNativeApp()){
+        const productId = "exclusive_"+card.id;
+        state.shop.purchasePending = productId; state.shop.purchaseError = ""; render();
+        purchaseProduct(productId).then(({error})=>{
+          state.shop.purchasePending = null;
+          if(error){ state.shop.purchaseError = error; render(); return; }
+          playFanfare(); state.players = state.players.map(p=> p.id===card.id ? {...p, owned:true} : p);
+          state.shop.purchasedExclusive = card.id; render();
+          refreshGameState();
+        });
+        break;
+      }
+      // Demo mode (plain web) -- grants instantly, no real charge.
       playFanfare(); state.players = state.players.map(p=> p.id===card.id ? {...p, owned:true} : p);
       state.shop.purchasedExclusive = card.id; render();
       commitExclusivePurchase(card.id);
