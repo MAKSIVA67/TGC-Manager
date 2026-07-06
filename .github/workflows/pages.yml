@@ -1,0 +1,37 @@
+name: Deploy game to GitHub Pages
+
+# Deploys just the server/ folder (the actual web game) as the Pages site
+# root -- GitHub Pages' simple "deploy from a branch" UI can only serve
+# from the repo root or /docs, not an arbitrary subfolder like server/, and
+# serving from the repo root directly would put the game at a /server/
+# sub-path, which breaks manifest.json's start_url/scope (both "/") for
+# "Add to Home Screen" on iOS. Uploading server/ itself as the artifact
+# makes it the site root instead, so everything resolves correctly.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: server
+      - id: deployment
+        uses: actions/deploy-pages@v4
