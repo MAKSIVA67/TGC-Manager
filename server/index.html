@@ -493,6 +493,7 @@ const state = {
   session: null,
   authReady: false,
   justBanned: false,
+  passwordRecovery: false,
   authUI: { mode:"signin", email:"", password:"", confirmPassword:"", username:"", fullName:"", error:"", loading:false, checkEmail:false },
   // Friends (Phase B) -- populated by lib/social.js.
   friendsUI: {
@@ -1483,10 +1484,11 @@ function authView(){
           <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">EMAIL</div>
           <input data-field="authEmail" type="email" value="${esc(ui.email)}" placeholder="you@example.com" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
         </div>
+        ${ui.mode!=="reset" ? `
         <div style="margin-bottom:${ui.mode==="signup"?"10":"14"}px">
           <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">PASSWORD</div>
           <input data-field="authPassword" type="password" value="${esc(ui.password)}" placeholder="••••••••" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
-        </div>
+        </div>` : ""}
         ${ui.mode==="signup" ? `
         <div style="margin-bottom:14px">
           <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">CONFIRM PASSWORD</div>
@@ -1504,6 +1506,31 @@ function authView(){
           `}
         </div>
       `}
+    </div>
+  </div>`;
+}
+// Shown after a password-reset email link is clicked (see the
+// PASSWORD_RECOVERY handling in lib/auth.js) -- deliberately just these two
+// fields, no email/username, since the user is already identified by the
+// recovery link itself.
+function newPasswordView(){
+  const ui = state.authUI;
+  return `<div class="view" style="padding-top:60px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.2em;color:${COLORS.muted};margin-bottom:4px">SET A NEW PASSWORD</div>
+      <div class="display" style="font-size:30px;color:${COLORS.cream}">FANTASY TCG <span style="color:${COLORS.gold}">MANAGER</span></div>
+    </div>
+    <div class="panel" style="padding:20px">
+      <div style="margin-bottom:10px">
+        <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">NEW PASSWORD</div>
+        <input data-field="authPassword" type="password" value="${esc(ui.password)}" placeholder="••••••••" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+      </div>
+      <div style="margin-bottom:14px">
+        <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">CONFIRM NEW PASSWORD</div>
+        <input data-field="authConfirmPassword" type="password" value="${esc(ui.confirmPassword)}" placeholder="••••••••" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
+      </div>
+      ${ui.error ? `<div style="font-size:12px;font-weight:700;margin-bottom:12px;color:${COLORS.danger}">${esc(ui.error)}</div>` : ""}
+      <button data-action="update-password-submit" class="btn scrimtap wfull" style="padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">${ui.loading ? "…" : "Update Password"}</button>
     </div>
   </div>`;
 }
@@ -1756,6 +1783,7 @@ function statBox(label,value,color){
 function appHTML(){
   if(!state.authReady) return loadingView();
   if(state.justBanned) return bannedView();
+  if(state.passwordRecovery) return newPasswordView();
   if(!state.session) return authView();
   const rankUpBanner = state.rankUp ? `<div style="position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:8px;padding:calc(12px + env(safe-area-inset-top)) 12px 12px;background:linear-gradient(90deg, ${state.rankUp.color}, ${COLORS.gold})">
     <span style="font-size:22px">${state.rankUp.icon}</span><span style="font-weight:900;font-size:13px;color:${COLORS.bg}">PROMOTED TO ${state.rankUp.name.toUpperCase()}!</span>
@@ -2242,7 +2270,8 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "auth-submit": {
       const ui = state.authUI;
       if(ui.loading) break;
-      if(!ui.email || !ui.password){ ui.error = "Enter an email and password."; render(); break; }
+      if(ui.mode==="reset"){ if(!ui.email){ ui.error = "Enter your email."; render(); break; } }
+      else if(!ui.email || !ui.password){ ui.error = "Enter an email and password."; render(); break; }
       if(ui.mode==="signup" && ui.password !== ui.confirmPassword){ ui.error = "Passwords don't match."; render(); break; }
       if(ui.mode==="signup" && !/^[a-zA-Z0-9_]{3,20}$/.test(ui.username.trim())){ ui.error = "Username must be 3-20 characters: letters, numbers, underscore only."; render(); break; }
       if(ui.mode==="signup" && !ui.fullName.trim()){ ui.error = "Enter your full name."; render(); break; }
@@ -2266,6 +2295,21 @@ document.getElementById("stage").addEventListener("click", function(e){
           render();
         });
       }
+      break;
+    }
+    case "update-password-submit": {
+      const ui = state.authUI;
+      if(ui.loading) break;
+      if(!ui.password || ui.password.length < 6){ ui.error = "Password must be at least 6 characters."; render(); break; }
+      if(ui.password !== ui.confirmPassword){ ui.error = "Passwords don't match."; render(); break; }
+      ui.loading = true; ui.error = ""; render();
+      authChangePassword(ui.password).then(({error})=>{
+        ui.loading = false;
+        if(error){ ui.error = error; render(); return; }
+        state.passwordRecovery = false;
+        state.authUI = { mode:"signin", email:"", password:"", confirmPassword:"", username:"", fullName:"", error:"", loading:false, checkEmail:false };
+        handleSignedIn(state.session.user.id);
+      });
       break;
     }
     case "sign-out":

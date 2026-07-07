@@ -6,8 +6,19 @@
 // `window.rankForWins` (everything else it declares stays private to it).
 "use strict";
 
+// Both auth emails below default to whatever "Site URL" is configured in
+// the Supabase dashboard (Authentication -> URL Configuration) if not told
+// otherwise -- passing the page's own current origin explicitly means the
+// email always links back to wherever the user actually was (the GitHub
+// Pages/iOS install, or localhost during dev), never silently falling back
+// to a stale dashboard setting. Supabase still requires that origin to be
+// on the project's "Redirect URLs" allow-list, or it ignores this and
+// falls back to the Site URL anyway.
+function currentOrigin() {
+  return window.location.origin + window.location.pathname;
+}
 function authSignUp(email, password) {
-  return sb.auth.signUp({ email, password }).then(({ data, error }) => ({ data, error: error ? error.message : null }));
+  return sb.auth.signUp({ email, password, options: { emailRedirectTo: currentOrigin() } }).then(({ data, error }) => ({ data, error: error ? error.message : null }));
 }
 function authSignIn(email, password) {
   return sb.auth.signInWithPassword({ email, password }).then(({ data, error }) => ({ data, error: error ? error.message : null }));
@@ -16,7 +27,7 @@ function authSignOut() {
   return sb.auth.signOut();
 }
 function authSendPasswordReset(email) {
-  return sb.auth.resetPasswordForEmail(email).then(({ error }) => ({ error: error ? error.message : null }));
+  return sb.auth.resetPasswordForEmail(email, { redirectTo: currentOrigin() }).then(({ error }) => ({ error: error ? error.message : null }));
 }
 function authChangePassword(newPassword) {
   return sb.auth.updateUser({ password: newPassword }).then(({ error }) => ({ error: error ? error.message : null }));
@@ -113,8 +124,18 @@ function initAuthListener() {
     if (data.session && data.session.user) handleSignedIn(data.session.user.id);
     else { window.state.authReady = true; window.render(); }
   });
-  sb.auth.onAuthStateChange((_event, newSession) => {
+  sb.auth.onAuthStateChange((event, newSession) => {
     window.state.session = newSession;
+    // A clicked password-reset email link lands here as its own event, with
+    // a real (if narrowly-scoped) session already attached -- show the
+    // "set a new password" screen instead of loading the app straight away,
+    // or the recovery link would silently just sign the user in.
+    if (event === "PASSWORD_RECOVERY") {
+      window.state.passwordRecovery = true;
+      window.state.authReady = true;
+      window.render();
+      return;
+    }
     if (newSession && newSession.user) {
       if (newSession.user.id !== lastHandledUserId) handleSignedIn(newSession.user.id);
     } else {
