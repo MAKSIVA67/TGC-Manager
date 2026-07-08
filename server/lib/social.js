@@ -9,6 +9,24 @@ function pairFilter(col1, col2, a, b) {
   return `and(${col1}.eq.${a},${col2}.eq.${b}),and(${col1}.eq.${b},${col2}.eq.${a})`;
 }
 
+// Shared by listChallenges()/listTrades(): batch-fetches whichever side of
+// each row isn't the caller and attaches it as `otherProfile`, same pattern
+// listFriendRequests() already used for friend requests.
+function attachOtherProfiles(rows, callerId, col1, col2) {
+  const otherIds = rows.map(r => r[col1] === callerId ? r[col2] : r[col1]);
+  const uniqueIds = Array.from(new Set(otherIds));
+  if (!uniqueIds.length) return Promise.resolve(rows);
+  return sb.from("profiles").select("id, display_name, team_name, avatar, username").in("id", uniqueIds)
+    .then(({ data: profiles }) => {
+      const byId = {};
+      (profiles || []).forEach(p => { byId[p.id] = p; });
+      return rows.map(r => {
+        const otherId = r[col1] === callerId ? r[col2] : r[col1];
+        return { ...r, otherProfile: byId[otherId] || { id: otherId, display_name: "Player", team_name: "" } };
+      });
+    });
+}
+
 function searchPlayers(term, excludeId) {
   const trimmed = (term || "").trim();
   if (!trimmed) return Promise.resolve({ data: [], error: null });
@@ -222,11 +240,19 @@ function sendChallenge(callerId, opponentId, formation, lineupIds) {
     return { error: error ? error.message : null };
   });
 }
+// Enriched with `otherProfile` (whichever side isn't the caller) the same
+// way listFriendRequests() already does -- so the UI can show who a
+// challenge is with/from without a per-row lookup.
 function listChallenges(callerId) {
   return sb.from("challenges").select("*")
     .or(`challenger_id.eq.${callerId},opponent_id.eq.${callerId}`)
     .order("created_at", { ascending: false })
-    .then(({ data, error }) => ({ data: data || [], error: error ? error.message : null }));
+    .then(({ data, error }) => {
+      if (error) return { data: [], error: error.message };
+      const rows = data || [];
+      return attachOtherProfiles(rows, callerId, "challenger_id", "opponent_id")
+        .then(withNames => ({ data: withNames, error: null }));
+    });
 }
 function fetchChallenge(id) {
   return sb.from("challenges").select("*").eq("id", id).single()
@@ -358,11 +384,18 @@ function sendTradeOffer(initiatorId, recipientId, offeredCardIds, requestedCardI
     offered_card_ids: offeredCardIds, requested_card_ids: requestedCardIds, offered_gems: offeredGems,
   }).then(({ error }) => ({ error: error ? error.message : null }));
 }
+// Enriched with `otherProfile` -- this is what fixes trades not saying who
+// they're from/with in the Trades list and the trade review screen.
 function listTrades(callerId) {
   return sb.from("trades").select("*")
     .or(`initiator_id.eq.${callerId},recipient_id.eq.${callerId}`)
     .order("created_at", { ascending: false })
-    .then(({ data, error }) => ({ data: data || [], error: error ? error.message : null }));
+    .then(({ data, error }) => {
+      if (error) return { data: [], error: error.message };
+      const rows = data || [];
+      return attachOtherProfiles(rows, callerId, "initiator_id", "recipient_id")
+        .then(withNames => ({ data: withNames, error: null }));
+    });
 }
 function cancelTrade(tradeId) {
   return sb.from("trades").update({ status: "cancelled", resolved_at: new Date().toISOString() }).eq("id", tradeId)
@@ -523,6 +556,25 @@ function notifBadges() {
   return { requests, challenges, trades, chat, total: requests + challenges + trades + chat };
 }
 
+// Transient banner for a real-time event, naming who it's from -- looks up
+// the display name from the already-loaded friends list (every event type
+// here only ever comes from a friend) rather than a fresh query, since it
+// just needs to be fast, not authoritative. Auto-clears after 4s, guarded
+// by id so an older toast's timeout can't stomp a newer one.
+let toastSeq = 0;
+function friendDisplayName(friendId) {
+  const f = (window.state.friendsUI.friends || []).find(x => x.id === friendId);
+  return (f && f.display_name) || "A player";
+}
+function showToast(message) {
+  const id = ++toastSeq;
+  window.state.toast = { message, id };
+  window.render();
+  setTimeout(() => {
+    if (window.state.toast && window.state.toast.id === id) { window.state.toast = null; window.render(); }
+  }, 4000);
+}
+
 // One realtime channel per session covering every event type that should
 // raise a notification. friend_requests/challenges/trades need no column
 // filter -- Supabase Realtime authorizes each change against the same RLS
@@ -533,22 +585,67 @@ let notifChannel = null;
 function subscribeToNotifications(userId) {
   unsubscribeFromNotifications();
   notifChannel = sb.channel("notifications-" + userId)
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "friend_requests" }, () => refreshFriendRequests())
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "friend_requests" }, () => { refreshFriendRequests(); refreshFriendsList(); })
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "challenges" }, () => refreshChallenges())
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "challenges" }, () => refreshChallenges())
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "trades" }, () => refreshTrades())
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "trades" }, () => refreshTrades())
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "friend_requests" }, (payload) => {
+      if (payload.new.addressee_id === userId) showToast(`${friendDisplayName(payload.new.requester_id)} sent you a friend request`);
+      refreshFriendRequests();
+    })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "friend_requests" }, (payload) => {
+      if (payload.new.status === "accepted" && payload.new.requester_id === userId) showToast(`${friendDisplayName(payload.new.addressee_id)} accepted your friend request`);
+      refreshFriendRequests(); refreshFriendsList();
+    })
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "challenges" }, (payload) => {
+      if (payload.new.opponent_id === userId) showToast(`${friendDisplayName(payload.new.challenger_id)} challenged you`);
+      refreshChallenges();
+    })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "challenges" }, (payload) => {
+      if (payload.new.status === "completed" && payload.new.challenger_id === userId) showToast(`${friendDisplayName(payload.new.opponent_id)} played your challenge`);
+      refreshChallenges();
+    })
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "trades" }, (payload) => {
+      if (payload.new.recipient_id === userId) showToast(`Trade offer from ${friendDisplayName(payload.new.initiator_id)}`);
+      refreshTrades();
+    })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "trades" }, (payload) => {
+      if (payload.new.initiator_id === userId && (payload.new.status === "completed" || payload.new.status === "declined")) {
+        const verb = payload.new.status === "completed" ? "accepted" : "declined";
+        showToast(`${friendDisplayName(payload.new.recipient_id)} ${verb} your trade offer`);
+      }
+      refreshTrades();
+    })
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `recipient_id=eq.${userId}` }, (payload) => {
       const fUI = window.state.friendsUI;
       if (payload.new.sender_id === fUI.chat.friendId) return; // conversation is already open, not a "notification"
       if (!fUI.chatUnreadFriendIds.includes(payload.new.sender_id)) {
         fUI.chatUnreadFriendIds = [...fUI.chatUnreadFriendIds, payload.new.sender_id];
-        window.render();
+        showToast(`New message from ${friendDisplayName(payload.new.sender_id)}`);
       }
     })
     .subscribe();
 }
 function unsubscribeFromNotifications() {
   if (notifChannel) { sb.removeChannel(notifChannel); notifChannel = null; }
+}
+
+// A second realtime channel for admin actions taking effect on OTHER
+// players' devices instantly, instead of only on next app restart:
+// - own `profiles` row changing (admin sets gems, edits name, bans the
+//   account) -- loadProfile() already contains the "banned -> force sign
+//   out to bannedView()" logic, so just re-running it here covers gems/name
+//   edits AND a live ban with no separate code path.
+// - the shared `cards` table changing (admin adds/edits/deletes a card) --
+//   reloads the catalog+ownership so the shop/collection reflect it live.
+let adminLiveChannel = null;
+function subscribeToAdminLiveUpdates(userId) {
+  unsubscribeFromAdminLiveUpdates();
+  adminLiveChannel = sb.channel("admin-live-" + userId)
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${userId}` }, () => {
+      loadProfile(userId).then(() => window.render());
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "cards" }, () => {
+      loadCatalogAndOwnership(userId).then(() => window.render());
+    })
+    .subscribe();
+}
+function unsubscribeFromAdminLiveUpdates() {
+  if (adminLiveChannel) { sb.removeChannel(adminLiveChannel); adminLiveChannel = null; }
 }

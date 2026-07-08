@@ -142,6 +142,7 @@ function initAuthListener() {
       lastHandledUserId = null;
       unsubscribeFromChat();
       unsubscribeFromNotifications();
+      unsubscribeFromAdminLiveUpdates();
       window.state.authReady = true;
       window.state.tab = "home";
       window.render();
@@ -171,7 +172,7 @@ function handleSignedIn(userId) {
         refreshChallenges(),
         refreshTrades(),
       ]))
-      .then(() => { ensureNotifStateSeeded(userId); subscribeToNotifications(userId); })
+      .then(() => { ensureNotifStateSeeded(userId); subscribeToNotifications(userId); subscribeToAdminLiveUpdates(userId); })
       .then(() => initializeNewAccountIfNeeded(userId))
       .then(() => { window.state.authReady = true; window.render(); handleStripeReturn(); });
   });

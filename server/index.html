@@ -349,6 +349,8 @@ const PACKS = [
   {id:"silver",name:"Silver Pack",cost:45,icon:"🎁",blurb:"Balanced odds across all rarities (~10% chance of Elite+)",weights:{Common:30,Uncommon:25,Rare:20,Epic:15,Elite:6,Ultra:2.5,Legendary:1.2,Mythic:0.25,Icon:0.045,GOAT:0.005},grad:["#C7D3E0","#7C8DA6"],glow:"#C0C0C0"},
   {id:"gold",name:"Gold Pack",cost:90,icon:"💰",blurb:"Boosted Elite & Legendary+ odds (~25% chance of Elite+)",weights:{Common:10,Uncommon:15,Rare:25,Epic:25,Elite:15,Ultra:7,Legendary:2.5,Mythic:0.4,Icon:0.09,GOAT:0.01},grad:["#FFC94A","#FF9F4A"],glow:"#FFC94A"},
   {id:"legendary",name:"Legendary Pack",cost:180,icon:"👑",blurb:"Guaranteed Elite tier or better!",weights:{Elite:45,Ultra:30,Legendary:18,Mythic:5,Icon:1.8,GOAT:0.2},grad:["#B784F0","#FF6FB5"],glow:"#B784F0"},
+  {id:"mythic",name:"Mythic Pack",cost:350,icon:"🔮",blurb:"Guaranteed Ultra tier or better!",weights:{Ultra:55,Legendary:32,Mythic:10,Icon:2.5,GOAT:0.5},grad:["#4CC9F0","#7B2FF7"],glow:"#4CC9F0"},
+  {id:"goat",name:"GOAT Pack",cost:600,icon:"🐐",blurb:"Guaranteed Legendary tier or better — chase the GOAT!",weights:{Legendary:60,Mythic:30,Icon:8,GOAT:2},grad:["#FFD700","#FF3CAC"],glow:"#FFD700"},
 ];
 function pickWeighted(lockedPool, weights){
   const buckets = RARITY_ORDER.map(r=>({r,pool:lockedPool.filter(p=>p.rarity===r),w:weights[r]||0})).filter(b=>b.pool.length>0 && b.w>0);
@@ -407,6 +409,12 @@ const ACHIEVEMENTS = [
   {id:"full_squad",label:"Full Collection",emoji:"🏆",check:(s,p)=>p.filter(x=>!x.exclusive).every(x=>x.owned)},
   {id:"gold_rank",label:"Reach Gold Rank",emoji:"🥇",check:s=>["Gold","Diamond","Legend"].includes(rankForWins(s.wins).name)},
   {id:"season_champ",label:"Finish a Season",emoji:"📅",check:(s,p,e)=>e&&e.season&&e.season.number>=2},
+  {id:"unrelenting",label:"10 Win Streak",emoji:"🌪️",check:s=>s.bestStreak>=10},
+  {id:"double_century",label:"100 Wins",emoji:"🎖️",check:s=>s.wins>=100},
+  {id:"true_legend",label:"Reach Legend Rank",emoji:"👑",check:s=>rankForWins(s.wins).name==="Legend"},
+  {id:"full_exclusive",label:"All Exclusives",emoji:"💠",check:(s,p)=>p.filter(x=>x.exclusive).every(x=>x.owned)},
+  {id:"gem_hoarder",label:"10,000 Gems Banked",emoji:"🏦",check:(s,p,e)=>e&&e.gems>=10000},
+  {id:"veteran",label:"10 Seasons Played",emoji:"🗓️",check:(s,p,e)=>e&&e.season&&e.season.number>=10},
 ];
 const COMMENTARY = {
   GK:{win:"🧤 Your keeper pulls off a stunning save!",lose:"😱 Their keeper denies you at the near post!",tie:"🧤 Both keepers stand tall — nothing gets through."},
@@ -414,12 +422,20 @@ const COMMENTARY = {
   MID:{win:"⚙️ Your midfield is running the whole game!",lose:"⚙️ They're dominating the midfield battle!",tie:"⚙️ Midfield battle is dead even."},
   FWD:{win:"⚡ GOAL! Your striker finds the net!",lose:"⚡ Ouch — they finish clinically up top!",tie:"⚡ Chances traded, nobody's finishing them."},
 };
-const GEM_PASSES = [{id:"gems_100",gems:100,price:5},{id:"gems_500",gems:500,price:25,bestValue:true},{id:"gems_1000",gems:1000,price:50}];
+const GEM_PASSES = [{id:"gems_100",gems:100,price:1},{id:"gems_500",gems:500,price:4},{id:"gems_1000",gems:1000,price:8},{id:"gems_5000",gems:5000,price:30},{id:"gems_10000",gems:10000,price:55,bestValue:true}];
 const OBJECTIVES = [
   {id:"obj_win3",label:"Win 3 Matches",desc:"Win 3 matches this season",reward:25,target:3,progress:(s,p,season)=>season.wins},
   {id:"obj_collect10",label:"Collect 10 Cards",desc:"Own 10 different players",reward:20,target:10,progress:(s,p)=>p.filter(x=>x.owned).length},
   {id:"obj_epic",label:"Pull a Big One",desc:"Own an Epic-tier card or better",reward:30,target:1,progress:(s,p)=>(p.some(x=>x.owned&&isHighTier(x.rarity))?1:0)},
   {id:"obj_streak3",label:"Win Streak",desc:"Reach a 3-match win streak",reward:35,target:3,progress:(s)=>s.bestStreak},
+  {id:"obj_win10",label:"Win 10 Matches",desc:"Win 10 matches this season",reward:60,target:10,progress:(s,p,season)=>season.wins},
+  {id:"obj_win25",label:"Win 25 Matches",desc:"Win 25 matches this season",reward:120,target:25,progress:(s,p,season)=>season.wins},
+  {id:"obj_collect50",label:"Collect 50 Cards",desc:"Own 50 different players",reward:80,target:50,progress:(s,p)=>p.filter(x=>x.owned).length},
+  {id:"obj_collect100",label:"Collect 100 Cards",desc:"Own 100 different players",reward:150,target:100,progress:(s,p)=>p.filter(x=>x.owned).length},
+  {id:"obj_legendary",label:"Own a Legendary",desc:"Own a Legendary-tier card or better",reward:70,target:1,progress:(s,p)=>(p.some(x=>x.owned&&isTopTier(x.rarity))?1:0)},
+  {id:"obj_streak5",label:"5 Win Streak",desc:"Reach a 5-match win streak",reward:90,target:5,progress:(s)=>s.bestStreak},
+  {id:"obj_streak10",label:"10 Win Streak",desc:"Reach a 10-match win streak",reward:200,target:10,progress:(s)=>s.bestStreak},
+  {id:"obj_trades3",label:"Trade 3 Times",desc:"Successfully complete 3 trades with friends",reward:50,target:3,progress:(s,p,season,friendsUI)=>(friendsUI&&friendsUI.trades||[]).filter(t=>t.status==="completed").length},
 ];
 const DAILY_REWARDS = [10,15,20,25,35,45,60];
 const SPIN_ITEM_W = 76, SPIN_GAP = 8, SPIN_STEP = SPIN_ITEM_W + SPIN_GAP, SPIN_FILLER_COUNT = 22;
@@ -480,6 +496,10 @@ const state = {
   newsOpen: false,
   prevRankName: null,
   rankUp: null,
+  // Transient toast for real-time social events (trade/challenge/friend
+  // request received) -- populated by lib/social.js's showToast(), cleared
+  // automatically a few seconds later. { message, id } or null.
+  toast: null,
   play: {
     formationKey:"balanced", myLineup:{}, activeSlot:null, subSlot:null, halfSubUsed:false,
     phase:"building", currentHalf:1, oppSlots:[], oppLineup:null, firstHalfLineup:null,
@@ -754,7 +774,7 @@ function homeView(){
       <div class="col" style="gap:8px">
         ${OBJECTIVES.map(o=>{
           const claimed = state.home.objectivesClaimed.includes(o.id);
-          const val = Math.min(o.target, o.progress(state.stats, state.players, state.season));
+          const val = Math.min(o.target, o.progress(state.stats, state.players, state.season, state.friendsUI));
           const done = val>=o.target; const pct = Math.round((val/o.target)*100);
           return `<div style="border-radius:12px;padding:8px;background:${COLORS.panelLight}">
             <div class="row between" style="margin-bottom:4px"><span style="font-size:11px;font-weight:800;color:${COLORS.cream}">${o.label}</span><span class="row" style="gap:2px;font-size:9px;font-weight:800;color:${COLORS.gold}">+${o.reward} ${icon("Coins",11,COLORS.gold)}</span></div>
@@ -892,7 +912,7 @@ function shopView(){
           <div class="row center" style="margin-bottom:4px">${icon("Gem",20,pass.bestValue?"#fff":COLORS.gold)}</div>
           <div style="font-weight:900;font-size:14px;color:${pass.bestValue?"#fff":COLORS.cream}">${pass.gems}</div>
           <div style="font-size:9px;margin-bottom:8px;color:${pass.bestValue?"#ffffffcc":COLORS.muted}">gems</div>
-          <button data-action="buy-gem-pass" data-pass-id="${pass.id}" ${s.purchasePending?"disabled":""} class="btn scrimtap wfull row center" style="gap:4px;padding:6px 0;font-size:11px;background:${pass.bestValue?"#fff":COLORS.panelLight};color:${pass.bestValue?COLORS.purple:COLORS.gold}">${s.purchasedPass===pass.id?icon("Check",12,pass.bestValue?COLORS.purple:COLORS.gold)+" Added!":s.purchasePending===pass.id?"…":`€${pass.price}`}</button>
+          <button data-action="buy-gem-pass" data-pass-id="${pass.id}" ${s.purchasePending?"disabled":""} class="btn scrimtap wfull row center" style="gap:4px;padding:6px 0;font-size:11px;background:${pass.bestValue?"#fff":COLORS.panelLight};color:${pass.bestValue?COLORS.purple:COLORS.gold}">${s.purchasedPass===pass.id?icon("Check",12,pass.bestValue?COLORS.purple:COLORS.gold)+" Added!":s.purchasePending===pass.id?"…":`$${pass.price}`}</button>
         </div>`).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">EXCLUSIVE CARDS</div>
@@ -1205,10 +1225,11 @@ function challengeResultSection(){
   const myId = state.session.user.id;
   const outcome = viewerChallengeOutcome(challenge, myId);
   const won = outcome.result==="win", isDraw = outcome.result==="draw";
+  const otherName = esc((challenge.otherProfile&&challenge.otherProfile.display_name)||"Player");
   return `
     <div class="row between" style="margin-bottom:12px;align-items:center">
       <button data-action="challenge-close-view" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
-      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">Challenge Result</div>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">vs ${otherName}</div>
       <span style="width:40px"></span>
     </div>
     <div style="border-radius:16px;padding:20px;margin-bottom:16px;text-align:center;background:${won?COLORS.turf+"22":isDraw?COLORS.cyan+"22":COLORS.danger+"22"};border:2px solid ${won?COLORS.turf:isDraw?COLORS.cyan:COLORS.danger}">
@@ -1259,10 +1280,11 @@ function tradeReviewSection(){
   const cardName = id => { const p = state.players.find(x=>x.id===id); return p ? p.name : "Unknown card"; };
   const isRecipient = trade.recipient_id===myId;
   const isInitiator = trade.initiator_id===myId;
+  const otherName = esc((trade.otherProfile&&trade.otherProfile.display_name)||"Player");
   return `
     <div class="row between" style="margin-bottom:12px;align-items:center">
       <button data-action="trade-close-view" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
-      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">Trade</div>
+      <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">Trade with ${otherName}</div>
       <span style="width:40px"></span>
     </div>
     ${ui.tradeActionStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.danger}">${esc(ui.tradeActionStatus)}</div>` : ""}
@@ -1296,8 +1318,9 @@ function friendsTradesSection(){
   const myId = state.session.user.id;
   return ui.trades.map(t=>{
     const isInitiator = t.initiator_id===myId;
-    const label = t.status==="pending" ? (isInitiator?"You offered — waiting":"They offered — respond")
-      : t.status==="completed" ? "Completed" : t.status==="declined" ? "Declined" : "Cancelled";
+    const otherName = esc((t.otherProfile&&t.otherProfile.display_name)||"Player");
+    const label = t.status==="pending" ? (isInitiator?`Waiting on ${otherName}`:`Offer from ${otherName}`)
+      : t.status==="completed" ? `Completed with ${otherName}` : t.status==="declined" ? `Declined by ${otherName}` : "Cancelled";
     const color = t.status==="pending" ? COLORS.gold : t.status==="completed" ? COLORS.turf : COLORS.muted;
     return `
       <div class="panel" style="padding:14px;margin-bottom:10px">
@@ -1788,6 +1811,7 @@ function appHTML(){
   const rankUpBanner = state.rankUp ? `<div style="position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:8px;padding:calc(12px + env(safe-area-inset-top)) 12px 12px;background:linear-gradient(90deg, ${state.rankUp.color}, ${COLORS.gold})">
     <span style="font-size:22px">${state.rankUp.icon}</span><span style="font-weight:900;font-size:13px;color:${COLORS.bg}">PROMOTED TO ${state.rankUp.name.toUpperCase()}!</span>
   </div>` : "";
+  const toastBanner = state.toast ? `<div style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:60;max-width:calc(100% - 24px);padding:10px 16px;border-radius:999px;font-size:12px;font-weight:800;text-align:center;color:${COLORS.bg};background:${COLORS.gold};box-shadow:0 4px 16px #0006">${esc(state.toast.message)}</div>` : "";
   let view = "";
   if(state.tab==="home") view = homeView();
   else if(state.tab==="index") view = indexView();
@@ -1798,7 +1822,7 @@ function appHTML(){
   else if(state.tab==="profile") view = profileView();
   else if(state.tab==="admin" && isAdmin()) view = adminView();
   const chatOpen = state.tab==="friends" && !!state.friendsUI.chat.friendId;
-  return `${rankUpBanner}${railHeader()}${view}${chatOpen ? "" : tabBar()}`;
+  return `${rankUpBanner}${toastBanner}${railHeader()}${view}${chatOpen ? "" : tabBar()}`;
 }
 
 // ---------- actions ----------
