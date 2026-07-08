@@ -10,7 +10,7 @@ workflows:
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.tcgmanager.app
+        bundle_identifier: com.fantasytcgmanager.app
       vars:
         # Numeric Apple ID of the app record in App Store Connect (visible
         # on the app's General/App Information page once created there --

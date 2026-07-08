@@ -15,10 +15,10 @@ if (hasSigningConfig) {
 }
 
 android {
-    namespace = "com.tcgmanager.app"
+    namespace = "com.fantasytcgmanager.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.tcgmanager.app"
+        applicationId "com.fantasytcgmanager.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

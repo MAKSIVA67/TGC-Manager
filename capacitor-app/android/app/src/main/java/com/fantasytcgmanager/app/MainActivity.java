@@ -1,4 +1,4 @@
-package com.tcgmanager.app;
+package com.fantasytcgmanager.app;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
