@@ -423,10 +423,10 @@ const COMMENTARY = {
   FWD:{win:"⚡ GOAL! Your striker finds the net!",lose:"⚡ Ouch — they finish clinically up top!",tie:"⚡ Chances traded, nobody's finishing them."},
 };
 // androidId is only set where the Play Store product id had to diverge from
-// the game's own id (gems_100's original Play Console product was deleted --
-// Google permanently blocks reusing a deleted product id, so Android uses
-// "gems100" for that one tier while Stripe/web keep using "gems_100").
-const GEM_PASSES = [{id:"gems_100",androidId:"gems100",gems:100,price:1},{id:"gems_500",gems:500,price:4},{id:"gems_1000",gems:1000,price:8},{id:"gems_5000",gems:5000,price:30},{id:"gems_10000",gems:10000,price:55,bestValue:true}];
+// the game's own id (that tier's original Play Console product was deleted --
+// Google permanently blocks reusing a deleted product id, so Android uses a
+// no-underscore variant for those tiers while Stripe/web keep the original).
+const GEM_PASSES = [{id:"gems_100",androidId:"gems100",gems:100,price:1},{id:"gems_500",androidId:"gems500",gems:500,price:4},{id:"gems_1000",gems:1000,price:8},{id:"gems_5000",gems:5000,price:30},{id:"gems_10000",gems:10000,price:55,bestValue:true}];
 const OBJECTIVES = [
   {id:"obj_win3",label:"Win 3 Matches",desc:"Win 3 matches this season",reward:25,target:3,progress:(s,p,season)=>season.wins},
   {id:"obj_collect10",label:"Collect 10 Cards",desc:"Own 10 different players",reward:20,target:10,progress:(s,p)=>p.filter(x=>x.owned).length},
