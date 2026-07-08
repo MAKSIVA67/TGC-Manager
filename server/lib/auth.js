@@ -26,6 +26,18 @@ function authSignIn(email, password) {
 function authSignOut() {
   return sb.auth.signOut();
 }
+// Play Store policy requires a real self-service deletion path, not just a
+// "contact support" form -- delete_own_account() (schema.sql, Phase K) wipes
+// the caller's own auth.users row and everything cascading from it. The
+// session is dead the instant this succeeds (the user row it was issued for
+// no longer exists), so a plain signOut() afterward just clears local state
+// to match reality rather than actually invalidating anything server-side.
+function authDeleteAccount() {
+  return sb.rpc("delete_own_account").then(({ error }) => {
+    if (error) return { error: error.message };
+    return sb.auth.signOut().then(() => ({ error: null }));
+  });
+}
 function authSendPasswordReset(email) {
   return sb.auth.resetPasswordForEmail(email, { redirectTo: currentOrigin() }).then(({ error }) => ({ error: error ? error.message : null }));
 }

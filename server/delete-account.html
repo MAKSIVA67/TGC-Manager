@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Delete Account — TCG Manager</title>
+<style>
+  :root{ --bg:#080F1A; --panel:#132234; --panelLight:#1C3348; --turf:#2FD180; --cream:#F3F6FA; --muted:#6C84A3; --danger:#FB5A5A; }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--cream)}
+  .card{width:100%;max-width:400px;background:var(--panel);border-radius:16px;padding:24px}
+  h1{font-size:18px;margin:0 0 4px}
+  p{font-size:13px;color:var(--muted);line-height:1.5}
+  input{width:100%;box-sizing:border-box;border-radius:12px;padding:12px;border:none;outline:none;font-size:14px;background:var(--panelLight);color:var(--cream);margin-bottom:10px}
+  button{width:100%;border:none;border-radius:12px;padding:12px 0;font-size:13px;font-weight:800;cursor:pointer;margin-bottom:10px}
+  .btn-primary{background:var(--turf);color:var(--bg)}
+  .btn-danger{background:var(--danger);color:#fff}
+  .btn-secondary{background:var(--panelLight);color:var(--cream)}
+  .status{font-size:13px;margin:10px 0;min-height:16px}
+  .status.error{color:var(--danger)}
+  .status.ok{color:var(--turf)}
+  a{color:var(--turf)}
+  #confirmStep{display:none}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Delete Your Account</h1>
+    <p id="intro">Sign in below to permanently delete your TCG Manager account and all associated data (cards, gems, matches, friends, messages, purchase history). This works even if you don't have the app installed — you don't need to open TCG Manager itself to request deletion.</p>
+
+    <div id="loginStep">
+      <input id="email" type="email" placeholder="Email" autocomplete="username">
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+      <button id="signInBtn" class="btn-primary">Sign In</button>
+      <div id="loginStatus" class="status"></div>
+    </div>
+
+    <div id="confirmStep">
+      <p style="color:var(--danger)">This permanently deletes your account and everything in it. This cannot be undone.</p>
+      <button id="deleteBtn" class="btn-danger">Yes, Delete My Account Permanently</button>
+      <button id="cancelBtn" class="btn-secondary">Cancel</button>
+      <div id="deleteStatus" class="status"></div>
+    </div>
+
+    <p style="margin-top:16px"><a href="privacy.html">Privacy Policy</a> · <a href="./">Back to TCG Manager</a></p>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  var sb = window.supabase.createClient(
+    "https://tzktsffcirwgbkwxsyrx.supabase.co",
+    "sb_publishable_wzTSAGVTh1SONsZzSwj_GQ_KFtvPvuM"
+  );
+
+  var loginStep = document.getElementById("loginStep");
+  var confirmStep = document.getElementById("confirmStep");
+  var loginStatus = document.getElementById("loginStatus");
+  var deleteStatus = document.getElementById("deleteStatus");
+
+  document.getElementById("signInBtn").addEventListener("click", function () {
+    var email = document.getElementById("email").value.trim();
+    var password = document.getElementById("password").value;
+    if (!email || !password) { loginStatus.textContent = "Enter your email and password."; loginStatus.className = "status error"; return; }
+    loginStatus.textContent = "Signing in…"; loginStatus.className = "status";
+    sb.auth.signInWithPassword({ email: email, password: password }).then(function (res) {
+      if (res.error) { loginStatus.textContent = res.error.message; loginStatus.className = "status error"; return; }
+      loginStatus.textContent = ""; loginStep.style.display = "none"; confirmStep.style.display = "block";
+    });
+  });
+
+  document.getElementById("cancelBtn").addEventListener("click", function () {
+    confirmStep.style.display = "none"; loginStep.style.display = "block";
+  });
+
+  document.getElementById("deleteBtn").addEventListener("click", function () {
+    var btn = document.getElementById("deleteBtn");
+    btn.disabled = true;
+    deleteStatus.textContent = "Deleting your account…"; deleteStatus.className = "status";
+    sb.rpc("delete_own_account").then(function (res) {
+      if (res.error) { deleteStatus.textContent = res.error.message; deleteStatus.className = "status error"; btn.disabled = false; return; }
+      sb.auth.signOut().then(function () {
+        confirmStep.innerHTML = "<p class='status ok'>Your account and all associated data have been permanently deleted.</p>";
+      });
+    });
+  });
+</script>
+</body>
+</html>

@@ -552,6 +552,7 @@ const state = {
   // Redeem-a-code UI on the Profile tab -- populated/consumed by
   // redeemPromoCode() in lib/game-data.js.
   redeemUI: { code: "", status: "", loading: false },
+  deleteAccountUI: { confirming: false, status: "", loading: false },
 };
 state.prevRankName = rankForWins(state.stats.wins).name;
 
@@ -1468,6 +1469,20 @@ function profileView(){
     ` : ""}
 
     <button data-action="sign-out" class="btn scrimtap wfull" style="margin-top:16px;padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.muted}">Sign Out</button>
+
+    <div class="panel" style="padding:16px;margin-top:16px;border:1px solid ${COLORS.danger}66">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.danger}">DANGER ZONE</div>
+      ${state.deleteAccountUI.status ? `<div style="font-size:12px;margin-bottom:10px;color:${COLORS.danger}">${esc(state.deleteAccountUI.status)}</div>` : ""}
+      ${state.deleteAccountUI.confirming ? `
+        <div style="font-size:12px;margin-bottom:10px;color:${COLORS.cream}">This permanently deletes your account, cards, gems, matches, friends, and messages. This can't be undone.</div>
+        <div class="row" style="gap:8px">
+          <button data-action="confirm-delete-account" ${state.deleteAccountUI.loading?"disabled":""} class="btn scrimtap wfull" style="padding:12px 0;font-size:12px;font-weight:800;background:${COLORS.danger};color:#fff">${state.deleteAccountUI.loading?"Deleting…":"Yes, Delete Everything"}</button>
+          <button data-action="cancel-delete-account" class="btn scrimtap wfull panel" style="padding:12px 0;font-size:12px;color:${COLORS.cream}">Cancel</button>
+        </div>
+      ` : `
+        <button data-action="arm-delete-account" class="btn scrimtap wfull panel" style="padding:12px 0;font-size:12px;font-weight:800;color:${COLORS.danger}">Delete Account</button>
+      `}
+    </div>
   </div>`;
 }
 // ---------- Auth views (Phase A) ----------
@@ -2338,6 +2353,18 @@ document.getElementById("stage").addEventListener("click", function(e){
     }
     case "sign-out":
       authSignOut(); break;
+    case "arm-delete-account":
+      state.deleteAccountUI = { confirming: true, status: "", loading: false }; render(); break;
+    case "cancel-delete-account":
+      state.deleteAccountUI = { confirming: false, status: "", loading: false }; render(); break;
+    case "confirm-delete-account": {
+      state.deleteAccountUI.loading = true; render();
+      authDeleteAccount().then(({ error }) => {
+        if (error) { state.deleteAccountUI = { confirming: true, status: error, loading: false }; render(); return; }
+        state.deleteAccountUI = { confirming: false, status: "", loading: false };
+      });
+      break;
+    }
     case "admin-self-gems": {
       if(!isAdmin()) break;
       const amount = Number(el.dataset.amount)||0;
