@@ -1991,7 +1991,7 @@ function beginChallengeMatch(challengeRow, challengerLineup){
   pl.isChallengeMatch = true;
   state.tab = "play";
   render();
-  beginMatch(newOppSlots, opp, `vs ${(friend&&friend.display_name)||"a friend"}'s squad`);
+  beginMatch(newOppSlots, opp, `vs ${esc((friend&&friend.display_name)||"a friend")}'s squad`);
 }
 window.beginChallengeMatch = beginChallengeMatch;
 function continueSecondHalf(){
