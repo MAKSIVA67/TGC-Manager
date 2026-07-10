@@ -544,6 +544,7 @@ const state = {
     section: "catalog",
     cards: [], cardsLoaded: false, cardFilter: "All", editingCard: null,
     cardForm: { name:"", position:"GK", power:50, rarity:"Common" }, cardStatus: "",
+    cardImageStatus: "", bulkUpload: { uploading:false, log:[], total:0 }, bulkUploadOpen: false,
     playerSearchTerm: "", playerSearchResults: [], playerSearchStatus: "",
     allPlayers: [], allPlayersPage: 0, allPlayersTotal: 0, allPlayersLoaded: false, allPlayersStatus: "",
     viewingPlayerId: null, viewingPlayer: null, playerStatus: "", gemsInput: "",
@@ -673,12 +674,14 @@ function playerCard(p, opts){
   const clickAttr = opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "";
   const disabled = opts.disabled ? "disabled" : "";
   const selectedOutline = opts.selected ? `;outline:3px solid ${COLORS.gold};outline-offset:-3px` : "";
+  const hasImage = !locked && !!p.imageUrl;
   const foilBg = locked
     ? `linear-gradient(155deg, ${COLORS.panel}, ${COLORS.panelLight})`
     : `linear-gradient(155deg, ${COLORS.bg} 0%, ${COLORS.panel} 32%, ${rarity.color}2e 68%, ${rarity.color}55 100%)`;
   return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;border:1px solid ${locked?"transparent":rarity.color+"77"};background:${foilBg};opacity:${locked?0.55:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
+    ${hasImage ? `<div style="position:absolute;inset:0;pointer-events:none;background-image:url('${esc(p.imageUrl)}');background-size:cover;background-position:center top"></div><div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg, rgba(3,7,14,0) 45%, rgba(3,7,14,.55) 75%, rgba(3,7,14,.85) 100%)"></div>` : ""}
     <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:hidden">
-      <span class="display" style="font-size:64px;color:${locked?"transparent":rarity.color}14;transform:translateY(6px)">${POSITION_GLYPH[p.position]||""}</span>
+      ${hasImage ? "" : `<span class="display" style="font-size:64px;color:${locked?"transparent":rarity.color}14;transform:translateY(6px)">${POSITION_GLYPH[p.position]||""}</span>`}
     </div>
     ${!locked && isTopTier(p.rarity) ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.4) 50%,transparent 60%);animation:shineSweep 2.6s ease-in-out infinite"></div>` : ""}
     <div style="position:relative;padding:10px 10px 8px">
@@ -1683,26 +1686,73 @@ function adminCatalogSection(){
   return `
     <div class="row between" style="margin-bottom:12px;align-items:center">
       <div style="font-size:12px;color:${COLORS.muted}">${ui.cards.length} cards total</div>
-      <button data-action="admin-card-new" class="btn scrimtap" style="padding:6px 14px;font-size:11px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">+ Add Card</button>
+      <div class="row" style="gap:8px">
+        <button data-action="admin-bulk-upload-open" class="btn scrimtap panel" style="padding:6px 14px;font-size:11px;font-weight:800">Bulk Upload Images</button>
+        <button data-action="admin-card-new" class="btn scrimtap" style="padding:6px 14px;font-size:11px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">+ Add Card</button>
+      </div>
     </div>
+    ${bulkUploadPanel()}
     <div class="row wrap" style="gap:6px;margin-bottom:12px">
       ${positions.map(p=>`<button data-action="admin-card-filter" data-position="${p}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;background:${ui.cardFilter===p?COLORS.turf:COLORS.panel};color:${ui.cardFilter===p?COLORS.bg:COLORS.muted}">${p}</button>`).join("")}
     </div>
     <div class="grid2">
-      ${filtered.map(c=>`<button data-action="admin-card-edit-open" data-card-id="${c.id}" class="cardTile scrimtap" style="border-left:4px solid ${RARITY[c.rarity].color};text-align:left">
-        <div class="row between" style="margin-bottom:8px"><span class="badge" style="background:${RARITY[c.rarity].color}33;color:${RARITY[c.rarity].color}">${RARITY[c.rarity].label}</span></div>
-        <div class="row" style="gap:12px">
-          <div class="avatarCircle" style="width:44px;height:44px;font-weight:900;font-size:16px;background:${RARITY[c.rarity].color};color:${COLORS.bg}">${c.power}</div>
-          <div><div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${esc(c.name)}</div><div style="font-size:11px;color:${COLORS.muted}">${c.position}</div></div>
+      ${filtered.map(c=>`<button data-action="admin-card-edit-open" data-card-id="${c.id}" class="cardTile scrimtap" style="border-left:4px solid ${RARITY[c.rarity].color};text-align:left;position:relative;overflow:hidden">
+        ${c.image_url ? `<div style="position:absolute;inset:0;background-image:url('${esc(c.image_url)}');background-size:cover;background-position:center center;opacity:.35"></div>` : ""}
+        <div style="position:relative;z-index:1">
+          <div class="row between" style="margin-bottom:8px"><span class="badge" style="background:${RARITY[c.rarity].color}33;color:${RARITY[c.rarity].color}">${RARITY[c.rarity].label}</span></div>
+          <div class="row" style="gap:12px">
+            <div class="avatarCircle" style="width:44px;height:44px;font-weight:900;font-size:16px;background:${RARITY[c.rarity].color};color:${COLORS.bg}">${c.power}</div>
+            <div><div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${esc(c.name)}</div><div style="font-size:11px;color:${COLORS.muted}">${c.position}</div></div>
+          </div>
         </div>
       </button>`).join("")}
     </div>
   `;
 }
+// Bulk image upload -- see bulkUploadCardImages() in admin-api.js for the
+// filename->card matching logic ("1.png" -> the 1st active card ordered by
+// id, matching the roster export spreadsheet's own row numbering).
+function bulkUploadPanel(){
+  const bu = state.adminUI.bulkUpload;
+  if(!state.adminUI.bulkUploadOpen) return "";
+  const done = bu.log.length, total = bu.total || done;
+  const errors = bu.log.filter(r=>r.error);
+  return `<div class="panel" style="padding:14px;margin-bottom:12px">
+    <div class="row between" style="margin-bottom:8px;align-items:center">
+      <div style="font-size:12px;font-weight:800;color:${COLORS.cream}">Bulk Upload Images</div>
+      <button data-action="admin-bulk-upload-close" class="scrimtap" style="background:none;border:none;color:${COLORS.muted}">${icon("X",16,COLORS.muted)}</button>
+    </div>
+    <div style="font-size:11px;margin-bottom:10px;color:${COLORS.muted}">Select every image at once, named to match the roster spreadsheet's "Image File" column (1.png, 2.png, …). Each one is matched to the correct card automatically.</div>
+    <label class="btn scrimtap panel" style="display:block;text-align:center;padding:10px 0;font-size:11px;font-weight:800;cursor:pointer;margin-bottom:10px">
+      ${bu.uploading ? "Uploading…" : "Choose Images"}
+      <input data-field="adminBulkImageFiles" type="file" accept="image/*" multiple ${bu.uploading?"disabled":""} style="display:none" />
+    </label>
+    ${total>0 ? `<div style="font-size:11px;margin-bottom:6px;color:${COLORS.muted}">${done} / ${total} processed${errors.length?`, ${errors.length} error(s)`:""}</div>` : ""}
+    ${bu.log.length ? `<div style="max-height:160px;overflow-y:auto">${bu.log.slice().reverse().map(r=>`<div style="font-size:10px;padding:3px 0;color:${r.error?COLORS.danger:COLORS.turf}">${esc(r.file)} ${r.error?"— "+esc(r.error):`→ ${esc(r.cardName||"")} ✓`}</div>`).join("")}</div>` : ""}
+  </div>`;
+}
 function adminCardFormSection(){
   const ui = state.adminUI;
   const f = ui.cardForm;
   const isNew = ui.editingCard==="new";
+  const existingCard = isNew ? null : ui.cards.find(c=>c.id===ui.editingCard);
+  const imageSection = isNew ? "" : `
+    <div style="margin-bottom:16px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:6px;color:${COLORS.muted}">CARD IMAGE</div>
+      <div class="row" style="gap:12px;align-items:center;margin-bottom:8px">
+        <div style="width:64px;height:64px;border-radius:12px;overflow:hidden;flex-shrink:0;background:${COLORS.panelLight};display:flex;align-items:center;justify-content:center">
+          ${existingCard && existingCard.image_url ? `<img src="${esc(existingCard.image_url)}" style="width:100%;height:100%;object-fit:cover" />` : `<span style="font-size:9px;color:${COLORS.muted}">None</span>`}
+        </div>
+        <div style="flex:1">
+          <label class="btn scrimtap panel" style="display:block;text-align:center;padding:10px 0;font-size:11px;font-weight:800;cursor:pointer">
+            Choose Image
+            <input data-field="adminCardImageFile" data-card-id="${ui.editingCard}" type="file" accept="image/*" style="display:none" />
+          </label>
+        </div>
+      </div>
+      ${existingCard && existingCard.image_url ? `<button data-action="admin-card-remove-image" data-card-id="${ui.editingCard}" class="btn scrimtap wfull panel" style="padding:8px 0;font-size:11px;color:${COLORS.danger}">Remove Image</button>` : ""}
+      ${ui.cardImageStatus ? `<div style="font-size:11px;margin-top:6px;color:${COLORS.muted}">${esc(ui.cardImageStatus)}</div>` : ""}
+    </div>`;
   return `
     <div class="row between" style="margin-bottom:12px;align-items:center">
       <button data-action="admin-card-form-close" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
@@ -1710,6 +1760,7 @@ function adminCardFormSection(){
       <span style="width:40px"></span>
     </div>
     ${ui.cardStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(ui.cardStatus)}</div>` : ""}
+    ${imageSection}
     <div style="margin-bottom:10px">
       <div style="font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:4px;color:${COLORS.muted}">NAME (no real footballers)</div>
       <input data-field="adminCardName" value="${esc(f.name)}" placeholder="Player name" style="width:100%;box-sizing:border-box;border-radius:12px;padding:10px;border:none;outline:none;font-size:13px;background:${COLORS.panelLight};color:${COLORS.cream}" />
@@ -2255,6 +2306,12 @@ document.getElementById("stage").addEventListener("click", function(e){
       submitCardForm(); break;
     case "admin-card-delete":
       submitDeleteCard(Number(el.dataset.cardId)); break;
+    case "admin-card-remove-image":
+      submitCardImageRemove(Number(el.dataset.cardId)); break;
+    case "admin-bulk-upload-open":
+      openBulkImageUpload(); break;
+    case "admin-bulk-upload-close":
+      closeBulkImageUpload(); break;
     case "admin-player-search-submit":
       submitPlayerSearch(state.adminUI.playerSearchTerm); break;
     case "admin-player-view":
@@ -2492,6 +2549,8 @@ function handleFieldInput(e){
   if(field==="friendSearch"){ state.friendsUI.searchTerm = e.target.value; return; }
   if(field==="chatDraft"){ state.friendsUI.chat.draft = e.target.value; return; }
   if(field==="tradeGems"){ state.friendsUI.trade.gems = Math.max(0, Number(e.target.value)||0); return; }
+  if(field==="adminCardImageFile"){ if(e.target.files[0]) submitCardImageUpload(Number(e.target.dataset.cardId), e.target.files[0]); e.target.value=""; return; }
+  if(field==="adminBulkImageFiles"){ if(e.target.files.length) submitBulkImageUpload(e.target.files); e.target.value=""; return; }
   if(field==="adminCardName"){ state.adminUI.cardForm.name = e.target.value; return; }
   if(field==="adminCardPower"){ state.adminUI.cardForm.power = e.target.value; return; }
   if(field==="adminPlayerSearch"){ state.adminUI.playerSearchTerm = e.target.value; return; }

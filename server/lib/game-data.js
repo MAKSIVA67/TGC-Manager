@@ -76,6 +76,7 @@ function loadCatalogAndOwnership(userId) {
       id: c.id, name: c.name, position: c.position, power: c.power, rarity: c.rarity,
       owned: ownedIds.has(c.id),
       exclusive: !!c.exclusive, priceEUR: c.price_eur,
+      imageUrl: c.image_url || null,
       // Retired cards (roster shrink to 100 active players) stay owned by
       // whoever already had them, but drop out of pack odds and starter
       // selection -- see pickStarterCardIds() below and the "open-pack"

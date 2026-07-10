@@ -24,6 +24,57 @@ function updateCard(id, fields) {
 function deleteCard(id) {
   return sb.from("cards").delete().eq("id", id).then(({ error }) => ({ error: friendlyAdminError(error) }));
 }
+// Card artwork (Phase O). One file per card, stored at `<cardId>.<ext>` in
+// the public `card-images` Storage bucket -- upsert:true so re-uploading for
+// the same card just replaces the object in place, no orphaned old files to
+// clean up. A `?v=timestamp` query string is appended to the stored URL
+// (not the storage path itself) purely to cache-bust the CDN/browser cache
+// on re-upload -- without it, replacing an image keeps showing the old one
+// until a hard refresh, since the path/URL would otherwise be byte-identical.
+function uploadCardImage(cardId, file) {
+  const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+  const path = `${cardId}.${ext}`;
+  return sb.storage.from("card-images").upload(path, file, { upsert: true, cacheControl: "3600" })
+    .then(({ error: uploadError }) => {
+      if (uploadError) return { error: uploadError.message };
+      const { data } = sb.storage.from("card-images").getPublicUrl(path);
+      const url = data.publicUrl + "?v=" + Date.now();
+      return updateCard(cardId, { image_url: url }).then(({ error }) => ({ error, url }));
+    });
+}
+function removeCardImage(cardId) {
+  return updateCard(cardId, { image_url: null });
+}
+// Bulk upload (matches the numbering convention from the exported roster
+// spreadsheet: row 1 -> "1.png", row 2 -> "2.png", etc, where "row N" is the
+// Nth active card ordered by id -- the exact same deterministic order the
+// spreadsheet export used). Uploads sequentially (not in parallel) so the
+// status log updates one file at a time and one failed/misnamed file
+// doesn't take down a batch of concurrent requests.
+function bulkUploadCardImages(fileList, onProgress) {
+  const files = Array.from(fileList).sort((a, b) => {
+    const na = parseInt(a.name, 10), nb = parseInt(b.name, 10);
+    return (isNaN(na) ? 0 : na) - (isNaN(nb) ? 0 : nb);
+  });
+  return fetchAllCards().then(({ data: allCards, error }) => {
+    if (error) return [{ file: "", error }];
+    const activeSorted = allCards.filter(c => c.active).sort((a, b) => a.id - b.id);
+    const results = [];
+    let i = 0;
+    function next() {
+      if (i >= files.length) return Promise.resolve(results);
+      const file = files[i++];
+      const m = file.name.match(/^(\d+)\./);
+      const finish = (entry) => { results.push(entry); if (onProgress) onProgress(results.slice(), files.length); return next(); };
+      if (!m) return finish({ file: file.name, error: `Filename must start with a number, e.g. "1.png" -- skipped.` });
+      const rowNum = parseInt(m[1], 10);
+      const card = activeSorted[rowNum - 1];
+      if (!card) return finish({ file: file.name, error: `No active card at row ${rowNum} -- skipped.` });
+      return uploadCardImage(card.id, file).then(({ error }) => finish({ file: file.name, cardId: card.id, cardName: card.name, error }));
+    }
+    return next();
+  });
+}
 // Promo codes (Phase F addendum #3). Plain CRUD gated by the same
 // is_admin()-enforced RLS shape as cards above -- redemption itself goes
 // through the redeem_promo_code() RPC in game-data.js, not through here.
@@ -141,6 +192,52 @@ function submitDeleteCard(cardId) {
     closeCardForm();
     refreshAdminCards();
     refreshGameState();
+  });
+}
+function submitCardImageUpload(cardId, file) {
+  const ui = window.state.adminUI;
+  ui.cardImageStatus = "Uploading…";
+  window.render();
+  uploadCardImage(cardId, file).then(({ error }) => {
+    ui.cardImageStatus = error || "";
+    if (!error) {
+      const card = ui.cards.find(c => c.id === cardId);
+      if (card) card.image_url = null; // refreshed below with the real url
+    }
+    refreshAdminCards().then(refreshGameState);
+    window.render();
+  });
+}
+function submitCardImageRemove(cardId) {
+  const ui = window.state.adminUI;
+  ui.cardImageStatus = "Removing…";
+  window.render();
+  removeCardImage(cardId).then(({ error }) => {
+    ui.cardImageStatus = error || "";
+    refreshAdminCards().then(refreshGameState);
+    window.render();
+  });
+}
+function openBulkImageUpload() {
+  window.state.adminUI.bulkUploadOpen = true;
+  window.state.adminUI.bulkUpload = { uploading: false, log: [], total: 0 };
+  window.render();
+}
+function closeBulkImageUpload() {
+  window.state.adminUI.bulkUploadOpen = false;
+  window.render();
+}
+function submitBulkImageUpload(fileList) {
+  const ui = window.state.adminUI;
+  ui.bulkUpload = { uploading: true, log: [], total: fileList.length };
+  window.render();
+  bulkUploadCardImages(fileList, (log, total) => {
+    ui.bulkUpload = { uploading: true, log, total };
+    window.render();
+  }).then((log) => {
+    ui.bulkUpload = { uploading: false, log, total: fileList.length };
+    refreshAdminCards().then(refreshGameState);
+    window.render();
   });
 }
 function refreshPromoCodes() {
