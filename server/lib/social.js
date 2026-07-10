@@ -174,9 +174,10 @@ let chatChannel = null;
 function openChat(friendId, friendName) {
   const myId = window.state.session.user.id;
   window.state.friendsUI.chat = { friendId, friendName, messages: [], draft: "", loading: true };
-  // Opening the conversation is the read receipt -- drop this friend from
-  // the unread set immediately, before messages even finish loading.
-  window.state.friendsUI.chatUnreadFriendIds = window.state.friendsUI.chatUnreadFriendIds.filter(id => id !== friendId);
+  // Opening the conversation is the read receipt -- clear this friend's
+  // unread count immediately, before messages even finish loading.
+  const { [friendId]: _cleared, ...restCounts } = window.state.friendsUI.chatUnreadCounts;
+  window.state.friendsUI.chatUnreadCounts = restCounts;
   window.render();
   listMessages(myId, friendId).then(({ data }) => {
     window.state.friendsUI.chat.messages = data;
@@ -552,7 +553,7 @@ function notifBadges() {
   const trades = (fUI.trades || []).filter(t =>
     t.status === "pending" ? t.recipient_id === uid : (!!t.resolved_at && !s.viewedTradeIds.includes(t.id))
   ).length;
-  const chat = (fUI.chatUnreadFriendIds || []).length;
+  const chat = Object.values(fUI.chatUnreadCounts || {}).reduce((sum, n) => sum + n, 0);
   return { requests, challenges, trades, chat, total: requests + challenges + trades + chat };
 }
 
@@ -615,10 +616,11 @@ function subscribeToNotifications(userId) {
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `recipient_id=eq.${userId}` }, (payload) => {
       const fUI = window.state.friendsUI;
       if (payload.new.sender_id === fUI.chat.friendId) return; // conversation is already open, not a "notification"
-      if (!fUI.chatUnreadFriendIds.includes(payload.new.sender_id)) {
-        fUI.chatUnreadFriendIds = [...fUI.chatUnreadFriendIds, payload.new.sender_id];
-        showToast(`New message from ${friendDisplayName(payload.new.sender_id)}`);
-      }
+      const senderId = payload.new.sender_id;
+      const prevCount = fUI.chatUnreadCounts[senderId] || 0;
+      fUI.chatUnreadCounts = { ...fUI.chatUnreadCounts, [senderId]: prevCount + 1 };
+      if (prevCount === 0) showToast(`New message from ${friendDisplayName(senderId)}`);
+      window.render();
     })
     .subscribe();
 }

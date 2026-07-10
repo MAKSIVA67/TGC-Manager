@@ -527,10 +527,10 @@ const state = {
     // Chat (Phase C) -- a friendId set here means "chat is open", overlaying
     // whatever sub-tab was showing.
     chat: { friendId:null, friendName:"", messages:[], draft:"", loading:false },
-    // Friend ids with a chat message that arrived while that conversation
+    // Per-friend count of chat messages that arrived while that conversation
     // wasn't open -- populated live by lib/social.js's notifications
     // subscription, cleared the moment openChat() is called for that friend.
-    chatUnreadFriendIds: [],
+    chatUnreadCounts: {},
     // Challenges (Phase D) -- populated by lib/social.js.
     challenges: [], challengesLoaded: false, challengeStatus: "", viewingChallengeId: null,
     // Trading (Phase E) -- populated by lib/social.js.
@@ -1264,7 +1264,7 @@ function friendsListSection(){
           </div>
         </div>
         <div class="row" style="gap:6px">
-          <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="position:relative;padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat${ui.chatUnreadFriendIds.includes(f.id) ? `<span style="position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:999px;background:${COLORS.danger}"></span>` : ""}</button>
+          <button data-action="friend-open-chat" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="position:relative;padding:6px 12px;font-size:11px;color:${COLORS.turf}">Chat${ui.chatUnreadCounts[f.id] ? `<span style="position:absolute;top:-7px;right:-7px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:${COLORS.danger};color:#fff;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;line-height:1">${ui.chatUnreadCounts[f.id]}</span>` : ""}</button>
           <button data-action="trade-open-composer" data-friend-id="${f.id}" data-friend-name="${esc(f.display_name||"Player")}" class="btn scrimtap panel" style="padding:6px 12px;font-size:11px;color:${COLORS.gold}">Trade</button>
         </div>
       </div>
