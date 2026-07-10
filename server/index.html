@@ -498,6 +498,7 @@ const state = {
   season: {number:1,matchday:1,points:0,wins:0,losses:0,draws:0},
   home: {dailyLastClaim:null, dailyStreak:0, objectivesClaimed:[]},
   newsOpen: false,
+  enlargedCardId: null,
   prevRankName: null,
   rankUp: null,
   // Transient toast for real-time social events (trade/challenge/friend
@@ -667,21 +668,35 @@ function tabBar(){
 // only animates for Legendary+ so a full grid of these doesn't turn into a
 // wall of simultaneous motion.
 const POSITION_GLYPH = {GK:"GK",DEF:"DF",MID:"MF",FWD:"FW"};
+// Aspect ratio of the card art template Maksim generates images against --
+// matches that layout exactly so uploaded art is never stretched/cropped
+// oddly, instead of the previous roughly-square foil-design tile.
+const CARD_ART_RATIO = "842/1191";
 function playerCard(p, opts){
   opts = opts||{};
   const rarity = RARITY[p.rarity];
   const locked = opts.mode==="index" && !p.owned;
-  const clickAttr = opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "";
+  const hasImage = !locked && !!(p.imageThumbUrl || p.imageUrl);
+  // Real uploaded art is treated as the finished card -- no text/badges
+  // overlaid on top, since the image itself already carries the player's
+  // name/position/rarity/stats (per Maksim's own card template). Cards
+  // without art yet keep the placeholder foil design with those overlays
+  // so they're still identifiable in the meantime.
+  const enlargeAttr = opts.mode==="index" && hasImage ? `data-action="enlarge-card" data-player-id="${p.id}"` : "";
+  const clickAttr = enlargeAttr || (opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "");
   const disabled = opts.disabled ? "disabled" : "";
   const selectedOutline = opts.selected ? `;outline:3px solid ${COLORS.gold};outline-offset:-3px` : "";
-  const hasImage = !locked && !!p.imageUrl;
   const foilBg = locked
     ? `linear-gradient(155deg, ${COLORS.panel}, ${COLORS.panelLight})`
     : `linear-gradient(155deg, ${COLORS.bg} 0%, ${COLORS.panel} 32%, ${rarity.color}2e 68%, ${rarity.color}55 100%)`;
+  if(hasImage){
+    return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;aspect-ratio:${CARD_ART_RATIO};border:1px solid ${rarity.color}77;background:${foilBg};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
+      <img src="${esc(p.imageThumbUrl||p.imageUrl)}" style="display:block;width:100%;height:100%;object-fit:cover" />
+    </button>`;
+  }
   return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;border:1px solid ${locked?"transparent":rarity.color+"77"};background:${foilBg};opacity:${locked?0.55:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
-    ${hasImage ? `<div style="position:absolute;inset:0;pointer-events:none;background-image:url('${esc(p.imageUrl)}');background-size:cover;background-position:center top"></div><div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg, rgba(3,7,14,0) 45%, rgba(3,7,14,.55) 75%, rgba(3,7,14,.85) 100%)"></div>` : ""}
     <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:hidden">
-      ${hasImage ? "" : `<span class="display" style="font-size:64px;color:${locked?"transparent":rarity.color}14;transform:translateY(6px)">${POSITION_GLYPH[p.position]||""}</span>`}
+      <span class="display" style="font-size:64px;color:${locked?"transparent":rarity.color}14;transform:translateY(6px)">${POSITION_GLYPH[p.position]||""}</span>
     </div>
     ${!locked && isTopTier(p.rarity) ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.4) 50%,transparent 60%);animation:shineSweep 2.6s ease-in-out infinite"></div>` : ""}
     <div style="position:relative;padding:10px 10px 8px">
@@ -1959,6 +1974,11 @@ function appHTML(){
     <span style="font-size:22px">${state.rankUp.icon}</span><span style="font-weight:900;font-size:13px;color:${COLORS.bg}">PROMOTED TO ${state.rankUp.name.toUpperCase()}!</span>
   </div>` : "";
   const toastBanner = state.toast ? `<div style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:60;max-width:calc(100% - 24px);padding:10px 16px;border-radius:999px;font-size:12px;font-weight:800;text-align:center;color:${COLORS.bg};background:${COLORS.gold};box-shadow:0 4px 16px #0006">${esc(state.toast.message)}</div>` : "";
+  const enlargedCard = state.enlargedCardId!=null ? state.players.find(p=>p.id===state.enlargedCardId) : null;
+  const enlargedCardModal = enlargedCard && enlargedCard.imageUrl ? `<div style="position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(3,7,14,.9)" data-action="close-modal" data-modal="enlarged-card">
+    <img src="${esc(enlargedCard.imageUrl)}" data-action="noop" style="display:block;max-width:100%;max-height:100%;width:auto;height:auto;aspect-ratio:${CARD_ART_RATIO};object-fit:contain;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.6)" />
+    <button data-action="close-modal" data-modal="enlarged-card" style="position:absolute;top:calc(16px + env(safe-area-inset-top));right:16px;background:rgba(3,7,14,.7);border:none;border-radius:999px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:${COLORS.cream}">${icon("X",18,COLORS.cream)}</button>
+  </div>` : "";
   let view = "";
   if(state.tab==="home") view = homeView();
   else if(state.tab==="index") view = indexView();
@@ -1968,7 +1988,7 @@ function appHTML(){
   else if(state.tab==="friends") view = friendsView();
   else if(state.tab==="profile") view = profileView();
   else if(state.tab==="admin" && isAdmin()) view = adminView();
-  return `${rankUpBanner}${toastBanner}${railHeader()}${view}${tabBar()}`;
+  return `${rankUpBanner}${toastBanner}${railHeader()}${view}${tabBar()}${enlargedCardModal}`;
 }
 
 // ---------- actions ----------
@@ -2185,8 +2205,10 @@ document.getElementById("stage").addEventListener("click", function(e){
       pl.activeSlot = slot; render(); break;
     }
     case "close-modal":
-      if(el.dataset.modal==="active") pl.activeSlot=null; else if(el.dataset.modal==="sub") pl.subSlot=null; else if(el.dataset.modal==="news") state.newsOpen=false;
+      if(el.dataset.modal==="active") pl.activeSlot=null; else if(el.dataset.modal==="sub") pl.subSlot=null; else if(el.dataset.modal==="news") state.newsOpen=false; else if(el.dataset.modal==="enlarged-card") state.enlargedCardId=null;
       render(); break;
+    case "enlarge-card":
+      state.enlargedCardId = Number(el.dataset.playerId); render(); break;
     case "open-news":
       state.newsOpen = true; render(); break;
     case "claim-daily": {

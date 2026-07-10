@@ -24,26 +24,49 @@ function updateCard(id, fields) {
 function deleteCard(id) {
   return sb.from("cards").delete().eq("id", id).then(({ error }) => ({ error: friendlyAdminError(error) }));
 }
-// Card artwork (Phase O). One file per card, stored at `<cardId>.<ext>` in
-// the public `card-images` Storage bucket -- upsert:true so re-uploading for
-// the same card just replaces the object in place, no orphaned old files to
-// clean up. A `?v=timestamp` query string is appended to the stored URL
-// (not the storage path itself) purely to cache-bust the CDN/browser cache
-// on re-upload -- without it, replacing an image keeps showing the old one
+// Card artwork (Phase O/P). One full-res file per card at `<cardId>.<ext>`
+// plus a smaller `<cardId>_thumb.jpg` (client-side canvas resize -- there's
+// no server-side image processing in this stack), both in the public
+// `card-images` Storage bucket. upsert:true so re-uploading for the same
+// card just replaces the object in place, no orphaned old files to clean
+// up. A `?v=timestamp` query string is appended to the stored URL (not the
+// storage path itself) purely to cache-bust the CDN/browser cache on
+// re-upload -- without it, replacing an image keeps showing the old one
 // until a hard refresh, since the path/URL would otherwise be byte-identical.
+function makeThumbnailBlob(file, maxDim) {
+  return createImageBitmap(file).then(bitmap => {
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale)), h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+    return new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error("toBlob failed")), "image/jpeg", 0.82));
+  });
+}
 function uploadCardImage(cardId, file) {
   const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
   const path = `${cardId}.${ext}`;
+  const thumbPath = `${cardId}_thumb.jpg`;
+  // Thumbnail generation isn't critical to the upload succeeding -- if it
+  // fails for any reason (unsupported format, etc.) we just fall back to
+  // using the full-res image as its own "thumbnail" below.
+  const thumbUpload = makeThumbnailBlob(file, 300)
+    .then(blob => sb.storage.from("card-images").upload(thumbPath, blob, { upsert: true, cacheControl: "3600", contentType: "image/jpeg" }))
+    .then(({ error }) => !error)
+    .catch(() => false);
   return sb.storage.from("card-images").upload(path, file, { upsert: true, cacheControl: "3600" })
     .then(({ error: uploadError }) => {
       if (uploadError) return { error: uploadError.message };
-      const { data } = sb.storage.from("card-images").getPublicUrl(path);
-      const url = data.publicUrl + "?v=" + Date.now();
-      return updateCard(cardId, { image_url: url }).then(({ error }) => ({ error, url }));
+      return thumbUpload.then(thumbOk => {
+        const bust = "?v=" + Date.now();
+        const fullUrl = sb.storage.from("card-images").getPublicUrl(path).data.publicUrl + bust;
+        const thumbUrl = thumbOk ? sb.storage.from("card-images").getPublicUrl(thumbPath).data.publicUrl + bust : fullUrl;
+        return updateCard(cardId, { image_url: fullUrl, image_thumb_url: thumbUrl }).then(({ error }) => ({ error, url: fullUrl }));
+      });
     });
 }
 function removeCardImage(cardId) {
-  return updateCard(cardId, { image_url: null });
+  return updateCard(cardId, { image_url: null, image_thumb_url: null });
 }
 // Bulk upload (matches the numbering convention from the exported roster
 // spreadsheet: row 1 -> "1.png", row 2 -> "2.png", etc, where "row N" is the
