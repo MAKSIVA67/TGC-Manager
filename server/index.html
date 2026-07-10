@@ -406,7 +406,7 @@ const ACHIEVEMENTS = [
   {id:"collector",label:"10 Cards Owned",emoji:"🗂️",check:(s,p)=>p.filter(x=>x.owned).length>=10},
   {id:"legend_owner",label:"Own a Legendary",emoji:"🌟",check:(s,p)=>p.some(x=>x.owned&&isTopTier(x.rarity))},
   {id:"high_roller",label:"Own an Exclusive",emoji:"💎",check:(s,p)=>p.some(x=>x.owned&&x.exclusive)},
-  {id:"full_squad",label:"Full Collection",emoji:"🏆",check:(s,p)=>p.filter(x=>!x.exclusive).every(x=>x.owned)},
+  {id:"full_squad",label:"Full Collection",emoji:"🏆",check:(s,p)=>p.filter(x=>!x.exclusive && x.active!==false).every(x=>x.owned)},
   {id:"gold_rank",label:"Reach Gold Rank",emoji:"🥇",check:s=>["Gold","Diamond","Legend"].includes(rankForWins(s.wins).name)},
   {id:"season_champ",label:"Finish a Season",emoji:"📅",check:(s,p,e)=>e&&e.season&&e.season.number>=2},
   {id:"unrelenting",label:"10 Win Streak",emoji:"🌪️",check:s=>s.bestStreak>=10},
@@ -658,25 +658,42 @@ function tabBar(){
       </button>`).join("")}
   </div></div>`;
 }
+// Foil trading-card treatment -- diagonal rarity-tinted gradient, a position
+// watermark for texture (no player photos, see the "no photos, foil design
+// only" decision), a big power-rating badge, and a foil sheen sweep that
+// only animates for Legendary+ so a full grid of these doesn't turn into a
+// wall of simultaneous motion.
+const POSITION_GLYPH = {GK:"GK",DEF:"DF",MID:"MF",FWD:"FW"};
 function playerCard(p, opts){
   opts = opts||{};
   const rarity = RARITY[p.rarity];
   const locked = opts.mode==="index" && !p.owned;
   const clickAttr = opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "";
   const disabled = opts.disabled ? "disabled" : "";
-  const selectedOutline = opts.selected ? `;outline:2px solid ${COLORS.gold};outline-offset:-2px` : "";
-  return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="border-left:4px solid ${rarity.color};opacity:${locked?0.45:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
-    ${!locked && isTopTier(p.rarity) ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.35) 50%,transparent 60%);animation:shineSweep 3s ease-in-out infinite"></div>` : ""}
-    <div class="row between" style="margin-bottom:8px">
-      <span class="badge" style="background:${rarity.color}33;color:${rarity.color}">${rarity.label}</span>
-      ${locked ? `<span style="color:${COLORS.muted}">${icon("Lock",13,COLORS.muted)}</span>` : ""}
+  const selectedOutline = opts.selected ? `;outline:3px solid ${COLORS.gold};outline-offset:-3px` : "";
+  const foilBg = locked
+    ? `linear-gradient(155deg, ${COLORS.panel}, ${COLORS.panelLight})`
+    : `linear-gradient(155deg, ${COLORS.bg} 0%, ${COLORS.panel} 32%, ${rarity.color}2e 68%, ${rarity.color}55 100%)`;
+  return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;border:1px solid ${locked?"transparent":rarity.color+"77"};background:${foilBg};opacity:${locked?0.55:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
+    <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:hidden">
+      <span class="display" style="font-size:64px;color:${locked?"transparent":rarity.color}14;transform:translateY(6px)">${POSITION_GLYPH[p.position]||""}</span>
     </div>
-    <div class="row" style="gap:12px">
-      <div class="avatarCircle" style="width:44px;height:44px;font-weight:900;font-size:16px;background:${locked?COLORS.panelLight:rarity.color};color:${locked?COLORS.muted:COLORS.bg}">${locked?"?":p.power}</div>
-      <div>
-        <div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${locked?"Locked":esc(p.name)}</div>
-        <div style="font-size:11px;color:${COLORS.muted}">${locked?"Coming soon":p.position}</div>
+    ${!locked && isTopTier(p.rarity) ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.4) 50%,transparent 60%);animation:shineSweep 2.6s ease-in-out infinite"></div>` : ""}
+    <div style="position:relative;padding:10px 10px 8px">
+      <div class="row between" style="margin-bottom:10px">
+        <span class="badge" style="background:${rarity.color}33;color:${rarity.color};font-weight:900">${rarity.label}</span>
+        ${locked ? icon("Lock",13,COLORS.muted) : `<span style="font-size:9px;font-weight:800;letter-spacing:.08em;color:${COLORS.muted}">${p.position}</span>`}
       </div>
+      <div class="row center" style="margin-bottom:10px">
+        <div style="width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:${locked?COLORS.panelLight:`linear-gradient(160deg, ${rarity.color}, ${rarity.color}99)`};box-shadow:${locked?"none":`0 4px 14px ${rarity.color}55`}">
+          <span style="font-weight:900;font-size:20px;color:${locked?COLORS.muted:COLORS.bg};line-height:1">${locked?"?":p.power}</span>
+          ${locked ? "" : `<span style="font-size:7px;font-weight:800;letter-spacing:.08em;color:${COLORS.bg}cc">PWR</span>`}
+        </div>
+      </div>
+    </div>
+    <div style="position:relative;padding:7px 10px;background:${locked?"transparent":"rgba(3,7,14,.4)"};border-top:${locked?"none":`1px solid ${rarity.color}44`}">
+      <div style="font-weight:800;font-size:12px;color:${COLORS.cream};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${locked?"Locked":esc(p.name)}</div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.06em;color:${COLORS.muted}">${locked?"Coming soon":p.position}</div>
     </div>
   </button>`;
 }
@@ -846,14 +863,19 @@ function railBtn(iconName,label,accent,badge,action,dataTab,disabled){
 
 // ---------- Index view ----------
 function indexView(){
-  const owned = state.players.filter(p=>p.owned).length;
+  // Retired (inactive) cards a player doesn't own are hidden here -- they
+  // can never be found again, so showing them as a permanently-locked tile
+  // would just be a dead end. A retired card the player already owns still
+  // shows normally (they earned it before it retired).
+  const visible = state.players.filter(p=>p.active!==false || p.owned);
+  const owned = visible.filter(p=>p.owned).length;
   return `<div class="view">
     <div class="panel row between" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight})">
       <div><div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">COLLECTION</div>
-        <div style="font-size:26px;font-weight:900;color:${COLORS.cream}">${owned} <span style="color:${COLORS.muted};font-weight:700">/ ${state.players.length}</span></div></div>
+        <div style="font-size:26px;font-weight:900;color:${COLORS.cream}">${owned} <span style="color:${COLORS.muted};font-weight:700">/ ${visible.length}</span></div></div>
       <div>${icon("Layers",28,COLORS.gold)}</div>
     </div>
-    <div class="grid2">${state.players.map(p=>playerCard(p,{mode:"index"})).join("")}</div>
+    <div class="grid2">${visible.map(p=>playerCard(p,{mode:"index"})).join("")}</div>
   </div>`;
 }
 function myCardsView(){
@@ -875,7 +897,7 @@ function myCardsView(){
 // ---------- Shop view ----------
 function shopView(){
   const s = state.shop;
-  const lockedCount = state.players.filter(p=>!p.owned && !p.exclusive).length;
+  const lockedCount = state.players.filter(p=>!p.owned && !p.exclusive && p.active!==false).length;
   let overlay = "";
   if(s.phase==="revealed" && s.selectedPack){
     const card = s.revealed;
@@ -2263,12 +2285,12 @@ document.getElementById("stage").addEventListener("click", function(e){
       const s = state.shop;
       if(state.gems<pack.cost || s.phase!=="list") break;
       playWhoosh(); state.gems -= pack.cost;
-      const locked = state.players.filter(p=>!p.owned && !p.exclusive);
+      const locked = state.players.filter(p=>!p.owned && !p.exclusive && p.active!==false);
       const pick = pickWeighted(locked, pack.weights);
       s.selectedPack = pack;
       if(!pick){ state.gems += Math.round(pack.cost/3); playTap(); s.revealed=null; s.phase="revealed"; render(); commitPackRefund(); break; }
       commitPackOpen(pick.id);
-      const spinPool = state.players.filter(p=>!p.exclusive);
+      const spinPool = state.players.filter(p=>!p.exclusive && p.active!==false);
       const items = Array.from({length: SPIN_FILLER_COUNT}, ()=> spinPool[Math.floor(Math.random()*spinPool.length)]);
       // Land on the real pick at a randomized position in the strip (not always
       // the very last slot) so the reel doesn't visually stop in the same spot

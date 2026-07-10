@@ -16,7 +16,7 @@ const LEGACY_SAVE_IMPORTED_KEY = "legendxi-save-imported-v1";
 // from whatever Common-tier cards actually exist in the live catalog.
 const STARTER_SPLIT = { GK: 1, DEF: 3, MID: 4, FWD: 2 };
 function pickStarterCardIds(cards) {
-  const commons = cards.filter(c => c.rarity === "Common").sort((a, b) => a.id - b.id);
+  const commons = cards.filter(c => c.rarity === "Common" && c.active !== false).sort((a, b) => a.id - b.id);
   const ids = [];
   Object.keys(STARTER_SPLIT).forEach(pos => {
     commons.filter(c => c.position === pos).slice(0, STARTER_SPLIT[pos]).forEach(c => ids.push(c.id));
@@ -76,6 +76,11 @@ function loadCatalogAndOwnership(userId) {
       id: c.id, name: c.name, position: c.position, power: c.power, rarity: c.rarity,
       owned: ownedIds.has(c.id),
       exclusive: !!c.exclusive, priceEUR: c.price_eur,
+      // Retired cards (roster shrink to 100 active players) stay owned by
+      // whoever already had them, but drop out of pack odds and starter
+      // selection -- see pickStarterCardIds() below and the "open-pack"
+      // handler in index.html.
+      active: c.active !== false,
     }));
   });
 }
