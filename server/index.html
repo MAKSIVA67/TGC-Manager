@@ -740,20 +740,20 @@ function homeView(){
   // from auto-triggering "Add to Home Screen", unlike Android's
   // beforeinstallprompt) -- the best any web app can do is a clear manual
   // walkthrough. Android still gets the one-tap "Install" button below.
-  const installBanner = !showInstallBanner ? "" : isIOSDevice() ? `<div style="border-radius:12px;padding:12px;margin-bottom:10px;background:${COLORS.panelLight};border:1px solid ${COLORS.turf}55">
-    <div class="row between" style="margin-bottom:10px">
-      <div style="font-size:11px;font-weight:800;letter-spacing:.06em;color:${COLORS.cream}">📲 ADD TO HOME SCREEN</div>
-      <button data-action="dismiss-install-banner" style="background:none;border:none;color:${COLORS.muted}">${icon("X",14,COLORS.muted)}</button>
+  const installBanner = !showInstallBanner ? "" : isIOSDevice() ? `<div style="border-radius:16px;padding:16px;margin-bottom:12px;background:${COLORS.panelLight};border:1px solid ${COLORS.turf}55">
+    <div class="row between" style="margin-bottom:14px;align-items:center">
+      <div style="font-size:15px;font-weight:900;letter-spacing:.04em;color:${COLORS.cream}">📲 Install This App</div>
+      <button data-action="dismiss-install-banner" style="background:none;border:none;color:${COLORS.muted};padding:4px">${icon("X",18,COLORS.muted)}</button>
     </div>
-    <div class="row" style="gap:10px;align-items:center;margin-bottom:8px">
-      <div style="width:22px;height:22px;border-radius:999px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;background:${COLORS.turf};color:${COLORS.bg}">1</div>
-      ${icon("Share",16,COLORS.turf)}
-      <span style="font-size:11px;color:${COLORS.cream}">Tap the <strong>Share</strong> icon in Safari's toolbar</span>
+    <div class="row" style="gap:12px;align-items:center;margin-bottom:10px;background:${COLORS.panel};border-radius:12px;padding:12px">
+      <div style="width:32px;height:32px;border-radius:999px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;background:${COLORS.turf};color:${COLORS.bg}">1</div>
+      <div style="width:32px;height:32px;border-radius:999px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${COLORS.turf}22">${icon("Share",22,COLORS.turf)}</div>
+      <span style="font-size:14px;line-height:1.35;color:${COLORS.cream}">Tap the <strong>Share</strong> button (square with an arrow ⬆️) at the <strong>bottom</strong> of Safari</span>
     </div>
-    <div class="row" style="gap:10px;align-items:center">
-      <div style="width:22px;height:22px;border-radius:999px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;background:${COLORS.turf};color:${COLORS.bg}">2</div>
-      ${icon("SquarePlus",16,COLORS.turf)}
-      <span style="font-size:11px;color:${COLORS.cream}">Scroll down and tap <strong>"Add to Home Screen"</strong></span>
+    <div class="row" style="gap:12px;align-items:center;background:${COLORS.panel};border-radius:12px;padding:12px">
+      <div style="width:32px;height:32px;border-radius:999px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;background:${COLORS.turf};color:${COLORS.bg}">2</div>
+      <div style="width:32px;height:32px;border-radius:999px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${COLORS.turf}22">${icon("SquarePlus",22,COLORS.turf)}</div>
+      <span style="font-size:14px;line-height:1.35;color:${COLORS.cream}">Scroll down the menu and tap <strong>"Add to Home Screen"</strong></span>
     </div>
   </div>` : `<div class="row between" style="gap:8px;padding:10px 12px;border-radius:12px;margin-bottom:10px;background:${COLORS.panelLight};border:1px solid ${COLORS.turf}55">
     <div class="row" style="gap:8px;align-items:center;flex:1;min-width:0">
