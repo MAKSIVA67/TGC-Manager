@@ -345,12 +345,12 @@ const WIN_GEMS=20, LOSS_GEMS=5, DRAW_GEMS=10;
 // base pack -- about 1 in 20 opens (5%), matching "1000 packs opened, only
 // ~50 good ones" -- then scales up through the tiers from there.
 const PACKS = [
-  {id:"bronze",name:"Bronze Pack",cost:20,icon:"📦",blurb:"Great value — mostly Common & Uncommon (~5% chance of Elite+)",weights:{Common:48,Uncommon:30,Rare:13,Epic:4,Elite:3.5,Ultra:1,Legendary:0.4,Mythic:0.08,Icon:0.018,GOAT:0.002},grad:["#B87333","#8C5A2B"],glow:"#D08A4F"},
-  {id:"silver",name:"Silver Pack",cost:45,icon:"🎁",blurb:"Balanced odds across all rarities (~10% chance of Elite+)",weights:{Common:30,Uncommon:25,Rare:20,Epic:15,Elite:6,Ultra:2.5,Legendary:1.2,Mythic:0.25,Icon:0.045,GOAT:0.005},grad:["#C7D3E0","#7C8DA6"],glow:"#C0C0C0"},
-  {id:"gold",name:"Gold Pack",cost:90,icon:"💰",blurb:"Boosted Elite & Legendary+ odds (~25% chance of Elite+)",weights:{Common:10,Uncommon:15,Rare:25,Epic:25,Elite:15,Ultra:7,Legendary:2.5,Mythic:0.4,Icon:0.09,GOAT:0.01},grad:["#FFC94A","#FF9F4A"],glow:"#FFC94A"},
-  {id:"legendary",name:"Legendary Pack",cost:180,icon:"👑",blurb:"Guaranteed Elite tier or better!",weights:{Elite:45,Ultra:30,Legendary:18,Mythic:5,Icon:1.8,GOAT:0.2},grad:["#B784F0","#FF6FB5"],glow:"#B784F0"},
-  {id:"mythic",name:"Mythic Pack",cost:350,icon:"🔮",blurb:"Guaranteed Ultra tier or better!",weights:{Ultra:55,Legendary:32,Mythic:10,Icon:2.5,GOAT:0.5},grad:["#4CC9F0","#7B2FF7"],glow:"#4CC9F0"},
-  {id:"goat",name:"GOAT Pack",cost:600,icon:"🐐",blurb:"Guaranteed Legendary tier or better — chase the GOAT!",weights:{Legendary:60,Mythic:30,Icon:8,GOAT:2},grad:["#FFD700","#FF3CAC"],glow:"#FFD700"},
+  {id:"bronze",name:"Bronze Pack",cost:250,icon:"📦",blurb:"Great value — mostly Common & Uncommon (~5% chance of Elite+)",weights:{Common:48,Uncommon:30,Rare:13,Epic:4,Elite:3.5,Ultra:1,Legendary:0.4,Mythic:0.08,Icon:0.018,GOAT:0.002},grad:["#B87333","#8C5A2B"],glow:"#D08A4F"},
+  {id:"silver",name:"Silver Pack",cost:500,icon:"🎁",blurb:"Balanced odds across all rarities (~10% chance of Elite+)",weights:{Common:30,Uncommon:25,Rare:20,Epic:15,Elite:6,Ultra:2.5,Legendary:1.2,Mythic:0.25,Icon:0.045,GOAT:0.005},grad:["#C7D3E0","#7C8DA6"],glow:"#C0C0C0"},
+  {id:"gold",name:"Gold Pack",cost:1000,icon:"💰",blurb:"Boosted Elite & Legendary+ odds (~25% chance of Elite+)",weights:{Common:10,Uncommon:15,Rare:25,Epic:25,Elite:15,Ultra:7,Legendary:2.5,Mythic:0.4,Icon:0.09,GOAT:0.01},grad:["#FFC94A","#FF9F4A"],glow:"#FFC94A"},
+  {id:"legendary",name:"Legendary Pack",cost:2000,icon:"👑",blurb:"Guaranteed Elite tier or better!",weights:{Elite:45,Ultra:30,Legendary:18,Mythic:5,Icon:1.8,GOAT:0.2},grad:["#B784F0","#FF6FB5"],glow:"#B784F0"},
+  {id:"mythic",name:"Mythic Pack",cost:4000,icon:"🔮",blurb:"Guaranteed Ultra tier or better!",weights:{Ultra:55,Legendary:32,Mythic:10,Icon:2.5,GOAT:0.5},grad:["#4CC9F0","#7B2FF7"],glow:"#4CC9F0"},
+  {id:"goat",name:"GOAT Pack",cost:7500,icon:"🐐",blurb:"Guaranteed Legendary tier or better — chase the GOAT!",weights:{Legendary:60,Mythic:30,Icon:8,GOAT:2},grad:["#FFD700","#FF3CAC"],glow:"#FFD700"},
 ];
 function pickWeighted(lockedPool, weights){
   const buckets = RARITY_ORDER.map(r=>({r,pool:lockedPool.filter(p=>p.rarity===r),w:weights[r]||0})).filter(b=>b.pool.length>0 && b.w>0);
@@ -1172,11 +1172,19 @@ function playView(){
   if(pl.phase==="halftime"){
     body += `<div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">${pl.halfSubUsed?"SUBSTITUTION USED":"ONE SUBSTITUTION AVAILABLE"}</div>
     <div class="col" style="gap:8px;margin-bottom:16px">
-      ${mySlots.map(slot=>{ const p=pl.myLineup[slot.id]; if(!p) return ""; return `
+      ${mySlots.map(slot=>{ const p=pl.myLineup[slot.id]; if(!p) return "";
+        // GK/DEF zones already played out and were revealed in the first half
+        // (see beginMatch()'s reveal("GK",...)/reveal("DEF",...)) -- swapping
+        // them at halftime can't change an already-resolved result, so only
+        // MID/FWD (the second-half zones) get a SWAP button here.
+        const swappable = slot.position==="MID"||slot.position==="FWD";
+        return `
         <div class="row panel" style="padding:8px;gap:12px">
           <div class="avatarCircle" style="width:34px;height:34px;font-weight:900;font-size:13px;background:${RARITY[p.rarity].color};color:${COLORS.bg}">${p.power}</div>
           <div style="flex:1"><div style="font-size:12px;font-weight:800;color:${COLORS.cream}">${esc(p.name)}</div><div style="font-size:10px;color:${COLORS.muted}">${slot.position}</div></div>
-          <button data-action="open-sub" data-slot-id="${slot.id}" ${pl.halfSubUsed?"disabled":""} class="btn scrimtap row center" style="gap:4px;padding:6px 12px;font-size:10px;background:${COLORS.panelLight};color:${COLORS.gold};opacity:${pl.halfSubUsed?0.3:1}">${icon("Repeat",12,COLORS.gold)} SWAP</button>
+          ${swappable
+            ? `<button data-action="open-sub" data-slot-id="${slot.id}" ${pl.halfSubUsed?"disabled":""} class="btn scrimtap row center" style="gap:4px;padding:6px 12px;font-size:10px;background:${COLORS.panelLight};color:${COLORS.gold};opacity:${pl.halfSubUsed?0.3:1}">${icon("Repeat",12,COLORS.gold)} SWAP</button>`
+            : `<div style="font-size:9px;font-weight:700;color:${COLORS.muted};text-align:right;max-width:70px">ZONE PLAYED</div>`}
         </div>`; }).join("")}
     </div>
     <button data-action="continue-second-half" class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C">KICK OFF 2ND HALF</button>`;
@@ -2436,8 +2444,8 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "buy-exclusive": {
       const card = state.players.find(p=>p.id===Number(el.dataset.cardId));
       if(card.owned || state.shop.purchasePending) break;
+      const productId = "exclusive_"+card.id;
       if(isNativeApp()){
-        const productId = "exclusive_"+card.id;
         state.shop.purchasePending = productId; state.shop.purchaseError = ""; render();
         purchaseProduct(productId).then(({error})=>{
           state.shop.purchasePending = null;

@@ -14,7 +14,7 @@ const LEGACY_SAVE_IMPORTED_KEY = "legendxi-save-imported-v1";
 // Hardcoding specific ids would silently break the moment either roster
 // changes, so this picks the same GK1/DEF3/MID4/FWD2 split dynamically
 // from whatever Common-tier cards actually exist in the live catalog.
-const STARTER_SPLIT = { GK: 1, DEF: 3, MID: 4, FWD: 2 };
+const STARTER_SPLIT = { GK: 2, DEF: 5, MID: 6, FWD: 5 };
 function pickStarterCardIds(cards) {
   const commons = cards.filter(c => c.rarity === "Common" && c.active !== false).sort((a, b) => a.id - b.id);
   const ids = [];
