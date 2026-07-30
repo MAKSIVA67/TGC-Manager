@@ -105,12 +105,19 @@ input,textarea{font-family:inherit;font-size:16px}
 <div class="grainOverlay"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- three.js pinned to the last release that ships a UMD build exposing a
+     global THREE (r160 removed build/three.min.js entirely). Loaded async and
+     never awaited: lib/match3d.js checks Match3D.available() at kickoff and
+     index.html falls back to the legacy timed zone match if it isn't there,
+     so a blocked CDN or an old device degrades instead of breaking. -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
 <script src="lib/supabase-client.js"></script>
 <script src="lib/auth.js"></script>
 <script src="lib/game-data.js"></script>
 <script src="lib/social.js"></script>
 <script src="lib/admin-api.js"></script>
 <script src="lib/iap.js"></script>
+<script src="lib/match3d.js"></script>
 
 <script>
 (function(){
@@ -619,6 +626,18 @@ window.render = render;
 window.rankForWins = rankForWins;
 window.computeZone = computeZone;
 window.buildSlots = buildSlots;
+// lib/match3d.js drives its own audio cues from inside its render loop, so the
+// synth helpers below have to be reachable from outside this IIFE too. It calls
+// each one defensively (`if (window.playKick) ...`), so this list can shrink
+// without breaking the arena.
+window.ensureAudio = ensureAudio;
+window.playWhistle = playWhistle;
+window.playKick = playKick;
+window.playTap = playTap;
+window.playWin = playWin;
+window.playLose = playLose;
+window.playZoneWin = playZoneWin;
+window.playZoneLose = playZoneLose;
 
 // ---------- shared bits ----------
 function railHeader(){
@@ -1173,11 +1192,12 @@ function playView(){
     body += `<div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">${pl.halfSubUsed?"SUBSTITUTION USED":"ONE SUBSTITUTION AVAILABLE"}</div>
     <div class="col" style="gap:8px;margin-bottom:16px">
       ${mySlots.map(slot=>{ const p=pl.myLineup[slot.id]; if(!p) return "";
-        // GK/DEF zones already played out and were revealed in the first half
-        // (see beginMatch()'s reveal("GK",...)/reveal("DEF",...)) -- swapping
-        // them at halftime can't change an already-resolved result, so only
-        // MID/FWD (the second-half zones) get a SWAP button here.
-        const swappable = slot.position==="MID"||slot.position==="FWD";
+        // In the legacy timed match, GK/DEF already played out and were
+        // revealed in the first half (see beginMatch()'s reveal("GK",...)),
+        // so swapping them can't change an already-resolved result -- only
+        // MID/FWD are worth offering. A live 3D match has no pre-resolved
+        // zones at all, so there every position is genuinely swappable.
+        const swappable = pl.live3d || slot.position==="MID" || slot.position==="FWD";
         return `
         <div class="row panel" style="padding:8px;gap:12px">
           <div class="avatarCircle" style="width:34px;height:34px;font-weight:900;font-size:13px;background:${RARITY[p.rarity].color};color:${COLORS.bg}">${p.power}</div>
@@ -1194,15 +1214,15 @@ function playView(){
     body += `<div style="border-radius:16px;padding:20px;margin-bottom:16px;text-align:center;background:${fr.won?COLORS.turf+"22":fr.isDraw?COLORS.cyan+"22":COLORS.danger+"22"};border:2px solid ${fr.won?COLORS.turf:fr.isDraw?COLORS.cyan:COLORS.danger};animation:${fr.won||fr.isDraw?"popIn .4s var(--ease-out-strong)":"shake .4s ease"}">
       <div style="font-size:22px;font-weight:900;margin-bottom:4px;color:${fr.won?COLORS.turf:fr.isDraw?COLORS.cyan:COLORS.danger}">${fr.won?"VICTORY! 🎉":fr.isDraw?"DRAW":"DEFEAT"}</div>
       <div style="font-size:13px;margin-bottom:4px;color:${COLORS.cream}">${fr.line}</div>
-      <div style="font-size:11px;margin-bottom:8px;color:${COLORS.muted}">Zones won: ${fr.myZoneWins} - ${fr.oppZoneWins}</div>
+      <div style="font-size:11px;margin-bottom:8px;color:${COLORS.muted}">${fr.score ? `Final score: ${fr.score.my} - ${fr.score.opp}` : `Zones won: ${fr.myZoneWins} - ${fr.oppZoneWins}`}</div>
       <div style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:999px;background:${COLORS.panelLight}">${icon("Gem",14,COLORS.gold)} <span style="font-size:13px;font-weight:800;color:${COLORS.gold}">+${fr.gemsEarned} gems</span></div>
     </div>
-    <div class="grid2" style="margin-bottom:16px">
+    ${fr.zoneResults ? `<div class="grid2" style="margin-bottom:16px">
       ${ZONES.map(z=>`<div class="row between panel" style="padding:8px 10px;border:1px solid ${fr.zoneResults[z.key]==="win"?COLORS.turf:fr.zoneResults[z.key]==="lose"?COLORS.danger:COLORS.muted}">
         <span style="font-size:12px;font-weight:800;color:${COLORS.cream}">${z.label}</span>
         <span style="font-size:12px;font-weight:900;color:${fr.zoneResults[z.key]==="win"?COLORS.turf:fr.zoneResults[z.key]==="lose"?COLORS.danger:COLORS.muted}">${fr.zoneResults[z.key]==="win"?"WON":fr.zoneResults[z.key]==="lose"?"LOST":"TIE"}</span>
       </div>`).join("")}
-    </div>
+    </div>` : liveMatchStatsHTML(fr)}
     ${pl.isChallengeMatch ? `<div style="font-size:10px;text-align:center;margin-bottom:16px;color:${COLORS.muted}">⚔️ Friendly challenge — season & matchday weren't affected.</div>` : ""}
     ${pl.seasonSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:linear-gradient(135deg, ${COLORS.purple}, ${COLORS.pink})">
       <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:#fff">🏁 Season ${pl.seasonSummary.number} Complete!</div>
@@ -2050,6 +2070,10 @@ function startBallInterval(){
   }, 850);
 }
 
+// The AI opponent's formation is stashed here at kickoff so the 3D arena can
+// lay their eleven out in the same shape the 2D overlay would have drawn.
+let pendingOppFormation = "balanced";
+
 function beginMatch(newOppSlots, opp, label){
   const pl = state.play;
   ensureAudio(); playWhistle(); setTimeout(playKick,150);
@@ -2058,6 +2082,32 @@ function beginMatch(newOppSlots, opp, label){
   pl.firstHalfLineup = {...pl.myLineup};
   pl.currentHalf=1; pl.phase="battling"; pl.myGoals=0; pl.oppGoals=0;
   pl.commentary = `Kick off ${label}!`; pl.matchMinute=0; pl.zoneResultsLive={};
+
+  // Live 3D arena: the real match. Challenge matches deliberately stay on the
+  // legacy timed path -- resolveChallengeAccept() in lib/social.js has already
+  // written the authoritative power-based result to the `challenges` row before
+  // we ever get here, so letting someone actually play those out would produce
+  // a scoreline that contradicts the record. Fixing that properly needs a
+  // server-side rethink of challenge resolution, not a client change.
+  pl.live3d = !pl.isChallengeMatch && !!(window.Match3D && window.Match3D.available());
+  if(pl.live3d){
+    const started = window.Match3D.begin({
+      myLineup: pl.myLineup,
+      oppLineup: pl.oppLineup,
+      formationKey: pl.formationKey,
+      oppFormationKey: pendingOppFormation,
+      myName: state.profile.teamName || "My Team",
+      myColor: state.profile.color || COLORS.turf,
+      oppName: pl.opponentMeta ? pl.opponentMeta.teamName : currentClub(),
+      oppColor: pl.opponentMeta ? COLORS.pink : COLORS.danger,
+      halfSeconds: LIVE_HALF_SECONDS,
+      onHalfEnd: onLiveHalfEnd,
+      onFullTime: onLiveFullTime,
+    });
+    if(started){ render(); return; }
+    pl.live3d = false;   // begin() bailed -- fall through to the legacy match
+  }
+
   render();
   startBallInterval();
 
@@ -2088,6 +2138,7 @@ function kickOff(){
   const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
   const formationKeys = Object.keys(FORMATIONS);
   const chosenOppFormation = formationKeys[Math.floor(Math.random()*formationKeys.length)];
+  pendingOppFormation = chosenOppFormation;
   const newOppSlots = buildSlots(chosenOppFormation,"opp");
   const toughness = Math.min(state.stats.streak + (state.season.number-1), 8);
   const opp = {};
@@ -2110,6 +2161,7 @@ function kickOff(){
 function beginChallengeMatch(challengeRow, challengerLineup){
   const pl = state.play;
   const friend = state.friendsUI.friends.find(f=>f.id===challengeRow.challenger_id);
+  pendingOppFormation = challengeRow.challenger_formation || "balanced";
   const newOppSlots = buildSlots(challengeRow.challenger_formation,"opp");
   const opp = {};
   newOppSlots.forEach(slot=>{ opp[slot.id] = challengerLineup[slot.id] || null; });
@@ -2120,8 +2172,115 @@ function beginChallengeMatch(challengeRow, challengerLineup){
   beginMatch(newOppSlots, opp, `vs ${esc((friend&&friend.display_name)||"a friend")}'s squad`);
 }
 window.beginChallengeMatch = beginChallengeMatch;
+// ---------- live 3D match plumbing ----------
+// Each half is this many seconds of real play, mapped onto a 0-45' clock in the
+// arena HUD. 75s a half keeps a full match (plus halftime) around three
+// minutes -- long enough to feel like a game, short enough for a phone.
+const LIVE_HALF_SECONDS = 75;
+
+function onLiveHalfEnd(){
+  const pl = state.play;
+  pl.matchMinute = 45;
+  pl.commentary = "⏸️ Half-time — make a substitution if you need one.";
+  pl.phase = "halftime";
+  render();
+}
+
+// Real goals decide a live match, so the zone comparison is only used here for
+// the power totals the `matches` row still records.
+function onLiveFullTime(score){
+  const pl = state.play;
+  const my = score.my, opp = score.opp;
+  const outcome = my>opp ? "win" : my<opp ? "loss" : "draw";
+  const zGK = computeZone("GK", pl.myLineup, pl.oppLineup);
+  const zDEF = computeZone("DEF", pl.myLineup, pl.oppLineup);
+  const zMID = computeZone("MID", pl.myLineup, pl.oppLineup);
+  const zFWD = computeZone("FWD", pl.myLineup, pl.oppLineup);
+  finalizeMatch({
+    outcome,
+    myWins: my, oppWins: opp,
+    myTotalPower: zGK.myTotal+zDEF.myTotal+zMID.myTotal+zFWD.myTotal,
+    oppTotalPower: zGK.oppTotal+zDEF.oppTotal+zMID.oppTotal+zFWD.oppTotal,
+    zoneResults: null,
+    score: {my, opp, stat: score.stat || null, forfeited: !!score.forfeited},
+  });
+}
+
+// Post-match panel for a live arena game -- a real scoreline plus the shots /
+// passes / saves the engine tracked, standing in for the legacy four-zone grid.
+function liveMatchStatsHTML(fr){
+  const sc = fr.score || {my:0,opp:0};
+  const st = sc.stat;
+  const row = (label, mine, theirs) => `<div class="row between panel" style="padding:7px 10px">
+    <span style="font-size:12px;font-weight:900;color:${COLORS.cream};min-width:26px;text-align:left">${mine}</span>
+    <span style="font-size:10px;font-weight:800;letter-spacing:.08em;color:${COLORS.muted}">${label}</span>
+    <span style="font-size:12px;font-weight:900;color:${COLORS.cream};min-width:26px;text-align:right">${theirs}</span>
+  </div>`;
+  return `<div style="text-align:center;margin-bottom:10px">
+    <div class="display" style="font-size:44px;line-height:1;color:${COLORS.cream}">${sc.my} <span style="color:${COLORS.muted}">-</span> ${sc.opp}</div>
+    ${sc.forfeited ? `<div style="font-size:10px;font-weight:800;letter-spacing:.1em;color:${COLORS.danger};margin-top:2px">FORFEITED — RESULT STILL COUNTS</div>` : ""}
+  </div>
+  ${st ? `<div class="col" style="gap:6px;margin-bottom:16px">
+    ${row("SHOTS", st.my.shots, st.opp.shots)}
+    ${row("PASSES", st.my.passes, st.opp.passes)}
+    ${row("SAVES MADE", st.my.saved, st.opp.saved)}
+  </div>` : `<div style="margin-bottom:16px"></div>`}`;
+}
+
+// Shared end-of-match commit for BOTH the live arena and the legacy zone
+// match. Everything that touches gems/stats/season/DB lives here exactly once,
+// so the two paths can never drift apart on rewards or season bookkeeping.
+function finalizeMatch(res){
+  const pl = state.play;
+  const outcome = res.outcome;
+  const won = outcome==="win";
+  const isDraw = outcome==="draw";
+  const gemsEarned = won ? WIN_GEMS : isDraw ? DRAW_GEMS : LOSS_GEMS;
+  // Captured before any season-rollover reassignment below -- a match must
+  // be recorded under the season/matchday it was actually played in.
+  const matchSeasonNumber = state.season.number, matchMatchday = state.season.matchday;
+  const opponentName = pl.opponentMeta ? pl.opponentMeta.teamName : currentClub();
+
+  const ns = won ? state.stats.streak+1 : 0;
+  state.stats = { wins: state.stats.wins+(won?1:0), losses: state.stats.losses+(!won&&!isDraw?1:0), draws: (state.stats.draws||0)+(isDraw?1:0), streak: ns, bestStreak: Math.max(state.stats.bestStreak, ns) };
+  state.gems += gemsEarned;
+
+  if(!pl.isChallengeMatch){
+    const s = state.season;
+    const pts = s.points+(won?3:isDraw?1:0), w = s.wins+(won?1:0), l = s.losses+(!won&&!isDraw?1:0), d = (s.draws||0)+(isDraw?1:0);
+    if(s.matchday>=6){
+      const bonus = pts*2; state.gems += bonus;
+      pl.seasonSummary = {number:s.number, points:pts, wins:w, losses:l, draws:d, bonus};
+      state.season = {number:s.number+1, matchday:1, points:0, wins:0, losses:0, draws:0};
+    } else {
+      state.season = {...s, matchday:s.matchday+1, points:pts, wins:w, losses:l, draws:d};
+    }
+  }
+  won ? playWin() : isDraw ? playChime() : playLose();
+  pl.commentary = won ? "FULL TIME — What a performance! 🏆" : isDraw ? "FULL TIME — honours even." : "FULL TIME — tough result today.";
+  pl.matchMinute = 90;
+  pl.finalResult = {
+    won, isDraw, gemsEarned,
+    zoneResults: res.zoneResults, score: res.score || null,
+    myZoneWins: res.myWins, oppZoneWins: res.oppWins,
+    line: won ? WIN_LINES[Math.floor(Math.random()*WIN_LINES.length)] : isDraw ? DRAW_LINES[Math.floor(Math.random()*DRAW_LINES.length)] : LOSS_LINES[Math.floor(Math.random()*LOSS_LINES.length)],
+  };
+  pl.phase = "result";
+  state.confettiOn = won;
+  checkRankUp();
+  render();
+  commitMatchResult({result:outcome, myWins:res.myWins, myTotalPower:res.myTotalPower, oppTotalPower:res.oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, pl.isChallengeMatch);
+}
+
 function continueSecondHalf(){
   const pl = state.play;
+  if(pl.live3d && window.Match3D && window.Match3D.isRunning()){
+    pl.currentHalf=2; pl.phase="battling"; pl.commentary="Second half underway!";
+    // Pass the (possibly substituted) lineup so a halftime change takes effect.
+    window.Match3D.resumeSecondHalf(pl.myLineup);
+    render();
+    return;
+  }
   const secondHalfLineup = {...pl.myLineup};
   playWhistle(); pl.currentHalf=2; pl.phase="battling"; pl.commentary="Second half underway!"; render();
   startBallInterval();
@@ -2160,38 +2319,7 @@ function continueSecondHalf(){
     const outcome = myWins!==oppWins
       ? (myWins>oppWins ? "win" : "loss")
       : (myTotalPower===oppTotalPower ? "draw" : (myTotalPower>oppTotalPower ? "win" : "loss"));
-    const won = outcome==="win";
-    const isDraw = outcome==="draw";
-    const gemsEarned = won ? WIN_GEMS : isDraw ? DRAW_GEMS : LOSS_GEMS;
-    // Captured before any season-rollover reassignment below -- a match must
-    // be recorded under the season/matchday it was actually played in.
-    const matchSeasonNumber = state.season.number, matchMatchday = state.season.matchday;
-    const opponentName = pl.opponentMeta ? pl.opponentMeta.teamName : currentClub();
-
-    const ns = won ? state.stats.streak+1 : 0;
-    state.stats = { wins: state.stats.wins+(won?1:0), losses: state.stats.losses+(!won&&!isDraw?1:0), draws: (state.stats.draws||0)+(isDraw?1:0), streak: ns, bestStreak: Math.max(state.stats.bestStreak, ns) };
-    state.gems += gemsEarned;
-
-    if(!pl.isChallengeMatch){
-      const s = state.season;
-      const pts = s.points+(won?3:isDraw?1:0), w = s.wins+(won?1:0), l = s.losses+(!won&&!isDraw?1:0), d = (s.draws||0)+(isDraw?1:0);
-      if(s.matchday>=6){
-        const bonus = pts*2; state.gems += bonus;
-        pl.seasonSummary = {number:s.number, points:pts, wins:w, losses:l, draws:d, bonus};
-        state.season = {number:s.number+1, matchday:1, points:0, wins:0, losses:0, draws:0};
-      } else {
-        state.season = {...s, matchday:s.matchday+1, points:pts, wins:w, losses:l, draws:d};
-      }
-    }
-    won ? playWin() : isDraw ? playChime() : playLose();
-    pl.commentary = won ? "FULL TIME — What a performance! 🏆" : isDraw ? "FULL TIME — honours even." : "FULL TIME — tough result today.";
-    pl.matchMinute = 90;
-    pl.finalResult = { won, isDraw, zoneResults:zr, myZoneWins:myWins, oppZoneWins:oppWins, gemsEarned, line: won ? WIN_LINES[Math.floor(Math.random()*WIN_LINES.length)] : isDraw ? DRAW_LINES[Math.floor(Math.random()*DRAW_LINES.length)] : LOSS_LINES[Math.floor(Math.random()*LOSS_LINES.length)] };
-    pl.phase = "result";
-    state.confettiOn = won;
-    checkRankUp();
-    render();
-    commitMatchResult({result:outcome, myWins, myTotalPower, oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, pl.isChallengeMatch);
+    finalizeMatch({ outcome, myWins, oppWins, myTotalPower, oppTotalPower, zoneResults:zr, score:null });
   }, 15000);
 }
 
@@ -2280,7 +2408,11 @@ document.getElementById("stage").addEventListener("click", function(e){
       pl.seasonSummary = null; render(); break;
     case "play-again":
       state.confettiOn=false;
-      state.play = {...pl, activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false};
+      // Defensive: the arena tears itself down at full time, but if a match
+      // ended by some other route the overlay must not survive into the next
+      // squad-building screen.
+      if(window.Match3D && window.Match3D.isRunning()) window.Match3D.stop();
+      state.play = {...pl, activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false, live3d:false};
       render(); break;
     case "friend-send-challenge":
       submitChallengeFriend(el.dataset.targetId); break;
