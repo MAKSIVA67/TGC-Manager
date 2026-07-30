@@ -62,6 +62,9 @@
 
   const M = {};
   let THREE = null;
+  // Sibling modules (own <script> tags, loaded before this one). Bound in
+  // begin() rather than at parse time so script order can't bite us.
+  let VIS = null, HUD = null;
 
   // Live match instance. Null between matches.
   let A = null;
@@ -110,246 +113,18 @@
 
   M.available = function () {
     if (!window.THREE) return false;
+    if (!window.Match3DVisuals || !window.Match3DHud) return false;
     if (!hasWebGL()) return false;
     return true;
   };
 
   M.isRunning = function () { return !!A; };
 
-  // ------------------------------------------------------------ pitch texture
-
-  // Draws the full pitch marking set into a canvas once, used as the ground
-  // texture. Cheaper and sharper than building line geometry, and it means the
-  // mow-stripe pattern, circles and boxes all come for free.
-  function makePitchTexture() {
-    const px = 16;                                  // pixels per metre
-    const cw = Math.round(PITCH_W * px), ch = Math.round(PITCH_L * px);
-    const cv = document.createElement("canvas");
-    cv.width = cw; cv.height = ch;
-    const g = cv.getContext("2d");
-
-    // Mow stripes down the length of the pitch.
-    const stripes = 14, sh = ch / stripes;
-    for (let i = 0; i < stripes; i++) {
-      g.fillStyle = i % 2 ? "#1F7A46" : "#1B6C3E";
-      g.fillRect(0, i * sh, cw, sh + 1);
-    }
-    // Subtle wear/vignette so flat green doesn't read as plastic.
-    const vg = g.createRadialGradient(cw / 2, ch / 2, ch * 0.15, cw / 2, ch / 2, ch * 0.72);
-    vg.addColorStop(0, "rgba(255,255,255,0.05)");
-    vg.addColorStop(1, "rgba(0,0,0,0.22)");
-    g.fillStyle = vg; g.fillRect(0, 0, cw, ch);
-
-    const m = (v) => v * px;
-    g.strokeStyle = "rgba(255,255,255,0.82)";
-    g.lineWidth = Math.max(2, 0.12 * px);
-    g.lineCap = "butt";
-
-    // Touchlines / goal lines, inset a touch so the paint isn't on the edge.
-    const pad = m(0.4);
-    g.strokeRect(pad, pad, cw - pad * 2, ch - pad * 2);
-    // Halfway line + centre circle + spot.
-    g.beginPath(); g.moveTo(pad, ch / 2); g.lineTo(cw - pad, ch / 2); g.stroke();
-    g.beginPath(); g.arc(cw / 2, ch / 2, m(9.15), 0, Math.PI * 2); g.stroke();
-    g.beginPath(); g.arc(cw / 2, ch / 2, m(0.35), 0, Math.PI * 2); g.fillStyle = "rgba(255,255,255,0.85)"; g.fill();
-
-    // Both ends: penalty box, six-yard box, penalty spot, D-arc.
-    [0, 1].forEach((end) => {
-      const dir = end === 0 ? 1 : -1;
-      const gl = end === 0 ? pad : ch - pad;                  // goal line y
-      const boxD = m(16.5), boxW = m(40.32);
-      const sixD = m(5.5), sixW = m(18.32);
-      g.strokeRect(cw / 2 - boxW / 2, gl, boxW, boxD * dir);
-      g.strokeRect(cw / 2 - sixW / 2, gl, sixW, sixD * dir);
-      const spotY = gl + m(11) * dir;
-      g.beginPath(); g.arc(cw / 2, spotY, m(0.35), 0, Math.PI * 2); g.fill();
-      g.beginPath();
-      g.arc(cw / 2, spotY, m(9.15),
-        end === 0 ? 0.30 : Math.PI + 0.30,
-        end === 0 ? Math.PI - 0.30 : Math.PI * 2 - 0.30);
-      g.stroke();
-    });
-
-    const tex = new THREE.CanvasTexture(cv);
-    tex.anisotropy = 4;
-    if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-
-  // ------------------------------------------------------------- scene build
-
-  function buildScene(myColor, oppColor) {
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060A12);
-    scene.fog = new THREE.Fog(0x0A1424, 95, 240);
-
-    // Night sky: a big inward-facing sphere with a vertical gradient. Without
-    // this, anything above the stands reads as a flat black void and the
-    // horizon line looks like a rendering bug rather than a stadium at night.
-    const skyCv = document.createElement("canvas");
-    skyCv.width = 4; skyCv.height = 128;
-    const sg = skyCv.getContext("2d");
-    const grad = sg.createLinearGradient(0, 0, 0, 128);
-    grad.addColorStop(0, "#050A13");
-    grad.addColorStop(0.5, "#0B1727");
-    grad.addColorStop(0.82, "#152A42");
-    grad.addColorStop(1, "#1E3A57");
-    sg.fillStyle = grad; sg.fillRect(0, 0, 4, 128);
-    const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(300, 16, 12),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(skyCv), side: THREE.BackSide, fog: false })
-    );
-    scene.add(sky);
-
-    // Grass.
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(PITCH_W, PITCH_L),
-      new THREE.MeshBasicMaterial({ map: makePitchTexture() })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    scene.add(ground);
-
-    // Surrounding dark apron so the pitch doesn't float in space.
-    const apron = new THREE.Mesh(
-      new THREE.PlaneGeometry(PITCH_W + 26, PITCH_L + 26),
-      new THREE.MeshBasicMaterial({ color: 0x0B2216 })
-    );
-    apron.rotation.x = -Math.PI / 2; apron.position.y = -0.02;
-    scene.add(apron);
-
-    // Stands: four tiered slabs, plus a speckled "crowd" band on each so the
-    // stadium reads as occupied without any real geometry or textures.
-    // Kept deliberately dark and low. Anything brighter or taller turns into a
-    // flat wall across the top of the frame when the camera swings behind a
-    // goal -- the stands are backdrop, not scenery to look at.
-    const standMat = new THREE.MeshBasicMaterial({ color: 0x121D2E });
-    const addStand = (w, d, x, z, rotY) => {
-      const gp = new THREE.Group();
-      for (let t = 0; t < 3; t++) {
-        const h = 2.2 + t * 1.7;
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(w, h, d / 3), standMat);
-        slab.position.set(0, h / 2, -(d / 3) * t - d / 6);
-        gp.add(slab);
-        const crowd = new THREE.Mesh(
-          new THREE.PlaneGeometry(w * 0.98, h * 0.5),
-          new THREE.MeshBasicMaterial({ map: crowdTexture(), transparent: true })
-        );
-        crowd.position.set(0, h * 0.72, -(d / 3) * t - d / 6 + d / 6.4);
-        gp.add(crowd);
-      }
-      gp.position.set(x, 0, z); gp.rotation.y = rotY;
-      scene.add(gp);
-    };
-    addStand(PITCH_W + 24, 22, 0, -(PITCH_L / 2 + 17), 0);
-    addStand(PITCH_W + 24, 22, 0, (PITCH_L / 2 + 17), Math.PI);
-    addStand(PITCH_L + 24, 22, -(PITCH_W / 2 + 16), 0, Math.PI / 2);
-    addStand(PITCH_L + 24, 22, (PITCH_W / 2 + 16), 0, -Math.PI / 2);
-
-    // Floodlight glows in the corners -- cheap sprites, purely atmospheric.
-    [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([sx, sz]) => {
-      const glow = new THREE.Mesh(
-        new THREE.SphereGeometry(2.4, 8, 8),
-        new THREE.MeshBasicMaterial({ color: 0xBFD8FF, transparent: true, opacity: 0.5 })
-      );
-      glow.position.set(sx * (PITCH_W / 2 + 14), 22, sz * (PITCH_L / 2 + 14));
-      scene.add(glow);
-    });
-
-    // Floodlighting. Players and the ball use Lambert materials so they pick
-    // up real shading -- unlit flat colour reads as a board game rather than a
-    // stadium. Ambient stays high so nothing on the far side goes to mud.
-    scene.add(new THREE.AmbientLight(0xC8D8F0, 1.55));
-    const key = new THREE.DirectionalLight(0xFFF4E0, 1.5);
-    key.position.set(28, 46, -18);
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0x9FC4FF, 0.75);
-    fill.position.set(-30, 30, 26);
-    scene.add(fill);
-
-    // Goals: posts, crossbar and a translucent net panel at each end.
-    const postMat = new THREE.MeshLambertMaterial({ color: 0xF2F6FC });
-    const netMat = new THREE.MeshBasicMaterial({
-      color: 0xDCE6F5, transparent: true, opacity: 0.16, side: THREE.DoubleSide,
-    });
-    [MY_GOAL_Z, OPP_GOAL_Z].forEach((gz) => {
-      const inward = gz < 0 ? 1 : -1;
-      const gp = new THREE.Group();
-      [-1, 1].forEach((s) => {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, GOAL_H, 6), postMat);
-        post.position.set(s * GOAL_W / 2, GOAL_H / 2, 0);
-        gp.add(post);
-      });
-      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, GOAL_W, 6), postMat);
-      bar.rotation.z = Math.PI / 2; bar.position.y = GOAL_H;
-      gp.add(bar);
-      const net = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_W, GOAL_H), netMat);
-      net.position.set(0, GOAL_H / 2, -inward * GOAL_DEPTH);
-      gp.add(net);
-      [-1, 1].forEach((s) => {
-        const side = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_DEPTH, GOAL_H), netMat);
-        side.rotation.y = Math.PI / 2;
-        side.position.set(s * GOAL_W / 2, GOAL_H / 2, -inward * GOAL_DEPTH / 2);
-        gp.add(side);
-      });
-      gp.position.z = gz;
-      scene.add(gp);
-    });
-
-    return scene;
-  }
-
-  // Tiny noise texture reused for every crowd band.
-  let _crowdTex = null;
-  function crowdTexture() {
-    if (_crowdTex) return _crowdTex;
-    const cv = document.createElement("canvas");
-    cv.width = 128; cv.height = 32;
-    const g = cv.getContext("2d");
-    g.fillStyle = "rgba(8,14,24,0.9)"; g.fillRect(0, 0, 128, 32);
-    const tones = ["#33425E", "#425474", "#2A3752", "#4E6084", "#222E47"];
-    for (let i = 0; i < 900; i++) {
-      g.fillStyle = tones[(Math.random() * tones.length) | 0];
-      g.fillRect(Math.random() * 128, Math.random() * 32, 1.6, 1.6);
-    }
-    _crowdTex = new THREE.CanvasTexture(cv);
-    return _crowdTex;
-  }
-
-  // Player avatar: capsule torso + head + a flat shadow ellipse. Built from
-  // shared geometry, one material per team, so 22 of these stay cheap.
-  function makePlayerMesh(shared, teamColorHex, isGK) {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(shared.body, isGK ? shared.gkMat[teamColorHex] : shared.bodyMat[teamColorHex]);
-    body.position.y = 0.86;
-    g.add(body);
-    const head = new THREE.Mesh(shared.head, shared.skinMat);
-    head.position.y = 1.62;
-    g.add(head);
-    const shadow = new THREE.Mesh(shared.shadow, shared.shadowMat);
-    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02;
-    g.add(shadow);
-    return g;
-  }
-
-  function makeShared(myColor, oppColor) {
-    const bodyGeo = THREE.CapsuleGeometry
-      ? new THREE.CapsuleGeometry(0.36, 0.78, 4, 8)
-      : new THREE.CylinderGeometry(0.36, 0.36, 1.5, 8);
-    const mk = (hex) => new THREE.MeshLambertMaterial({ color: new THREE.Color(hex) });
-    const dim = (hex) => {
-      const c = new THREE.Color(hex); c.multiplyScalar(0.55);
-      return new THREE.MeshLambertMaterial({ color: c });
-    };
-    return {
-      body: bodyGeo,
-      head: new THREE.SphereGeometry(0.24, 10, 8),
-      shadow: new THREE.CircleGeometry(0.5, 12),
-      shadowMat: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32 }),
-      skinMat: new THREE.MeshLambertMaterial({ color: 0xE8B48C }),
-      bodyMat: { [myColor]: mk(myColor), [oppColor]: mk(oppColor) },
-      gkMat: { [myColor]: dim(myColor), [oppColor]: dim(oppColor) },
-    };
-  }
+  // Thin pass-throughs to the HUD module so the many call sites below stay
+  // readable. HUD owns the DOM; this file only decides when to show things.
+  function toast(a, msg, ms) { HUD.toast(a, msg, ms); }
+  function banner(a, text, color, ms) { HUD.banner(a, text, color, ms); }
+  function titleCard(a, title, sub, ms) { HUD.titleCard(a, title, sub, ms); }
 
   // ------------------------------------------------------------------- roster
 
@@ -366,14 +141,16 @@
       const hx = (slot.x / 100 - 0.5) * PITCH_W;
       const hz = -((slot.y / 100) - 0.5) * PITCH_L;
       const attrs = deriveAttrs(card, slot.position);
-      const mesh = makePlayerMesh(shared, colorHex, slot.position === "GK");
+      const rig = VIS.createPlayer(THREE, shared, colorHex, slot.position === "GK", out.length + 1);
+      const mesh = rig.group;
+      rig.phase = out.length * 1.7;   // desync the run cycles across the team
       mesh.position.set(hx, 0, hz);
       scene.add(mesh);
       out.push({
         team, slotId: slot.id, position: slot.position,
         card: card || { name: "Reserve", power: 62, rarity: "Common" },
         name: card ? card.name : "Reserve",
-        attrs, mesh,
+        attrs, mesh, rig,
         homeX: hx, homeZ: hz,
         x: hx, z: hz, vx: 0, vz: 0,
         facing: team === TEAM_MY ? 0 : Math.PI,
@@ -383,177 +160,6 @@
       });
     });
     return out;
-  }
-
-  // ---------------------------------------------------------------- HUD / DOM
-
-  function h(tag, style, html) {
-    const e = document.createElement(tag);
-    if (style) e.setAttribute("style", style);
-    if (html != null) e.innerHTML = html;
-    return e;
-  }
-
-  function buildOverlay(a) {
-    const root = h("div",
-      "position:fixed;inset:0;z-index:9000;background:#060A12;" +
-      "touch-action:none;-webkit-user-select:none;user-select:none;overflow:hidden;" +
-      "font-family:'Outfit',system-ui,sans-serif");
-
-    root.appendChild(a.renderer.domElement);
-    a.renderer.domElement.setAttribute("style", "position:absolute;inset:0;width:100%;height:100%;display:block");
-
-    // --- top scoreboard
-    const bar = h("div",
-      "position:absolute;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 8px) 10px 8px;" +
-      "display:flex;align-items:center;justify-content:center;gap:10px;pointer-events:none;" +
-      "background:linear-gradient(180deg,rgba(6,10,18,.86),rgba(6,10,18,0))");
-    const chip = (color, name) => h("div",
-      "display:flex;align-items:center;gap:6px;min-width:0",
-      '<span style="width:10px;height:10px;border-radius:3px;flex:0 0 auto;background:' + color + '"></span>' +
-      '<span style="font-size:11px;font-weight:800;color:#F3F6FA;white-space:nowrap;overflow:hidden;' +
-      'text-overflow:ellipsis;max-width:23vw">' + name + "</span>");
-    bar.appendChild(chip(a.myColor, a.myName));
-    a.el.score = h("div",
-      "font-family:'Teko',sans-serif;font-size:30px;line-height:1;font-weight:700;color:#fff;" +
-      "letter-spacing:.04em;padding:0 4px;text-shadow:0 2px 10px rgba(0,0,0,.6)", "0 - 0");
-    bar.appendChild(a.el.score);
-    bar.appendChild(chip(a.oppColor, a.oppName));
-    root.appendChild(bar);
-
-    a.el.clock = h("div",
-      "position:absolute;top:calc(env(safe-area-inset-top,0px) + 44px);left:50%;transform:translateX(-50%);" +
-      "font-size:11px;font-weight:800;letter-spacing:.14em;color:#FFB020;pointer-events:none;" +
-      "text-shadow:0 1px 6px rgba(0,0,0,.8)", "1ST HALF &middot; 0'");
-    root.appendChild(a.el.clock);
-
-    // --- commentary / event toast
-    a.el.toast = h("div",
-      "position:absolute;top:calc(env(safe-area-inset-top,0px) + 68px);left:50%;transform:translateX(-50%);" +
-      "max-width:86vw;text-align:center;font-size:13px;font-weight:800;color:#F3F6FA;pointer-events:none;" +
-      "opacity:0;transition:opacity .25s ease;text-shadow:0 2px 8px rgba(0,0,0,.9)");
-    root.appendChild(a.el.toast);
-
-    // --- big goal banner
-    a.el.banner = h("div",
-      "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
-      "pointer-events:none;opacity:0;transition:opacity .2s ease");
-    a.el.bannerText = h("div",
-      "font-family:'Teko',sans-serif;font-size:14vw;font-weight:700;letter-spacing:.06em;color:#fff;" +
-      "text-shadow:0 6px 30px rgba(0,0,0,.8)");
-    a.el.banner.appendChild(a.el.bannerText);
-    root.appendChild(a.el.banner);
-
-    // --- controlled-player nameplate
-    a.el.nameplate = h("div",
-      "position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 148px);" +
-      "transform:translateX(-50%);pointer-events:none;font-size:11px;font-weight:800;color:#F3F6FA;" +
-      "background:rgba(6,10,18,.55);border:1px solid rgba(255,255,255,.14);border-radius:999px;" +
-      "padding:3px 10px;white-space:nowrap");
-    root.appendChild(a.el.nameplate);
-
-    // --- joystick (left thumb). Base is fixed; the knob tracks the drag.
-    a.el.stickBase = h("div",
-      "position:absolute;left:22px;bottom:calc(env(safe-area-inset-bottom,0px) + 26px);" +
-      "width:124px;height:124px;border-radius:50%;background:rgba(255,255,255,.07);" +
-      "border:1px solid rgba(255,255,255,.16);pointer-events:none");
-    a.el.stickKnob = h("div",
-      "position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;" +
-      "background:rgba(243,246,250,.34);border:1px solid rgba(255,255,255,.4);" +
-      "transition:transform .04s linear");
-    a.el.stickBase.appendChild(a.el.stickKnob);
-    root.appendChild(a.el.stickBase);
-
-    // --- action buttons (right thumb)
-    const mkBtn = (label, sub, color, bottom, right, size) => {
-      const b = h("div",
-        "position:absolute;right:" + right + "px;bottom:calc(env(safe-area-inset-bottom,0px) + " + bottom + "px);" +
-        "width:" + size + "px;height:" + size + "px;border-radius:50%;display:flex;flex-direction:column;" +
-        "align-items:center;justify-content:center;gap:1px;background:" + color + "33;border:2px solid " + color + ";" +
-        "color:" + color + ";font-weight:900;font-size:" + (size > 74 ? 15 : 13) + "px;letter-spacing:.06em;" +
-        "box-shadow:0 4px 18px rgba(0,0,0,.45);cursor:pointer",
-        label + (sub ? '<span style="font-size:8px;opacity:.75;font-weight:800">' + sub + "</span>" : ""));
-      return b;
-    };
-    a.el.btnShoot = mkBtn("SHOOT", "hold=power", "#FB5A5A", 96, 22, 86);
-    a.el.btnPass = mkBtn("PASS", "", "#2FD180", 30, 118, 70);
-    a.el.btnSprint = mkBtn("RUN", "", "#FFB020", 34, 26, 62);
-    root.appendChild(a.el.btnShoot);
-    root.appendChild(a.el.btnPass);
-    root.appendChild(a.el.btnSprint);
-
-    // Shot power meter wraps the shoot button while it's held.
-    a.el.powerRing = h("div",
-      "position:absolute;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 88px);" +
-      "width:102px;height:102px;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .12s ease;" +
-      "border:3px solid transparent");
-    root.appendChild(a.el.powerRing);
-
-    // --- pause / bail-out
-    a.el.pause = h("div",
-      "position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);right:10px;width:34px;height:34px;" +
-      "border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);" +
-      "display:flex;align-items:center;justify-content:center;color:#F3F6FA;font-size:13px;font-weight:900;" +
-      "cursor:pointer;z-index:2", "II");
-    root.appendChild(a.el.pause);
-
-    a.el.pauseSheet = h("div",
-      "position:absolute;inset:0;background:rgba(6,10,18,.86);display:none;flex-direction:column;" +
-      "align-items:center;justify-content:center;gap:12px;z-index:3;padding:24px;text-align:center");
-    a.el.pauseSheet.appendChild(h("div",
-      "font-family:'Teko',sans-serif;font-size:44px;color:#fff;line-height:1", "PAUSED"));
-    a.el.pauseHint = h("div", "font-size:12px;color:#6C84A3;max-width:280px;line-height:1.5",
-      "Left thumb steers. PASS finds a teammate, hold SHOOT for power. " +
-      "You always control the player nearest the ball.");
-    a.el.pauseSheet.appendChild(a.el.pauseHint);
-    const resume = h("div",
-      "margin-top:6px;padding:12px 30px;border-radius:14px;background:#2FD180;color:#080F1A;" +
-      "font-weight:900;font-size:15px;cursor:pointer", "RESUME");
-    const quit = h("div",
-      "padding:9px 22px;border-radius:12px;border:1px solid #FB5A5A66;color:#FB5A5A;" +
-      "font-weight:800;font-size:12px;cursor:pointer", "FORFEIT MATCH");
-    a.el.pauseSheet.appendChild(resume);
-    a.el.pauseSheet.appendChild(quit);
-    root.appendChild(a.el.pauseSheet);
-
-    a.el.resumeBtn = resume;
-    a.el.quitBtn = quit;
-
-    // --- kickoff countdown / half title card
-    a.el.card = h("div",
-      "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
-      "background:rgba(6,10,18,.72);pointer-events:none;gap:6px;z-index:2");
-    a.el.cardTitle = h("div",
-      "font-family:'Teko',sans-serif;font-size:12vw;line-height:1;color:#fff", "");
-    a.el.cardSub = h("div", "font-size:12px;font-weight:800;letter-spacing:.14em;color:#FFB020", "");
-    a.el.card.appendChild(a.el.cardTitle);
-    a.el.card.appendChild(a.el.cardSub);
-    root.appendChild(a.el.card);
-
-    return root;
-  }
-
-  function toast(a, msg, ms) {
-    a.el.toast.innerHTML = msg;
-    a.el.toast.style.opacity = "1";
-    clearTimeout(a.toastTimer);
-    a.toastTimer = setTimeout(() => { a.el.toast.style.opacity = "0"; }, ms || 1900);
-  }
-
-  function banner(a, text, color, ms) {
-    a.el.bannerText.textContent = text;
-    a.el.bannerText.style.color = color || "#fff";
-    a.el.banner.style.opacity = "1";
-    clearTimeout(a.bannerTimer);
-    a.bannerTimer = setTimeout(() => { a.el.banner.style.opacity = "0"; }, ms || 1400);
-  }
-
-  function titleCard(a, title, sub, ms) {
-    a.el.cardTitle.textContent = title;
-    a.el.cardSub.textContent = sub || "";
-    a.el.card.style.display = "flex";
-    clearTimeout(a.cardTimer);
-    if (ms) a.cardTimer = setTimeout(() => { a.el.card.style.display = "none"; }, ms);
   }
 
   // ----------------------------------------------------------------- controls
@@ -952,12 +558,17 @@
       const sp = Math.hypot(p.vx, p.vz);
       if (sp > 0.4) p.facing = Math.atan2(p.vx, p.vz);
 
-      // Mesh transform + a small run bob so movement reads as movement.
+      // Position/orientation are the sim's business; the pose belongs to the
+      // visuals module, which owns whatever rig it decided to build.
       p.mesh.position.x = p.x; p.mesh.position.z = p.z;
       p.mesh.rotation.y = p.facing;
-      const bob = sp > 0.6 ? Math.sin(a.t * 11 + p.homeX) * 0.07 * Math.min(1, sp / 6) : 0;
-      p.mesh.position.y = bob;
-      p.mesh.children[0].rotation.x = sp > 0.6 ? Math.sin(a.t * 11 + p.homeX) * 0.09 : 0;
+      VIS.animatePlayer(p.rig, {
+        speed: sp, facing: p.facing, t: a.t,
+        kicking: p.cooldown > 0.28,
+        stunned: p.stun > 0,
+        hasBall: a.ball.owner === p,
+        controlled: p === a.controlled,
+      });
     });
   }
 
@@ -1093,7 +704,7 @@
 
   function onGoal(a, team) {
     a.score[team]++;
-    a.el.score.textContent = a.score.my + " - " + a.score.opp;
+    HUD.setScore(a, a.score.my, a.score.opp);
     const scorer = a.lastTouch && a.lastTouch.team === team ? lastName(a.lastTouch.name) : null;
     if (team === TEAM_MY) {
       banner(a, "GOAL!", "#2FD180", 1700);
@@ -1229,7 +840,7 @@
     const shown = (a.half === 1 ? 0 : 45) + minute;
     if (shown !== a.shownMinute) {
       a.shownMinute = shown;
-      a.el.clock.innerHTML = (a.half === 1 ? "1ST HALF" : "2ND HALF") + " &middot; " + shown + "'";
+      HUD.setClock(a, a.half, shown);
     }
     if (a.elapsed >= a.halfSeconds) { endHalf(a); return; }
 
@@ -1282,6 +893,8 @@
   M.begin = function (cfg) {
     if (!M.available()) return false;
     THREE = window.THREE;
+    VIS = window.Match3DVisuals;
+    HUD = window.Match3DHud;
     teardown();
 
     const myColor = cfg.myColor || "#52D68A";
@@ -1306,30 +919,25 @@
     a.renderer.setSize(window.innerWidth, window.innerHeight, false);
     if (THREE.SRGBColorSpace) a.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    a.scene = buildScene(myColor, oppColor);
+    a.world = VIS.buildStadium(THREE, { shadows: a.quality !== "low" });
+    a.scene = a.world.scene;
     // 46 degrees VERTICAL fov. three.js measures fov vertically, and phones are
     // tall -- the usual ~58 spans so much height that half the frame is sky and
     // the players shrink to specks. Narrower keeps them legible without having
     // to flatten the camera into a top-down view.
     a.camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.5, 400);
 
-    a.shared = makeShared(myColor, oppColor);
+    a.shared = VIS.makeKitSet(THREE, myColor, oppColor);
     a.players = []
       .concat(buildTeam(TEAM_MY, cfg.myLineup, cfg.formationKey || "balanced", myColor, a.shared, a.scene))
       .concat(buildTeam(TEAM_OPP, cfg.oppLineup, cfg.oppFormationKey || "balanced", oppColor, a.shared, a.scene));
 
     // Ball + its shadow.
     a.ball = { x: 0, y: BALL_R, z: 0, vx: 0, vy: 0, vz: 0, owner: null };
-    a.ballMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(BALL_R, 14, 12),
-      new THREE.MeshLambertMaterial({ color: 0xFFFFFF, emissive: 0x222630 })
-    );
+    const ballParts = VIS.createBall(THREE);
+    a.ballMesh = ballParts.mesh;
+    a.ballShadow = ballParts.shadow;
     a.scene.add(a.ballMesh);
-    a.ballShadow = new THREE.Mesh(
-      new THREE.CircleGeometry(BALL_R * 1.15, 10),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.36 })
-    );
-    a.ballShadow.rotation.x = -Math.PI / 2;
     a.scene.add(a.ballShadow);
 
     // Ring under the player you're driving.
@@ -1341,7 +949,12 @@
     a.marker.position.y = 0.05;
 
     A = a;
-    a.root = buildOverlay(a);
+    const built = HUD.build({
+      canvas: a.renderer.domElement,
+      myName: a.myName, myColor: a.myColor,
+      oppName: a.oppName, oppColor: a.oppColor,
+    });
+    a.root = built.root; a.el = built.el;
     document.body.appendChild(a.root);
     bindControls(a);
 
@@ -1420,7 +1033,7 @@
       a.renderer.dispose();
       if (a.renderer.forceContextLoss) a.renderer.forceContextLoss();
     } catch (e) {}
-    _crowdTex = null;
+    if (VIS && VIS.disposeShared) VIS.disposeShared(a.shared);
     if (a.root && a.root.parentNode) a.root.parentNode.removeChild(a.root);
   }
 

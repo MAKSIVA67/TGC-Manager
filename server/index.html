@@ -117,6 +117,11 @@ input,textarea{font-family:inherit;font-size:16px}
 <script src="lib/social.js"></script>
 <script src="lib/admin-api.js"></script>
 <script src="lib/iap.js"></script>
+<!-- Match engine, split by concern: visuals (stadium/models/animation), HUD
+     (overlay DOM + controls), then the core sim which uses both. Order
+     matters -- match3d.js binds the other two at kickoff. -->
+<script src="lib/match3d-visuals.js"></script>
+<script src="lib/match3d-hud.js"></script>
 <script src="lib/match3d.js"></script>
 
 <script>
