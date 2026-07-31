@@ -315,9 +315,13 @@
       '<span style="width:16px;height:2px;border-radius:2px;background:' + C.gold + '"></span>' +
       '<span style="font-size:10px;font-weight:900;letter-spacing:.2em;color:' + C.gold + '">HOW TO PLAY</span>' +
       "</div>" +
-      legendRow(C.cream, "DRAG", "Left half of the screen steers your player") +
+      // Every button on screen gets a line. An incomplete legend is worse than
+      // none -- players assume the controls they weren't told about don't exist.
+      legendRow(C.cream, "DRAG", "Left half of the screen steers. Aim with it too") +
       legendRow(C.danger, "SHOOT", "Hold to charge power, release to strike") +
       legendRow(C.turf, "PASS", "Tap to find the best-placed teammate") +
+      legendRow(C.gold, "THRU", "Slide a pass into space behind the defence") +
+      legendRow(C.pink, "SKILL", "Burst past your marker") +
       legendRow(C.gold, "RUN", "Hold to sprint")));
     root.appendChild(el.hint);
 

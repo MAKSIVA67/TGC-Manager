@@ -1916,6 +1916,10 @@
     a.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     a.renderer.setSize(window.innerWidth, window.innerHeight, false);
     if (THREE.SRGBColorSpace) a.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // The visuals module owns the look but not the renderer, so this is the
+    // only place shadow maps and tone mapping can actually be switched on.
+    // Optional by contract -- older copies of that module won't have it.
+    if (VIS.configureRenderer) VIS.configureRenderer(a.renderer);
 
     a.world = VIS.buildStadium(THREE, { shadows: a.quality !== "low" });
     a.scene = a.world.scene;
