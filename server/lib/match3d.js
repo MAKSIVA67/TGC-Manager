@@ -1420,13 +1420,19 @@
         // and hoping the sideways velocity clears the frame in time risks it
         // crossing between the posts on the next step and being scored as an
         // own goal.
+        // Put it just PAST the line, not merely travelling towards it.
+        // stepPossession (where we are now) runs before stepBounds in the same
+        // frame, so a ball left short of the line gets collected by whoever is
+        // standing there and the corner never happens -- which is exactly what
+        // a full-match trace showed.
         const side = b.x >= 0 ? 1 : -1;
         const ownGoalZ = best.team === TEAM_MY ? MY_GOAL_Z : OPP_GOAL_Z;
         const behind = ownGoalZ < 0 ? -1 : 1;
         b.x = side * (GOAL_W / 2 + rand(0.8, 2.2));
-        b.vx = side * rand(2, 5);
-        b.vz = behind * rand(6, 10);
-        b.vy = 2.2;
+        b.z = ownGoalZ + behind * 0.9;
+        b.vx = side * rand(1, 3);
+        b.vz = behind * rand(3, 6);
+        b.vy = 1.6;
         best.cooldown = 0.4;
         a.lastTouch = best;      // defender's touch => corner, not a goal kick
         a.stat[best.team].saved++;
