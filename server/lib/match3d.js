@@ -1,7 +1,7 @@
-// TCG Manager -- live 3D match arena.
+// TCG Manager -- live 3D match arena: simulation, AI, input, orchestration.
 //
 // Replaces the old "watch four zone comparisons resolve on a timer" match with
-// a real, playable game: you control one outfield player, everyone else is AI,
+// a real, playable game: you drive one outfield player, everyone else is AI,
 // and the scoreline comes from goals you actually score.
 //
 // Architecture notes (these matter if you touch this file):
@@ -18,12 +18,37 @@
 //    depend on an external file beyond the three.js CDN script itself.
 // 3. Card `power` (the only stat cards actually have) is expanded into real
 //    gameplay attributes in deriveAttrs() -- speed, shot, passing, tackling,
-//    keeper reflex -- so a stronger squad genuinely plays better instead of
-//    just winning a dice roll.
+//    keeper reflex, stamina, composure -- so a stronger squad genuinely plays
+//    better instead of just winning a dice roll.
 // 4. If three.js or WebGL is unavailable, available() returns false and
 //    index.html silently falls back to the legacy timed zone reveal. The old
 //    path is kept intact for exactly this reason -- never assume the 3D mode
 //    can run.
+//
+// Two structural rules that keep this playable on a phone:
+//
+// 5. THINKING IS CADENCED, STEERING IS NOT. Anything O(players^2) -- role
+//    assignment, marking, defensive line, run targets -- happens in
+//    updateTactics() roughly 7x/second and writes a single target point onto
+//    each player. The per-frame path then only steers toward that point, so
+//    the 60Hz loop stays O(players). Hot loops are indexed `for`, not forEach,
+//    and nothing in them allocates.
+// 6. INPUT IS CAMERA-RELATIVE, DERIVED FROM THE CAMERA. The stick is a screen
+//    vector; it is converted through the chase cam's actual ground-plane basis
+//    (see stickWorld) rather than a hard-coded axis mapping. Doing it by hand
+//    is how "up" ended up meaning "run at your own goal" -- three.js' lookAt
+//    puts world +X on the LEFT of the screen when the camera faces +Z, which
+//    is not the mapping you would guess.
+//
+// Control model (what the player can actually do):
+//   ON THE BALL   stick steers -- PASS (stick biases who) -- hold SHOOT to
+//                 charge, stick at release aims it -- THROUGH plays a runner
+//                 in behind -- SKILL feints past a close defender or knocks
+//                 the ball into space -- RUN sprints, at a stamina cost.
+//   OFF THE BALL  SWITCH cycles the player you drive (stick picks a direction
+//                 to switch toward) and pins auto-switch off until you win it
+//                 back -- TACKLE lunges when you are close enough, otherwise
+//                 sends the nearest teammate to press.
 "use strict";
 
 (function () {
@@ -47,8 +72,21 @@
   const POSSESS_R = 1.5;          // how close to take a loose ball
   const DRIBBLE_AHEAD = 0.95;     // ball sits this far in front of the carrier
   const TACKLE_R = 1.9;
+  const LUNGE_REACH = 3.4;        // how far away you may commit a sliding press
+  const LUNGE_TIME = 0.32;
+
+  // Sprint economics. A full bar is ~7s flat out, and recovery is slower than
+  // the drain, so holding RUN permanently leaves you walking in the last third
+  // of a half -- that is the whole point of making it a decision.
+  const STAM_DRAIN = 0.145, STAM_JOG = 0.028, STAM_REGEN = 0.085;
+  const SPRINT_BOOST = 1.22;
 
   const TEAM_MY = "my", TEAM_OPP = "opp";
+
+  // Off-ball roles, assigned by updateTactics(). Numbers, not strings, because
+  // these are compared every frame.
+  const R_HOLD = 0, R_PRESS = 1, R_COVER = 2, R_MARK = 3,
+        R_SUPPORT = 4, R_RUN = 5, R_TAKER = 6, R_GK = 7;
 
   // Per-position tuning applied on top of the power-derived baseline.
   const ROLE_MOD = {
@@ -88,6 +126,7 @@
       power: power,
       topSpeed: (6.4 + n * 3.0) * (1 + mod.speed),
       accel: 17 + n * 13,
+      agility: 0.72 + n * 0.42,          // how sharply they can change direction
       shotPower: (17 + n * 13) * (1 + mod.shot),
       shotAccuracy: clamp(0.42 + n * 0.46 + mod.shot * 0.3, 0.15, 0.96),
       passAccuracy: clamp(0.5 + n * 0.42 + mod.pass, 0.2, 0.98),
@@ -95,6 +134,8 @@
       tackle: clamp(0.35 + n * 0.45 + mod.tackle, 0.1, 0.95),
       reflex: clamp(0.4 + n * 0.45 + mod.reflex, 0.2, 0.98),
       vision: 12 + n * 16,               // how far the AI looks for a pass
+      composure: 0.34 + n * 0.52,        // decision quality: less noise, faster
+      endurance: 0.78 + n * 0.44,        // stamina drain/recovery multiplier
     };
   }
 
@@ -157,21 +198,65 @@
         isGK: slot.position === "GK",
         cooldown: 0,      // blocks instant re-tackle / re-shoot
         stun: 0,
+        stamina: 1,
+        // --- tactical state, all written by updateTactics()
+        role: R_HOLD, tgtX: hx, tgtZ: hz, urgency: 0.86,
+        mark: null, marked: false,
+        // --- action state
+        lunge: 0, lungeX: 0, lungeZ: 0, lungeHit: false,
+        knock: 0, skill: 0, celebrate: 0,
+        chaseX: 0, chaseZ: 0, chaseUntil: -1,
+        think: 0, _bd: 0,
+        // Per-player animation state object, allocated once. Reused every frame
+        // so the render path never allocates, but NOT shared between players --
+        // the visuals module is free to hold onto it between frames.
+        st: {
+          speed: 0, facing: 0, t: 0, kicking: false, stunned: false,
+          hasBall: false, controlled: false, tackling: false, celebrating: false,
+          sprinting: false, stamina: 1, team: team,
+        },
       });
     });
     return out;
   }
 
+  // ----------------------------------------------------------- stick -> world
+
+  // The joystick is a SCREEN vector and the chase cam yaws with play, so the
+  // mapping has to come from the camera, not from a fixed axis pair. Derived
+  // on the XZ plane: forward = camLook - camPos, screen-right = forward x up.
+  // (For a camera facing +Z that right vector is world -X. Hard-coding the
+  // "obvious" mapping is exactly how the stick ended up 180 degrees out.)
+  function stickWorld(a, sx, sy) {
+    const o = a._sw;
+    let fx = a.camLook.x - a.camPos.x, fz = a.camLook.z - a.camPos.z;
+    const fl = Math.hypot(fx, fz);
+    if (fl < 0.001) { fx = 0; fz = 1; } else { fx /= fl; fz /= fl; }
+    const up = -sy;                       // screen-up is "away from the camera"
+    o.x = -fz * sx + fx * up;
+    o.z = fx * sx + fz * up;
+    o.mag = Math.min(1, Math.hypot(sx, sy));
+    const l = Math.hypot(o.x, o.z);
+    if (l > 0.0001) { o.x /= l; o.z /= l; } else { o.x = 0; o.z = 0; o.mag = 0; }
+    return o;
+  }
+
   // ----------------------------------------------------------------- controls
 
   function bindControls(a) {
-    const stick = { active: false, id: null, ox: 0, oy: 0, dx: 0, dy: 0 };
-    a.input = { mx: 0, mz: 0, sprint: false, shootHeld: 0, wantPass: false, wantShoot: 0 };
+    const stick = { active: false, id: null, ox: 0, oy: 0 };
+    a.input = {
+      mx: 0, mz: 0, sprint: false, shootHeld: 0,
+      wantPass: false, wantShoot: 0, wantThrough: false,
+      wantSwitch: false, wantTackle: false, wantSkill: false,
+      aimX: 0, aimZ: 0, aimMag: 0,
+    };
 
     const R = 56; // joystick travel in px
+    const el = a.el;
 
     function setKnob(dx, dy) {
-      a.el.stickKnob.style.transform = "translate(" + dx + "px," + dy + "px)";
+      if (el.stickKnob) el.stickKnob.style.transform = "translate(" + dx + "px," + dy + "px)";
     }
 
     // Touch/mouse: the whole left 55% of the screen acts as a floating stick so
@@ -185,9 +270,11 @@
         stick.active = true; stick.id = t.identifier != null ? t.identifier : "mouse";
         stick.ox = t.clientX; stick.oy = t.clientY;
         // Re-centre the visible base under the thumb.
-        a.el.stickBase.style.left = (t.clientX - 62) + "px";
-        a.el.stickBase.style.bottom = "auto";
-        a.el.stickBase.style.top = (t.clientY - 62) + "px";
+        if (el.stickBase) {
+          el.stickBase.style.left = (t.clientX - 62) + "px";
+          el.stickBase.style.bottom = "auto";
+          el.stickBase.style.top = (t.clientY - 62) + "px";
+        }
       }
     }
     function onMove(e) {
@@ -199,7 +286,6 @@
           let dx = t.clientX - stick.ox, dy = t.clientY - stick.oy;
           const len = Math.hypot(dx, dy);
           if (len > R) { dx = dx / len * R; dy = dy / len * R; }
-          stick.dx = dx; stick.dy = dy;
           setKnob(dx, dy);
           const nx = dx / R, ny = dy / R;
           const mag = Math.min(1, Math.hypot(nx, ny));
@@ -217,7 +303,7 @@
         const t = list[i];
         const id = t.identifier != null ? t.identifier : "mouse";
         if (stick.active && id === stick.id) {
-          stick.active = false; stick.dx = stick.dy = 0;
+          stick.active = false;
           a.input.mx = 0; a.input.mz = 0;
           setKnob(0, 0);
         }
@@ -234,53 +320,67 @@
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
 
-    // Buttons. Shoot charges while held; releasing fires with that power.
-    const press = (el, down, up) => {
-      const d = (e) => { e.preventDefault(); e.stopPropagation(); down(); };
-      const u = (e) => { e.preventDefault(); e.stopPropagation(); if (up) up(); };
-      el.addEventListener("touchstart", d, { passive: false });
-      el.addEventListener("touchend", u, { passive: false });
-      el.addEventListener("mousedown", d);
-      el.addEventListener("mouseup", u);
+    // Buttons. Every binding is defensive: the HUD module owns which controls
+    // exist, and new ones land there before they land here (or after).
+    const press = (e2, down, up) => {
+      if (!e2) return;
+      const d = (ev) => { ev.preventDefault(); ev.stopPropagation(); down(); };
+      const u = (ev) => { ev.preventDefault(); ev.stopPropagation(); if (up) up(); };
+      e2.addEventListener("touchstart", d, { passive: false });
+      e2.addEventListener("touchend", u, { passive: false });
+      e2.addEventListener("mousedown", d);
+      e2.addEventListener("mouseup", u);
     };
-    press(a.el.btnPass, () => { a.input.wantPass = true; });
-    press(a.el.btnSprint, () => { a.input.sprint = true; }, () => { a.input.sprint = false; });
-    press(a.el.btnShoot,
-      () => { a.input.shootHeld = 0.0001; a.el.powerRing.style.opacity = "1"; },
+
+    press(el.btnPass, () => { a.input.wantPass = true; snapAim(a); });
+    press(el.btnSprint, () => { a.input.sprint = true; }, () => { a.input.sprint = false; });
+    press(el.btnShoot,
+      () => { a.input.shootHeld = 0.0001; if (el.powerRing) el.powerRing.style.opacity = "1"; },
       () => {
+        snapAim(a);
         a.input.wantShoot = clamp(a.input.shootHeld / 0.62, 0.35, 1);
         a.input.shootHeld = 0;
-        a.el.powerRing.style.opacity = "0";
+        if (el.powerRing) el.powerRing.style.opacity = "0";
       });
+    // --- controls the HUD module is adding; bound only if they exist.
+    press(el.btnThrough, () => { a.input.wantThrough = true; snapAim(a); });
+    press(el.btnSwitch, () => { a.input.wantSwitch = true; snapAim(a); });
+    press(el.btnTackle, () => { a.input.wantTackle = true; snapAim(a); });
+    press(el.btnSkill, () => { a.input.wantSkill = true; snapAim(a); });
 
-    // Keyboard for desktop play/testing.
+    // Keyboard for desktop play/testing. Keys mirror the buttons 1:1.
     const keys = a.keys = {};
     a.onKeyDown = (e) => {
       if (!A) return;
       const k = e.key.toLowerCase();
+      if (keys[k]) { if (k === " ") e.preventDefault(); return; }   // ignore autorepeat
       keys[k] = true;
-      if (k === " " && !a.spaceDown) { a.spaceDown = true; a.input.shootHeld = 0.0001; a.el.powerRing.style.opacity = "1"; }
-      if (k === "x" || k === "e") a.input.wantPass = true;
+      if (k === " ") { a.input.shootHeld = 0.0001; if (el.powerRing) el.powerRing.style.opacity = "1"; }
+      if (k === "x" || k === "e") { a.input.wantPass = true; snapAim(a); }
+      if (k === "q") { a.input.wantThrough = true; snapAim(a); }
+      if (k === "f" || k === "tab") { a.input.wantSwitch = true; snapAim(a); }
+      if (k === "c" || k === "v") { a.input.wantTackle = true; snapAim(a); }
+      if (k === "r") { a.input.wantSkill = true; snapAim(a); }
       if (k === "escape" || k === "p") togglePause(a);
-      if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].indexOf(k) >= 0) e.preventDefault();
+      if ([" ", "tab", "arrowup", "arrowdown", "arrowleft", "arrowright"].indexOf(k) >= 0) e.preventDefault();
     };
     a.onKeyUp = (e) => {
       if (!A) return;
       const k = e.key.toLowerCase();
       keys[k] = false;
       if (k === " ") {
-        a.spaceDown = false;
+        snapAim(a);
         a.input.wantShoot = clamp(a.input.shootHeld / 0.62, 0.35, 1);
         a.input.shootHeld = 0;
-        a.el.powerRing.style.opacity = "0";
+        if (el.powerRing) el.powerRing.style.opacity = "0";
       }
     };
     window.addEventListener("keydown", a.onKeyDown);
     window.addEventListener("keyup", a.onKeyUp);
 
-    a.el.pause.addEventListener("click", (e) => { e.stopPropagation(); togglePause(a); });
-    a.el.resumeBtn.addEventListener("click", (e) => { e.stopPropagation(); togglePause(a, false); });
-    a.el.quitBtn.addEventListener("click", (e) => { e.stopPropagation(); forfeit(a); });
+    if (el.pause) el.pause.addEventListener("click", (e) => { e.stopPropagation(); togglePause(a); });
+    if (el.resumeBtn) el.resumeBtn.addEventListener("click", (e) => { e.stopPropagation(); togglePause(a, false); });
+    if (el.quitBtn) el.quitBtn.addEventListener("click", (e) => { e.stopPropagation(); forfeit(a); });
 
     a.onResize = () => {
       if (!A) return;
@@ -293,26 +393,39 @@
     window.addEventListener("orientationchange", a.onResize);
   }
 
+  // Freeze the stick as a world direction at the instant a button fires -- the
+  // action is consumed a frame later and the thumb may have moved by then.
+  function snapAim(a) {
+    const s = stickWorld(a, a.input.mx, a.input.mz);
+    a.input.aimX = s.x; a.input.aimZ = s.z; a.input.aimMag = s.mag;
+  }
+
   // Merge keyboard into the same movement vector the stick writes.
   function readKeyboard(a) {
     const k = a.keys;
     if (!k) return;
-    let kx = 0, kz = 0;
+    let kx = 0, ky = 0;
     if (k["a"] || k["arrowleft"]) kx -= 1;
     if (k["d"] || k["arrowright"]) kx += 1;
-    if (k["w"] || k["arrowup"]) kz -= 1;
-    if (k["s"] || k["arrowdown"]) kz += 1;
-    if (kx || kz) {
-      const l = Math.hypot(kx, kz);
-      a.input.mx = kx / l; a.input.mz = kz / l;
+    if (k["w"] || k["arrowup"]) ky -= 1;      // screen-space, same as the stick
+    if (k["s"] || k["arrowdown"]) ky += 1;
+    if (kx || ky) {
+      const l = Math.hypot(kx, ky);
+      a.input.mx = kx / l; a.input.mz = ky / l;
     }
     a.input.sprint = a.input.sprint || !!(k["shift"] || k["shiftkey"]);
+  }
+
+  function clearWants(a) {
+    const i = a.input;
+    i.wantShoot = 0; i.wantPass = false; i.wantThrough = false;
+    i.wantSwitch = false; i.wantTackle = false; i.wantSkill = false;
   }
 
   function togglePause(a, force) {
     const want = force === undefined ? !a.paused : force;
     a.paused = want;
-    a.el.pauseSheet.style.display = want ? "flex" : "none";
+    if (a.el.pauseSheet) a.el.pauseSheet.style.display = want ? "flex" : "none";
     if (!want) a.last = performance.now();
   }
 
@@ -325,13 +438,23 @@
 
   // -------------------------------------------------------------- ball & play
 
+  // True only when the ball is genuinely in play: no kickoff freeze, no
+  // celebration, no restart being walked up to.
+  function ballLive(a) { return a.kickoffFreeze <= 0 && a.celebrate <= 0 && !a.restart; }
+
   function resetKickoff(a, towardTeam) {
     a.ball.x = 0; a.ball.y = BALL_R; a.ball.z = 0;
     a.ball.vx = 0; a.ball.vy = 0; a.ball.vz = 0;
     a.ball.owner = null;
-    a.players.forEach((p) => {
-      p.x = p.homeX; p.z = p.homeZ; p.vx = 0; p.vz = 0; p.stun = 0; p.cooldown = 0;
-    });
+    a.restart = null; a.celebrate = 0; a.celebrateBy = null;
+    a.pressMate = null; a.pressUntil = -1;
+    for (let i = 0; i < a.players.length; i++) {
+      const p = a.players[i];
+      p.x = p.homeX; p.z = p.homeZ; p.vx = 0; p.vz = 0;
+      p.stun = 0; p.cooldown = 0; p.lunge = 0; p.knock = 0; p.skill = 0;
+      p.celebrate = 0; p.chaseUntil = -1; p.mark = null;
+      p.tgtX = p.homeX; p.tgtZ = p.homeZ; p.role = p.isGK ? R_GK : R_HOLD;
+    }
     // The conceding side restarts, so nudge one of their midfielders onto it.
     const starters = a.players.filter((p) => p.team === towardTeam && p.position === "MID");
     if (starters.length) {
@@ -340,72 +463,160 @@
       a.ball.owner = s;
     }
     a.kickoffFreeze = 0.9;
+    a.tacticTimer = 0;
   }
 
   function possessionChange(a, p) {
     a.ball.owner = p;
     a.ball.vx = a.ball.vy = a.ball.vz = 0;
+    a.ball.y = BALL_R;
     p.cooldown = 0.25;
+    p.chaseUntil = -1;
+    p.knock = 0;
+    // Keepers take a beat to look up before distributing; outfielders don't.
+    p.think = p.isGK ? 0.7 : 0.1;
   }
 
   function attackDirZ(team) { return team === TEAM_MY ? 1 : -1; }
   function goalZFor(team) { return team === TEAM_MY ? OPP_GOAL_Z : MY_GOAL_Z; }
+  function ownGoalZFor(team) { return team === TEAM_MY ? MY_GOAL_Z : OPP_GOAL_Z; }
+  function oppListFor(a, team) { return team === TEAM_MY ? a.teamOpp : a.teamMy; }
+  function mateListFor(a, team) { return team === TEAM_MY ? a.teamMy : a.teamOpp; }
 
-  // Shot: aim at the goal mouth, with spray scaled by accuracy, distance and
-  // whether the shooter was under pressure.
-  function shoot(a, p, powerFrac, pressure) {
+  // How much sharper the AI plays for this team. 0 for the human's side; the
+  // opponent's value comes from index.html's `toughness` streak scaler when it
+  // passes one, otherwise from the raw squad-power gap so the hook still does
+  // something today.
+  function edgeFor(a, team) { return team === TEAM_MY ? 0 : a.oppEdge; }
+
+  function nearestOppDist(a, team, x, z) {
+    const list = oppListFor(a, team);
+    let best = 1e9;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (o.stun > 0) continue;
+      const d = dist2(o.x, o.z, x, z);
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  }
+
+  // Cheapest useful "is this lane open" test: perpendicular distance from every
+  // opponent to the segment, counting only the ones actually between the ends.
+  // Used for shot blocking, pass lanes and through-ball routes.
+  function laneClearance(a, team, x0, z0, x1, z1) {
+    const dx = x1 - x0, dz = z1 - z0;
+    const len2 = dx * dx + dz * dz;
+    if (len2 < 0.01) return 99;
+    const list = oppListFor(a, team);
+    let worst = 99;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      const t = ((o.x - x0) * dx + (o.z - z0) * dz) / len2;
+      if (t < 0.06 || t > 0.98) continue;
+      const d = dist(o.x, o.z, x0 + dx * t, z0 + dz * t);
+      if (d < worst) worst = d;
+    }
+    return worst;
+  }
+
+  // ------------------------------------------------------------------ actions
+
+  // Shot. Direction is a BLEND of the goal and the stick: with the stick
+  // centred it auto-aims (forgiving, which a phone needs), and the harder you
+  // push the more of your own aim survives -- up to the point where you can
+  // genuinely drag one wide. Power is hold duration; spray is attributes,
+  // pressure, distance and whether you were flat out.
+  function shoot(a, p, powerFrac, pressure, aimX, aimZ, aimMag) {
     const gz = goalZFor(p.team);
     const d = dist(p.x, p.z, 0, gz);
-    const acc = p.attrs.shotAccuracy * (1 - clamp(pressure, 0, 0.55)) * clamp(1.25 - d / 46, 0.35, 1.1);
-    // Pick a target inside the goal, biased away from the keeper.
-    const gk = a.players.find((q) => q.team !== p.team && q.isGK);
-    let aimX = rand(-GOAL_W / 2 + 0.5, GOAL_W / 2 - 0.5);
-    if (gk) aimX = gk.x > 0 ? rand(-GOAL_W / 2 + 0.4, -0.3) : rand(0.3, GOAL_W / 2 - 0.4);
-    const spray = (1 - acc) * 7.5;
-    aimX += rand(-spray, spray);
-    const aimY = clamp(rand(0.35, GOAL_H - 0.35) + rand(-spray, spray) * 0.35, 0.15, GOAL_H + 1.6);
+    const sprinting = Math.hypot(p.vx, p.vz) > p.attrs.topSpeed * 0.92;
+    let acc = p.attrs.shotAccuracy
+      * (1 - clamp(pressure, 0, 0.55))
+      * clamp(1.25 - d / 46, 0.35, 1.1)
+      * (sprinting ? 0.86 : 1)
+      * (0.72 + p.stamina * 0.3);
 
-    const dx = aimX - p.x, dz = gz - p.z;
-    const flat = Math.hypot(dx, dz) || 1;
-    const speed = p.attrs.shotPower * (0.55 + powerFrac * 0.6);
+    // Pick a target inside the goal, biased away from the keeper, then let the
+    // stick's sideways component slide it across the mouth.
+    const gk = a.gk[p.team === TEAM_MY ? TEAM_OPP : TEAM_MY];
+    let goalX = rand(-GOAL_W / 2 + 0.5, GOAL_W / 2 - 0.5);
+    if (gk) goalX = gk.x > 0 ? rand(-GOAL_W / 2 + 0.4, -0.3) : rand(0.3, GOAL_W / 2 - 0.4);
+    const mag = aimMag || 0;
+    if (mag > 0.2) goalX = clamp(goalX + aimX * mag * (GOAL_W * 0.9), -GOAL_W / 2 - 2.5, GOAL_W / 2 + 2.5);
+    const spray = (1 - acc) * 7.5;
+    goalX += rand(-spray, spray);
+
+    // Direction: goal-ward unit vector, rotated toward the stick.
+    let dx = goalX - p.x, dz = gz - p.z;
+    let flat = Math.hypot(dx, dz) || 1;
+    dx /= flat; dz /= flat;
+    if (mag > 0.2) {
+      const w = mag * 0.5;
+      dx = dx * (1 - w) + aimX * w;
+      dz = dz * (1 - w) + aimZ * w;
+      const l = Math.hypot(dx, dz) || 1;
+      dx /= l; dz /= l;
+    }
+
+    // Height: distance-driven loft, plus stick-back = chip, stick-forward =
+    // drilled. Toward the goal is `dz` sign-matched to the attacking direction.
+    const towardGoal = dz * (gz > 0 ? 1 : -1);
+    const aimY = clamp(rand(0.35, GOAL_H - 0.35) + rand(-spray, spray) * 0.35, 0.15, GOAL_H + 1.6);
+    const loftBias = mag > 0.2 ? clamp(-towardGoal, -0.6, 1) * 0.9 : 0;
+
+    const speed = p.attrs.shotPower * (0.55 + powerFrac * 0.6) * (0.88 + p.stamina * 0.14);
     a.ball.owner = null;
-    a.ball.x = p.x + (dx / flat) * 0.7;
-    a.ball.z = p.z + (dz / flat) * 0.7;
+    a.ball.x = p.x + dx * 0.7;
+    a.ball.z = p.z + dz * 0.7;
     a.ball.y = BALL_R + 0.15;
-    a.ball.vx = (dx / flat) * speed;
-    a.ball.vz = (dz / flat) * speed;
-    // Loft proportional to distance so long-range efforts arc.
-    a.ball.vy = clamp(aimY / Math.max(1, d) * speed * 0.55 + d * 0.045, 0.4, 9);
+    a.ball.vx = dx * speed;
+    a.ball.vz = dz * speed;
+    a.ball.vy = clamp(aimY / Math.max(1, d) * speed * 0.55 + d * 0.045 + loftBias * 3.2, 0.4, 11);
     p.cooldown = 0.5;
+    p.stamina = Math.max(0, p.stamina - 0.02);
+    p.facing = Math.atan2(dx, dz);
     a.lastTouch = p;
     a.stat[p.team].shots++;
     if (window.playKick) window.playKick();
   }
 
-  // Pass: choose the best forward option in vision range, weight by openness.
-  function bestPassTarget(a, p) {
-    const mates = a.players.filter((q) => q !== p && q.team === p.team && !q.isGK);
+  // Pass target search. `aim` biases the choice toward whatever direction the
+  // human is holding, which is the difference between "a pass" and "the pass
+  // I meant" -- with the stick centred it falls back to pure evaluation.
+  function bestPassTarget(a, p, aimX, aimZ, aimMag) {
+    const mates = mateListFor(a, p.team);
     const dir = attackDirZ(p.team);
+    const gz = goalZFor(p.team);
     let best = null, bestScore = -1e9;
-    mates.forEach((q) => {
+    for (let i = 0; i < mates.length; i++) {
+      const q = mates[i];
+      if (q === p || q.isGK) continue;
       const d = dist(p.x, p.z, q.x, q.z);
-      if (d < 3 || d > p.attrs.vision + 8) return;
-      // Nearest opponent to the receiver -- don't pass into trouble.
-      let press = 99;
-      a.players.forEach((o) => {
-        if (o.team === p.team) return;
-        press = Math.min(press, dist(o.x, o.z, q.x, q.z));
-      });
+      if (d < 3.5 || d > p.attrs.vision + 10) continue;
+      const clear = laneClearance(a, p.team, p.x, p.z, q.x, q.z);
+      if (clear < 0.85) continue;                 // straight into a defender
+      const pressQ = nearestOppDist(a, p.team, q.x, q.z);
       const forward = (q.z - p.z) * dir;
-      const score = forward * 1.5 + press * 1.2 - d * 0.35 + q.attrs.power * 0.04;
-      if (score > bestScore) { bestScore = score; best = q; }
-    });
+      let s = 30 + forward * 1.35 + clamp(pressQ, 0, 11) * 2.3
+        + clamp(clear, 0, 5) * 2.8 - d * 0.5 + (q.attrs.power - 70) * 0.25;
+      const qGoal = dist(q.x, q.z, 0, gz);
+      if (qGoal < 26) s += (26 - qGoal) * 1.2;    // a shooting position is gold
+      if (q.chaseUntil > a.t) s += 22;            // already running -- find them
+      if (aimMag > 0.25) {
+        const align = ((q.x - p.x) / d) * aimX + ((q.z - p.z) / d) * aimZ;
+        s += align * 58 * aimMag;
+        if (align < -0.15) s -= 28;
+      }
+      if (s > bestScore) { bestScore = s; best = q; }
+    }
+    a._score = bestScore;
     return best;
   }
 
   function pass(a, p, target) {
     if (!target) return false;
-    const acc = p.attrs.passAccuracy;
+    const acc = p.attrs.passAccuracy * (0.78 + p.stamina * 0.24);
     const d = dist(p.x, p.z, target.x, target.z);
     // Lead the receiver slightly; misplace it by an accuracy-scaled offset.
     const leadX = target.x + target.vx * 0.28 + rand(-1, 1) * (1 - acc) * d * 0.3;
@@ -419,89 +630,550 @@
     a.ball.y = BALL_R + 0.1;
     a.ball.vx = (dx / flat) * speed;
     a.ball.vz = (dz / flat) * speed;
-    a.ball.vy = d > 18 ? 3.4 : 0.5;
+    // Clip it over a defender standing in the lane rather than into their shins.
+    a.ball.vy = laneClearance(a, p.team, p.x, p.z, leadX, leadZ) < 1.9 ? 4.6 : (d > 18 ? 3.4 : 0.5);
     p.cooldown = 0.32;
+    p.facing = Math.atan2(dx / flat, dz / flat);
     a.lastTouch = p;
     a.stat[p.team].passes++;
     if (window.playTap) window.playTap();
     return true;
   }
 
-  // ------------------------------------------------------------------ AI step
-
-  function aiControlled(a, p, dt) {
-    // The AI carrying the ball: shoot if it's on, otherwise pass or drive.
-    const gz = goalZFor(p.team);
-    const dGoal = dist(p.x, p.z, 0, gz);
-    let press = 99;
-    a.players.forEach((o) => { if (o.team !== p.team) press = Math.min(press, dist(o.x, o.z, p.x, p.z)); });
-
-    if (p.cooldown <= 0) {
-      const shootRange = 15 + p.attrs.shotPower * 0.6;
-      if (dGoal < shootRange && Math.random() < 0.035 + (1 - dGoal / shootRange) * 0.09) {
-        shoot(a, p, rand(0.6, 1), clamp((3.5 - press) / 3.5, 0, 1));
-        return;
-      }
-      // Under pressure, or occasionally by choice, move it on.
-      const wantsOut = press < 3.2 ? 0.14 : 0.022;
-      if (Math.random() < wantsOut) {
-        const t = bestPassTarget(a, p);
-        if (t && pass(a, p, t)) return;
-      }
-    }
-    // Drive at goal, veering away from the closest defender.
+  // Through ball: aimed at SPACE ahead of a runner, not at their feet, and it
+  // commits the receiver to chasing it. Writes the landing point to a._thruX/Z.
+  function bestThroughTarget(a, p, aimX, aimZ, aimMag) {
+    const mates = mateListFor(a, p.team);
     const dir = attackDirZ(p.team);
-    let tx = clamp(p.x * 0.7, -PITCH_W / 2 + 4, PITCH_W / 2 - 4);
-    let tz = p.z + dir * 14;
-    let near = null, nd = 99;
-    a.players.forEach((o) => {
-      if (o.team === p.team) return;
-      const d = dist(o.x, o.z, p.x, p.z);
-      if (d < nd) { nd = d; near = o; }
-    });
-    if (near && nd < 5) tx += (p.x - near.x) > 0 ? 5 : -5;
-    steer(p, tx, tz, dt, 1);
+    const gz = goalZFor(p.team);
+    const maxZ = PITCH_L / 2 - 5;
+    let best = null, bestScore = -1e9, bx = 0, bz = 0;
+    for (let i = 0; i < mates.length; i++) {
+      const q = mates[i];
+      if (q === p || q.isGK) continue;
+      const forward = (q.z - p.z) * dir;
+      if (forward < -6) continue;                       // no through balls backwards
+      const d = dist(p.x, p.z, q.x, q.z);
+      if (d < 4 || d > p.attrs.vision + 16) continue;
+      const lead = clamp(6.5 + q.attrs.topSpeed * 0.85, 7, 15);
+      let lx = q.x + q.vx * 0.35, lz = q.z + dir * lead;
+      lx = clamp(lx, -PITCH_W / 2 + 3, PITCH_W / 2 - 3);
+      lz = clamp(lz, -maxZ, maxZ);
+      if ((lz - q.z) * dir < 2.5) continue;             // no room left to run into
+      const clear = laneClearance(a, p.team, p.x, p.z, lx, lz);
+      const space = nearestOppDist(a, p.team, lx, lz);
+      const landGoal = dist(lx, lz, 0, gz);
+      let s = 18 + forward * 1.1 + space * 3.4 + clamp(clear, 0, 5) * 2.2 - d * 0.35;
+      if (landGoal < 30) s += (30 - landGoal) * 1.35;
+      if (aimMag > 0.25) {
+        const l = Math.hypot(lx - p.x, lz - p.z) || 1;
+        const align = ((lx - p.x) / l) * aimX + ((lz - p.z) / l) * aimZ;
+        s += align * 55 * aimMag;
+        if (align < -0.15) s -= 30;
+      }
+      if (s > bestScore) { bestScore = s; best = q; bx = lx; bz = lz; }
+    }
+    a._score = bestScore; a._thruX = bx; a._thruZ = bz;
+    return best;
   }
 
-  function aiOffBall(a, p, dt) {
-    const b = a.ball;
-    const owner = b.owner;
-    const myTeamHasIt = owner && owner.team === p.team;
-    const dir = attackDirZ(p.team);
+  function throughBall(a, p, target, lx, lz) {
+    if (!target) return false;
+    const acc = p.attrs.passAccuracy * (0.8 + p.stamina * 0.2);
+    const d = dist(p.x, p.z, lx, lz);
+    const tx = lx + rand(-1, 1) * (1 - acc) * d * 0.26;
+    const tz = lz + rand(-1, 1) * (1 - acc) * d * 0.26;
+    const dx = tx - p.x, dz = tz - p.z;
+    const flat = Math.hypot(dx, dz) || 1;
+    // Drive it hard enough to beat the covering defender but not so hard the
+    // keeper always sweeps it -- ~1.35x a normal pass over the same distance.
+    const speed = clamp(d * 1.55 + 8, 12, 30);
+    const lofted = laneClearance(a, p.team, p.x, p.z, tx, tz) < 2.2;
+    a.ball.owner = null;
+    a.ball.x = p.x + (dx / flat) * 0.7;
+    a.ball.z = p.z + (dz / flat) * 0.7;
+    a.ball.y = BALL_R + 0.1;
+    a.ball.vx = (dx / flat) * speed;
+    a.ball.vz = (dz / flat) * speed;
+    a.ball.vy = lofted ? 6.2 : 1.1;
+    p.cooldown = 0.36;
+    p.facing = Math.atan2(dx / flat, dz / flat);
+    a.lastTouch = p;
+    a.stat[p.team].passes++;
+    // The whole point: the receiver now sprints onto it instead of holding
+    // shape and letting the ball run away from them.
+    target.chaseX = tx; target.chaseZ = tz;
+    target.chaseUntil = a.t + clamp(d / 12 + 1.4, 1.6, 3.4);
+    if (window.playKick) window.playKick();
+    return true;
+  }
 
-    if (p.isGK) {
-      // Keeper hugs the line, shading toward the ball's side; comes a little
-      // off the line when the ball is close.
-      const gz = p.team === TEAM_MY ? MY_GOAL_Z : OPP_GOAL_Z;
-      const ballSide = clamp(b.x * 0.55, -GOAL_W / 2 - 1.2, GOAL_W / 2 + 1.2);
-      const dBall = dist(b.x, b.z, p.x, gz);
-      const off = dBall < 18 ? clamp((18 - dBall) * 0.22, 0, 4.5) : 0;
-      steer(p, ballSide, gz - (p.team === TEAM_MY ? -off : off), dt, 1.05);
+  // Skill move. Two flavours off one button: with a defender on you it's a
+  // feint that either beats them or costs you a beat; in space it's a knock
+  // past your marker that turns the situation into a foot race. Both burn
+  // stamina, and the knock leaves the ball further from your feet -- that is
+  // the "costs a little control" part.
+  function doSkill(a, p) {
+    if (p.cooldown > 0 || p.stun > 0 || p.stamina < 0.12) return false;
+    const opps = oppListFor(a, p.team);
+    let near = null, nd = 1e9;
+    for (let i = 0; i < opps.length; i++) {
+      const d = dist2(opps[i].x, opps[i].z, p.x, p.z);
+      if (d < nd) { nd = d; near = opps[i]; }
+    }
+    nd = Math.sqrt(nd);
+    p.stamina = Math.max(0, p.stamina - 0.13);
+    p.skill = 0.42;
+    p.cooldown = 0.2;
+
+    const aim = a.input.aimMag > 0.25;
+    let ux = aim ? a.input.aimX : Math.sin(p.facing);
+    let uz = aim ? a.input.aimZ : Math.cos(p.facing);
+
+    if (near && nd < 3.4) {
+      // Feint: your control against their tackling, nudged by how committed
+      // they are (a lunging defender is much easier to leave for dead).
+      const odds = clamp(p.attrs.control * (near.lunge > 0 ? 1.85 : 1.05)
+        / (p.attrs.control + near.attrs.tackle), 0.2, 0.92);
+      if (Math.random() < odds) {
+        // Go round the side they are not on.
+        const sx = p.x - near.x, sz = p.z - near.z;
+        const sl = Math.hypot(sx, sz) || 1;
+        ux = lerp(ux, sx / sl, 0.55); uz = lerp(uz, sz / sl, 0.55);
+        const l = Math.hypot(ux, uz) || 1; ux /= l; uz /= l;
+        near.stun = 0.42; near.cooldown = 0.35; near.lunge = 0;
+        p.vx = ux * p.attrs.topSpeed * 1.35;
+        p.vz = uz * p.attrs.topSpeed * 1.35;
+        p.knock = 0.5;
+        if (p.team === TEAM_MY) toast(a, "✨ " + lastName(p.name) + " goes past!", 900);
+        if (window.playZoneWin && p.team === TEAM_MY) window.playZoneWin();
+      } else {
+        // Failed: you stall, the ball sits up, they get a free swing at it.
+        p.cooldown = 0.5;
+        p.vx *= 0.35; p.vz *= 0.35;
+        p.knock = 0.9;
+        if (p.team === TEAM_MY) toast(a, "Skill didn't come off", 800);
+      }
+    } else {
+      // Knock-on into space: a genuine race, and the ball is loose while it
+      // travels so a quicker defender can nip in.
+      p.knock = 2.6;
+      p.vx = ux * p.attrs.topSpeed * 1.3;
+      p.vz = uz * p.attrs.topSpeed * 1.3;
+      p.facing = Math.atan2(ux, uz);
+      if (p.team === TEAM_MY) toast(a, "Knocked past!", 700);
+    }
+    return true;
+  }
+
+  // Commit a tackle. Locked-in for LUNGE_TIME with extra reach; if it misses
+  // you are on the floor for half a second, which is what makes pressing a
+  // decision instead of a button you mash.
+  function startTackle(a, p) {
+    if (p.lunge > 0 || p.stun > 0 || p.cooldown > 0 || p.stamina < 0.06) return false;
+    const b = a.ball;
+    const d = dist(p.x, p.z, b.x, b.z);
+    if (d > LUNGE_REACH) return false;
+    const ux = (b.x - p.x) / (d || 1), uz = (b.z - p.z) / (d || 1);
+    p.lunge = LUNGE_TIME; p.lungeHit = false;
+    p.lungeX = ux; p.lungeZ = uz;
+    p.facing = Math.atan2(ux, uz);
+    p.stamina = Math.max(0, p.stamina - 0.07);
+    return true;
+  }
+
+  // Second-man press: when you are too far to tackle yourself, send the nearest
+  // teammate at the carrier and keep your own shape. Defending stops being a
+  // matter of chasing with one player.
+  function callPressure(a) {
+    const b = a.ball;
+    const mates = a.teamMy;
+    let best = null, bd = 1e9;
+    for (let i = 0; i < mates.length; i++) {
+      const q = mates[i];
+      if (q.isGK || q === a.controlled || q.stun > 0) continue;
+      const d = dist2(q.x, q.z, b.x, b.z);
+      if (d < bd) { bd = d; best = q; }
+    }
+    if (!best) return false;
+    a.pressMate = best; a.pressUntil = a.t + 3.4;
+    a.tacticTimer = 0;
+    toast(a, "📣 " + lastName(best.name) + " presses!", 900);
+    return true;
+  }
+
+  // ---------------------------------------------------------------- tactics
+
+  // Runs ~7x/second, not per frame. Everything expensive lives here: role
+  // assignment, marking, the defensive line, run targets. The per-frame path
+  // only reads p.tgtX/p.tgtZ/p.urgency.
+  function updateTactics(a) {
+    const b = a.ball;
+    const carrier = b.owner;
+    // Marking flags are cleared for EVERYONE up front. Each team only ever
+    // flags the other team's players, so the two passes below never collide --
+    // but clearing them inside a pass would wipe the flags that pass just set.
+    const all = a.players;
+    for (let i = 0; i < all.length; i++) {
+      all[i].marked = false;
+      all[i]._bd = dist2(all[i].x, all[i].z, b.x, b.z);
+    }
+    for (let s = 0; s < 2; s++) {
+      const side = s === 0 ? TEAM_MY : TEAM_OPP;
+      const list = s === 0 ? a.teamMy : a.teamOpp;
+      const hasBall = !!carrier && carrier.team === side;
+      teamTactics(a, side, list, hasBall, carrier);
+    }
+  }
+
+  function teamTactics(a, side, list, hasBall, carrier) {
+    const b = a.ball;
+    const dir = attackDirZ(side);
+    const ownZ = ownGoalZFor(side);
+    const edge = edgeFor(a, side);
+    const ballDepth = (b.z - ownZ) * dir;
+
+    // Defensive line as a DEPTH from our own goal. Squeezes up when we have it
+    // (compact, high) and drops toward the box when they do -- the block stays
+    // roughly 30m front to back either way.
+    const lineDepth = hasBall
+      ? clamp(ballDepth - 4, 26, 82)
+      : clamp(ballDepth - 9 + edge * 5, 15, 64);
+
+    // Rank outfielders by distance to the ball into a reusable buffer. Ten-ish
+    // elements, so an insertion sort on the pre-computed _bd beats allocating a
+    // comparator closure seven times a second.
+    const buf = side === TEAM_MY ? a._bufMy : a._bufOpp;
+    buf.length = 0;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (p.isGK) continue;
+      let j = buf.length;
+      buf.push(p);
+      while (j > 0 && buf[j - 1]._bd > p._bd) { buf[j] = buf[j - 1]; j--; }
+      buf[j] = p;
+    }
+
+    const restart = a.restart;
+    const restartOurs = restart && restart.team === side;
+    const restartTheirs = restart && restart.team !== side;
+
+    for (let i = 0; i < buf.length; i++) {
+      const p = buf[i];
+
+      // A player chasing a through ball ignores shape until they get there --
+      // that is what makes the pass worth playing.
+      if (p.chaseUntil > a.t) {
+        p.role = R_RUN; p.tgtX = p.chaseX; p.tgtZ = p.chaseZ; p.urgency = 1.12;
+        continue;
+      }
+      if (restart && restart.taker === p) {
+        p.role = R_TAKER;
+        p.tgtX = restart.x - dir * 0.9; p.tgtZ = restart.z - dir * 0.9;
+        p.urgency = 0.95;
+        continue;
+      }
+      if (p === carrier) { p.role = R_HOLD; continue; }   // aiOnBall drives them
+
+      if (restartTheirs) {
+        // Ten yards. Back off the ball but stay between it and our goal.
+        const dx = p.x - restart.x, dz = p.z - restart.z;
+        const d = Math.hypot(dx, dz) || 1;
+        if (d < 7.5) {
+          p.role = R_HOLD; p.urgency = 0.8;
+          p.tgtX = restart.x + (dx / d) * 8.5;
+          p.tgtZ = restart.z + (dz / d) * 8.5 - dir * 2;
+          continue;
+        }
+      }
+
+      if (hasBall || restartOurs) attackRole(a, p, i, side, dir, ownZ, lineDepth, carrier, restart);
+      else defendRole(a, p, i, side, dir, ownZ, lineDepth, carrier, edge);
+
+      p.tgtX = clamp(p.tgtX, -PITCH_W / 2 + 1.5, PITCH_W / 2 - 1.5);
+      p.tgtZ = clamp(p.tgtZ, -PITCH_L / 2 + 2.5, PITCH_L / 2 - 2.5);
+    }
+  }
+
+  // In possession: one short option, the rest either run in behind or hold the
+  // shape that stops a counter. Runners hunt for actual space rather than
+  // charging the same channel as everyone else.
+  function attackRole(a, p, rank, side, dir, ownZ, lineDepth, carrier, restart) {
+    const b = a.ball;
+    const homeDepth = (p.homeZ - ownZ) * dir;
+    const cx = carrier ? carrier.x : b.x, cz = carrier ? carrier.z : b.z;
+
+    if (restart && restart.kind === "corner" && rank < 4) {
+      // Corners: get bodies in the box instead of standing on the halfway line.
+      const gz = goalZFor(side);
+      const spots = a._cornerSpots;
+      p.role = R_RUN; p.urgency = 1.0;
+      p.tgtX = spots[rank * 2] * (restart.x > 0 ? 1 : -1);
+      p.tgtZ = gz - dir * spots[rank * 2 + 1];
       return;
     }
 
-    // Formation anchor slides with the ball so shape stays coherent.
-    const shift = clamp((b.z - 0) * 0.32, -14, 14);
-    const push = myTeamHasIt ? dir * 7 : -dir * 3;
-    let tx = lerp(p.homeX, clamp(b.x * 0.55, -PITCH_W / 2 + 3, PITCH_W / 2 - 3), 0.35);
-    let tz = clamp(p.homeZ + shift + push, -PITCH_L / 2 + 3, PITCH_L / 2 - 3);
-
-    const dBall = dist(p.x, p.z, b.x, b.z);
-    if (!myTeamHasIt) {
-      // Closest one or two defenders actually attack the ball.
-      const mates = a.players.filter((q) => q.team === p.team && !q.isGK);
-      const sorted = mates.slice().sort((q, r) => dist2(q.x, q.z, b.x, b.z) - dist2(r.x, r.z, b.x, b.z));
-      const rank = sorted.indexOf(p);
-      if (rank === 0) { tx = b.x; tz = b.z; }
-      else if (rank === 1 && dBall < 24) { tx = lerp(tx, b.x, 0.6); tz = lerp(tz, b.z, 0.6); }
-    } else if (dBall < 9) {
-      // Give the carrier room rather than clustering on top of them.
-      const ax = p.x - b.x, az = p.z - b.z;
+    if (rank === 0) {
+      // Nearest man offers a safe angle, slightly behind the ball so there is
+      // always somewhere to go backwards.
+      const ax = p.x - cx, az = p.z - cz;
       const l = Math.hypot(ax, az) || 1;
-      tx = b.x + (ax / l) * 9; tz = b.z + (az / l) * 9 + dir * 3;
+      p.role = R_SUPPORT; p.urgency = 0.94;
+      p.tgtX = cx + (ax / l) * 9 + (ax > 0 ? 2 : -2);
+      p.tgtZ = cz + (az / l) * 7 - dir * 2.5;
+      return;
     }
-    steer(p, tx, tz, dt, myTeamHasIt ? 0.86 : 0.97);
+
+    if (homeDepth > lineDepth - 14) {
+      // Forward players make runs. Three candidate lanes, pick the emptiest --
+      // bounded work (3 x 11 distance checks) and it stops the whole front line
+      // converging on the same blade of grass.
+      const baseDepth = clamp(Math.max(ballDepthOf(b, ownZ, dir) + 10, lineDepth + 14) + rank * 3, 22, 98);
+      const baseX = lerp(p.homeX * 1.05, b.x * 0.4, 0.35);
+      let bestX = baseX, bestScore = -1e9;
+      for (let k = -1; k <= 1; k++) {
+        const tx = clamp(baseX + k * 7.5, -PITCH_W / 2 + 4, PITCH_W / 2 - 4);
+        const tz = clamp(ownZ + dir * baseDepth, -PITCH_L / 2 + 4, PITCH_L / 2 - 4);
+        const sc = nearestOppDist(a, side, tx, tz) * 2.4 - Math.abs(tx - p.homeX) * 0.35;
+        if (sc > bestScore) { bestScore = sc; bestX = tx; }
+      }
+      p.role = R_RUN; p.urgency = 1.02;
+      p.tgtX = bestX;
+      p.tgtZ = clamp(ownZ + dir * baseDepth, -PITCH_L / 2 + 4, PITCH_L / 2 - 4);
+      return;
+    }
+
+    // Everyone else holds the shape, pushed up to the line and shaded toward
+    // the ball so we are not stretched if it breaks down.
+    p.role = R_HOLD; p.urgency = 0.86;
+    p.tgtX = lerp(p.homeX, clamp(b.x * 0.6, -PITCH_W / 2 + 3, PITCH_W / 2 - 3), 0.35);
+    p.tgtZ = ownZ + dir * clamp(homeDepth + (lineDepth - homeDepth) * 0.55, 8, 92);
   }
+
+  function ballDepthOf(b, ownZ, dir) { return (b.z - ownZ) * dir; }
+
+  // Out of possession: one presser, one cover, the rest mark goal-side of a
+  // man each and hold the line. This is where "arcade" becomes "a match".
+  function defendRole(a, p, rank, side, dir, ownZ, lineDepth, carrier, edge) {
+    const b = a.ball;
+    const called = a.pressMate === p && a.t < a.pressUntil;
+
+    if (rank === 0 || called) {
+      // Attack the ball, leading it slightly so you arrive where it is going.
+      p.role = R_PRESS; p.urgency = 1.1 + edge * 0.1;
+      p.tgtX = b.x + b.vx * 0.18;
+      p.tgtZ = b.z + b.vz * 0.18;
+      return;
+    }
+
+    if (rank === 1) {
+      // Cover: sit goal-side of the ball so a beaten presser is not fatal.
+      const gx = 0, gz = ownZ;
+      let ux = gx - b.x, uz = gz - b.z;
+      const l = Math.hypot(ux, uz) || 1; ux /= l; uz /= l;
+      p.role = R_COVER; p.urgency = 1.02 + edge * 0.08;
+      p.tgtX = b.x + ux * 6.5;
+      p.tgtZ = b.z + uz * 6.5;
+      return;
+    }
+
+    // Man-marking, greedy nearest-unmarked. Threat is a mix of how advanced
+    // they are and how close they are to the ball, so the dangerous runner
+    // gets picked up before the one loitering on the touchline.
+    const opps = oppListFor(a, side);
+    let mark = null, bestScore = -1e9;
+    for (let i = 0; i < opps.length; i++) {
+      const o = opps[i];
+      if (o.isGK || o.marked || o === carrier) continue;
+      const d = dist(o.x, o.z, p.x, p.z);
+      if (d > 30) continue;
+      const threat = 60 - (o.z - ownZ) * dir * 0.55 - dist(o.x, o.z, b.x, b.z) * 0.5 - d * 0.9;
+      if (threat > bestScore) { bestScore = threat; mark = o; }
+    }
+
+    if (mark) {
+      mark.marked = true;
+      p.mark = mark;
+      // Goal-side, and leaning into the lane from the ball so the pass has to
+      // beat you rather than arrive at their feet.
+      let ux = 0 - mark.x, uz = ownZ - mark.z;
+      const l = Math.hypot(ux, uz) || 1; ux /= l; uz /= l;
+      let tx = mark.x + ux * 2.1, tz = mark.z + uz * 2.1;
+      let lx = b.x - mark.x, lz = b.z - mark.z;
+      const ll = Math.hypot(lx, lz) || 1;
+      tx += (lx / ll) * 1.6; tz += (lz / ll) * 1.6;
+      // Never in front of the defensive line -- that is what keeps the block
+      // compact instead of a string of individual duels.
+      const depth = (tz - ownZ) * dir;
+      if (depth > lineDepth + 10) tz = ownZ + dir * (lineDepth + 10);
+      p.role = R_MARK; p.urgency = 0.98 + edge * 0.06;
+      p.tgtX = tx; p.tgtZ = tz;
+      return;
+    }
+
+    p.mark = null;
+    p.role = R_HOLD; p.urgency = 0.9;
+    const homeDepth = (p.homeZ - ownZ) * dir;
+    p.tgtX = lerp(p.homeX, clamp(b.x * 0.55, -PITCH_W / 2 + 3, PITCH_W / 2 - 3), 0.4);
+    p.tgtZ = ownZ + dir * clamp(Math.min(homeDepth, lineDepth + 16), 6, 92);
+  }
+
+  // ------------------------------------------------------------------ AI step
+
+  // The AI carrying the ball. Scores every option on one comparable scale and
+  // takes the best -- the old version rolled dice on "shoot?" then "pass?",
+  // which is why it hit hopeful efforts from 35m with a free man alongside.
+  function aiOnBall(a, p, dt) {
+    if (p.isGK) { aiKeeperOnBall(a, p, dt); return; }
+
+    const gz = goalZFor(p.team);
+    const dir = attackDirZ(p.team);
+    const dGoal = dist(p.x, p.z, 0, gz);
+    const press = nearestOppDist(a, p.team, p.x, p.z);
+    const edge = edgeFor(a, p.team);
+    const poise = clamp(p.attrs.composure * (1 + edge * 0.35), 0, 1);
+
+    p.think -= dt;
+    if (p.think <= 0 && p.cooldown <= 0 && a.kickoffFreeze <= 0) {
+      // Weaker/less composed players simply take longer to see it, and the
+      // noise term below means they also see it less clearly.
+      p.think = 0.12 + (1 - poise) * 0.26 - edge * 0.03;
+      const noise = (1 - poise) * 30;
+
+      let shootV = -1e9;
+      if (dGoal < 34) {
+        const angle = clamp(1 - Math.abs(p.x) / 26, 0.12, 1);
+        shootV = (34 - dGoal) * 2.5 * angle * (0.55 + p.attrs.shotAccuracy * 0.95);
+        shootV *= clamp(press / 3.0, 0.35, 1.15);
+        if (laneClearance(a, p.team, p.x, p.z, 0, gz) < 1.6) shootV *= 0.45;
+        const gk = a.gk[p.team === TEAM_MY ? TEAM_OPP : TEAM_MY];
+        if (gk && Math.abs(gk.z - gz) > 5) shootV *= 1.3;   // keeper caught out
+        shootV += rand(-noise, noise);
+      }
+
+      const pt = bestPassTarget(a, p, 0, 0, 0);
+      let passV = pt ? a._score * (0.7 + p.attrs.passAccuracy * 0.55) : -1e9;
+      if (pt && press < 3.2) passV *= 1.5;                 // move it or lose it
+      if (pt) passV += rand(-noise, noise);
+
+      const tt = bestThroughTarget(a, p, 0, 0, 0);
+      const tx = a._thruX, tz = a._thruZ;
+      let thruV = tt ? a._score * (0.55 + p.attrs.vision / 30) : -1e9;
+      if (tt) thruV += rand(-noise, noise);
+
+      let dribV = 24 + clamp(press - 2.4, 0, 9) * 4.2 + p.attrs.control * 16
+        + clamp(40 - dGoal, 0, 40) * 0.35;
+      if (press < 2.1) dribV *= 0.5;
+      dribV += rand(-noise * 0.6, noise * 0.6);
+
+      if (shootV >= passV && shootV >= thruV && shootV >= dribV && shootV > 12) {
+        shoot(a, p, rand(0.62, 1), clamp((3.5 - press) / 3.5, 0, 1), 0, 0, 0);
+        return;
+      }
+      if (thruV >= passV && thruV >= dribV && tt && thruV > 30) { throughBall(a, p, tt, tx, tz); return; }
+      if (passV >= dribV && pt && passV > 26) { pass(a, p, pt); return; }
+    }
+
+    // Drive at goal, veering away from the closest defender and steering for
+    // the space rather than straight down the throat of the cover.
+    let tx = clamp(p.x * 0.72, -PITCH_W / 2 + 4, PITCH_W / 2 - 4);
+    let tz = p.z + dir * 14;
+    const opps = oppListFor(a, p.team);
+    let near = null, nd = 1e9;
+    for (let i = 0; i < opps.length; i++) {
+      const d = dist2(opps[i].x, opps[i].z, p.x, p.z);
+      if (d < nd) { nd = d; near = opps[i]; }
+    }
+    if (near && nd < 30) {
+      const away = p.x - near.x;
+      tx += away > 0 ? 6 : -6;
+      if (Math.abs(away) < 1.2) tx += rand(-1, 1) > 0 ? 6 : -6;
+    }
+    steer(p, tx, tz, dt, 0.98 + edge * 0.05);
+  }
+
+  // Last resort out-ball: nothing on, so put it long and wide. Counts as a
+  // pass because it is one, just a bad one.
+  function clearIt(a, p) {
+    const dir = attackDirZ(p.team);
+    const tx = clamp(p.x * 1.9 + rand(-8, 8), -PITCH_W / 2 + 4, PITCH_W / 2 - 4);
+    const tz = p.z + dir * rand(28, 42);
+    const dx = tx - p.x, dz = tz - p.z;
+    const flat = Math.hypot(dx, dz) || 1;
+    a.ball.owner = null;
+    a.ball.x = p.x + (dx / flat) * 0.7;
+    a.ball.z = p.z + (dz / flat) * 0.7;
+    a.ball.y = BALL_R + 0.2;
+    a.ball.vx = (dx / flat) * 22; a.ball.vz = (dz / flat) * 22; a.ball.vy = 8.5;
+    p.cooldown = 0.45;
+    a.lastTouch = p;
+    a.stat[p.team].passes++;
+    if (window.playKick) window.playKick();
+  }
+
+  // Keeper. Two jobs: stand on the bisector at the right depth so the angle is
+  // narrow, and come and get anything loose you can reach first.
+  function aiKeeper(a, p, dt) {
+    const b = a.ball;
+    const dir = attackDirZ(p.team);
+    const gz = ownGoalZFor(p.team);
+    const dx = b.x - 0, dz = b.z - gz;
+    const d = Math.hypot(dx, dz) || 1;
+
+    // Predictive dive: if a shot is actually travelling toward the line, go to
+    // where it will cross rather than where the ball is now.
+    const towardUs = (gz < 0 ? b.vz < -6 : b.vz > 6) && !b.owner;
+    if (towardUs) {
+      const tToLine = (gz - b.z) / b.vz;
+      if (tToLine > 0 && tToLine < 1.4) {
+        const cx = clamp(b.x + b.vx * tToLine, -GOAL_W / 2 - 1.4, GOAL_W / 2 + 1.4);
+        steer(p, cx, gz + (gz < 0 ? 0.6 : -0.6), dt, 1.35 + p.attrs.reflex * 0.35);
+        p.facing = Math.atan2(b.x - p.x, b.z - p.z);
+        return;
+      }
+    }
+
+    // Sweep: loose ball near the box that we are clearly closest to.
+    const boxDepth = Math.abs(b.z - gz);
+    if (!b.owner && boxDepth < 17 && b.y < 2.4) {
+      let rivalClose = false;
+      const opps = oppListFor(a, p.team);
+      for (let i = 0; i < opps.length; i++) {
+        if (dist(opps[i].x, opps[i].z, b.x, b.z) < dist(p.x, p.z, b.x, b.z) - 1.5) { rivalClose = true; break; }
+      }
+      if (!rivalClose) {
+        steer(p, b.x, b.z, dt, 1.25);
+        p.facing = Math.atan2(b.x - p.x, b.z - p.z);
+        return;
+      }
+    }
+
+    // Otherwise: narrow the angle. Advance further when the ball is close and
+    // when the keeper is good enough to trust himself off his line.
+    const advance = clamp(d * 0.17, 0.5, 6.0) * (0.7 + p.attrs.reflex * 0.55);
+    let tx = (dx / d) * advance;
+    let tz = gz + (dz / d) * advance;
+    tx = clamp(tx, -GOAL_W / 2 - 1.8, GOAL_W / 2 + 1.8);
+    steer(p, tx, tz, dt, 1.05);
+    p.facing = Math.atan2(b.x - p.x, b.z - p.z);
+  }
+
+  // Per-frame off-ball movement: just walk toward whatever updateTactics()
+  // decided, at the urgency it asked for. Deliberately trivial -- all of the
+  // thinking already happened.
+  function aiOffBall(a, p, dt) {
+    if (p.isGK) { aiKeeper(a, p, dt); return; }
+    let urgency = p.urgency;
+    // AI sprints too, and pays for it: pressing on empty legs is slow.
+    const wantSprint = urgency > 1.0 && p.stamina > 0.15;
+    if (wantSprint) {
+      urgency *= SPRINT_BOOST;
+      p.stamina = Math.max(0, p.stamina - STAM_DRAIN * 0.55 * dt / p.attrs.endurance);
+    }
+    steer(p, p.tgtX, p.tgtZ, dt, urgency * staminaSpeed(p));
+  }
+
+  function staminaSpeed(p) { return p.stamina > 0.28 ? 1 : 0.82 + p.stamina * 0.64; }
 
   function steer(p, tx, tz, dt, speedScale) {
     const dx = tx - p.x, dz = tz - p.z;
@@ -511,43 +1183,51 @@
     const ux = dx / d, uz = dz / d;
     // Ease off as we arrive so players don't jitter around their anchor.
     const target = Math.min(want, d > 1.4 ? want : want * 0.35);
-    p.vx += (ux * target - p.vx) * Math.min(1, p.attrs.accel * dt / Math.max(1, want));
-    p.vz += (uz * target - p.vz) * Math.min(1, p.attrs.accel * dt / Math.max(1, want));
+    const k = Math.min(1, p.attrs.accel * dt / Math.max(1, want));
+    p.vx += (ux * target - p.vx) * k;
+    p.vz += (uz * target - p.vz) * k;
   }
 
   // ------------------------------------------------------------- physics step
 
   function stepPlayers(a, dt) {
-    a.players.forEach((p) => {
+    const list = a.players;
+    const live = ballLive(a);
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
       p.cooldown = Math.max(0, p.cooldown - dt);
       p.stun = Math.max(0, p.stun - dt);
+      p.skill = Math.max(0, p.skill - dt);
+      p.knock = Math.max(0, p.knock - dt * 1.6);
+      if (p.celebrate > 0) p.celebrate = Math.max(0, p.celebrate - dt);
 
-      if (p === a.controlled && !a.kickoffFreeze) {
-        // Human input. Screen-space stick maps into camera-relative movement
-        // so "up" is always "toward the goal you're attacking".
-        const inp = a.input;
-        const sprint = inp.sprint ? 1.16 : 1;
-        const want = p.attrs.topSpeed * sprint;
-        const mag = Math.hypot(inp.mx, inp.mz);
-        if (mag > 0.05 && p.stun <= 0) {
-          // Camera looks down +Z for my team, so stick-up (-y) = +Z.
-          const fx = inp.mx, fz = inp.mz;
-          const l = Math.hypot(fx, fz) || 1;
-          const tvx = (fx / l) * want * Math.min(1, mag);
-          const tvz = (fz / l) * want * Math.min(1, mag);
-          p.vx += (tvx - p.vx) * Math.min(1, p.attrs.accel * 1.25 * dt / Math.max(1, want));
-          p.vz += (tvz - p.vz) * Math.min(1, p.attrs.accel * 1.25 * dt / Math.max(1, want));
-        } else {
-          p.vx *= Math.max(0, 1 - 7 * dt); p.vz *= Math.max(0, 1 - 7 * dt);
-        }
+      if (p.lunge > 0) {
+        // Committed. No steering, and if the window closes without winning the
+        // ball you are on the floor -- that is the cost of a wild press.
+        p.lunge -= dt;
+        const sp = p.attrs.topSpeed * 1.5;
+        p.vx = p.lungeX * sp; p.vz = p.lungeZ * sp;
+        if (p.lunge <= 0 && !p.lungeHit) { p.stun = 0.42; p.cooldown = 0.3; }
       } else if (p.stun > 0) {
         p.vx *= Math.max(0, 1 - 6 * dt); p.vz *= Math.max(0, 1 - 6 * dt);
+      } else if (p === a.controlled && live) {
+        humanControl(a, p, dt);
+      } else if (a.celebrate > 0) {
+        celebrateMove(a, p, dt);
       } else if (a.kickoffFreeze > 0) {
         p.vx *= 0.9; p.vz *= 0.9;
       } else if (a.ball.owner === p) {
-        aiControlled(a, p, dt);
+        aiOnBall(a, p, dt);
       } else {
         aiOffBall(a, p, dt);
+      }
+
+      // Stamina. Recovery is slower than the drain, so a half of permanent
+      // sprinting genuinely tells by the end.
+      if (p !== a.controlled || !a.input.sprint) {
+        const sp = Math.hypot(p.vx, p.vz);
+        const rate = sp > p.attrs.topSpeed * 0.75 ? -STAM_JOG : STAM_REGEN * (sp < 1.5 ? 1.5 : 1);
+        p.stamina = clamp(p.stamina + rate * dt * p.attrs.endurance, 0, 1);
       }
 
       p.x += p.vx * dt; p.z += p.vz * dt;
@@ -556,20 +1236,72 @@
       p.z = clamp(p.z, -PITCH_L / 2 - 3, PITCH_L / 2 + 3);
 
       const sp = Math.hypot(p.vx, p.vz);
-      if (sp > 0.4) p.facing = Math.atan2(p.vx, p.vz);
+      if (sp > 0.4 && p.lunge <= 0) p.facing = Math.atan2(p.vx, p.vz);
 
       // Position/orientation are the sim's business; the pose belongs to the
       // visuals module, which owns whatever rig it decided to build.
       p.mesh.position.x = p.x; p.mesh.position.z = p.z;
       p.mesh.rotation.y = p.facing;
-      VIS.animatePlayer(p.rig, {
-        speed: sp, facing: p.facing, t: a.t,
-        kicking: p.cooldown > 0.28,
-        stunned: p.stun > 0,
-        hasBall: a.ball.owner === p,
-        controlled: p === a.controlled,
-      });
-    });
+      const st = a._st;
+      st.speed = sp; st.facing = p.facing; st.t = a.t;
+      st.kicking = p.cooldown > 0.28;
+      st.stunned = p.stun > 0;
+      st.hasBall = a.ball.owner === p;
+      st.controlled = p === a.controlled;
+      st.tackling = p.lunge > 0;
+      st.celebrating = p.celebrate > 0;
+      st.sprinting = sp > p.attrs.topSpeed * 0.95;
+      st.stamina = p.stamina;
+      st.team = p.team;
+      VIS.animatePlayer(p.rig, st, dt);
+    }
+  }
+
+  // Human movement. Screen-space stick maps into camera-relative world motion
+  // (see stickWorld). Sprinting is faster but turns worse and eats stamina.
+  function humanControl(a, p, dt) {
+    const inp = a.input;
+    const mag = Math.min(1, Math.hypot(inp.mx, inp.mz));
+    const sprinting = inp.sprint && p.stamina > 0.02 && mag > 0.2;
+    if (sprinting) {
+      p.stamina = Math.max(0, p.stamina - STAM_DRAIN * dt / p.attrs.endurance);
+    }
+    const boost = sprinting ? 1 + (SPRINT_BOOST - 1) * clamp(p.stamina * 1.8, 0.3, 1) : 1;
+    const want = p.attrs.topSpeed * boost * staminaSpeed(p);
+
+    if (mag > 0.05 && p.stun <= 0) {
+      const w = stickWorld(a, inp.mx, inp.mz);
+      const tvx = w.x * want * mag, tvz = w.z * want * mag;
+      // Turning authority: flat out you cannot pivot, which is the other half
+      // of what makes RUN a choice rather than a permanent hold.
+      const sp = Math.hypot(p.vx, p.vz);
+      let turn = 1;
+      if (sp > 1.5) {
+        const align = (p.vx * w.x + p.vz * w.z) / sp;
+        const agility = p.attrs.agility * (sprinting ? 0.62 : 1);
+        turn = clamp(0.35 + (align + 1) * 0.5 * agility + (sprinting ? 0 : 0.25), 0.32, 1.25);
+      }
+      const k = Math.min(1, p.attrs.accel * 1.25 * turn * dt / Math.max(1, want));
+      p.vx += (tvx - p.vx) * k;
+      p.vz += (tvz - p.vz) * k;
+    } else {
+      p.vx *= Math.max(0, 1 - 7 * dt); p.vz *= Math.max(0, 1 - 7 * dt);
+    }
+  }
+
+  // After a goal: scorer peels away, teammates chase them, the conceding side
+  // trudges back. Costs nothing and stops goals feeling like a teleport.
+  function celebrateMove(a, p, dt) {
+    const hero = a.celebrateBy;
+    if (!hero) { p.vx *= 0.9; p.vz *= 0.9; return; }
+    if (p === hero) {
+      steer(p, clamp(hero.x * 1.6, -PITCH_W / 2 + 6, PITCH_W / 2 - 6),
+        hero.z + attackDirZ(p.team) * 4, dt, 0.9);
+    } else if (p.team === hero.team) {
+      steer(p, hero.x + (p.homeX > hero.x ? 3 : -3), hero.z - 2.5, dt, 0.85);
+    } else {
+      steer(p, p.homeX, p.homeZ, dt, 0.5);
+    }
   }
 
   function stepBall(a, dt) {
@@ -577,13 +1309,23 @@
 
     if (b.owner) {
       const o = b.owner;
-      // Dribble: ball rides just ahead of the carrier's facing.
-      const tx = o.x + Math.sin(o.facing) * DRIBBLE_AHEAD;
-      const tz = o.z + Math.cos(o.facing) * DRIBBLE_AHEAD;
+      // Dribble: ball rides in front of the carrier, and FURTHER in front the
+      // faster they are going or the harder they just knocked it. That gap is
+      // what a defender is actually tackling.
+      const sp = Math.hypot(o.vx, o.vz);
+      const ahead = DRIBBLE_AHEAD + clamp(sp - 4.5, 0, 5.5) * 0.19 + o.knock * 1.1;
+      const tx = o.x + Math.sin(o.facing) * ahead;
+      const tz = o.z + Math.cos(o.facing) * ahead;
       b.x = lerp(b.x, tx, Math.min(1, 16 * dt));
       b.z = lerp(b.z, tz, Math.min(1, 16 * dt));
       b.y = BALL_R + Math.abs(Math.sin(a.t * 9)) * 0.07;
       b.vx = o.vx; b.vz = o.vz; b.vy = 0;
+      // A big knock-on genuinely lets go of it -- race the defender for it.
+      if (o.knock > 1.4 && dist(b.x, b.z, o.x, o.z) > 2.6) {
+        b.owner = null;
+        b.vx = Math.sin(o.facing) * (sp + 5); b.vz = Math.cos(o.facing) * (sp + 5);
+        o.cooldown = 0.12; o.knock = 0;
+      }
     } else {
       b.vy += GRAVITY * dt;
       const sp = Math.hypot(b.vx, b.vz);
@@ -610,61 +1352,138 @@
 
   function stepPossession(a, dt) {
     const b = a.ball;
-    if (a.kickoffFreeze > 0) return;
+    if (!ballLive(a)) return;
 
     if (b.owner) {
-      // Tackling: any nearby opponent can win it, weighted control vs tackle.
-      a.players.forEach((o) => {
-        if (o.team === b.owner.team || o.cooldown > 0 || o.stun > 0) return;
-        const d = dist(o.x, o.z, b.owner.x, b.owner.z);
-        if (d > TACKLE_R) return;
-        const odds = (o.attrs.tackle * 1.15) / (o.attrs.tackle * 1.15 + b.owner.attrs.control);
+      // Tackling. Measured to the BALL, not the carrier, so a loose touch at
+      // sprint is genuinely punishable. A committed lunge reaches further and
+      // wins more, but only inside its window.
+      const list = a.players;
+      const owner = b.owner;
+      for (let i = 0; i < list.length; i++) {
+        const o = list[i];
+        if (o.team === owner.team || o.stun > 0) continue;
+        if (o.cooldown > 0 && o.lunge <= 0) continue;
+        const lunging = o.lunge > 0;
+        const r = lunging ? TACKLE_R + 1.1 : TACKLE_R;
+        const d = Math.min(dist(o.x, o.z, b.x, b.z), dist(o.x, o.z, owner.x, owner.z) - 0.4);
+        if (d > r) continue;
+        const edge = edgeFor(a, o.team);
+        let odds = (o.attrs.tackle * 1.15 * (lunging ? 1.75 : 1) * (1 + edge * 0.16))
+          / (o.attrs.tackle * 1.15 + owner.attrs.control * (owner.skill > 0 ? 1.35 : 1));
         // Human-controlled players get a small break so it doesn't feel unfair.
-        const bias = b.owner === a.controlled ? 0.78 : 1;
-        if (Math.random() < odds * bias * dt * 3.2) {
-          const beaten = b.owner;
-          beaten.stun = 0.28; beaten.cooldown = 0.4;
+        if (owner === a.controlled) odds *= 0.78;
+        if (owner.knock > 0.4) odds *= 1.3;      // the ball is away from his feet
+        if (Math.random() < odds * dt * 3.2) {
+          owner.stun = 0.28; owner.cooldown = 0.4; owner.knock = 0;
+          o.lungeHit = true; o.lunge = 0;
           possessionChange(a, o);
           a.lastTouch = o;
-          if (o.team === TEAM_MY) toast(a, "🦶 " + lastName(o.name) + " wins it back!");
-          if (window.playZoneWin && o.team === TEAM_MY) window.playZoneWin();
+          if (o.team === TEAM_MY) {
+            toast(a, "🦶 " + lastName(o.name) + " wins it back!");
+            if (window.playZoneWin) window.playZoneWin();
+          }
+          return;
         }
-      });
+      }
       return;
     }
 
     // Loose ball: closest eligible player inside the pickup radius takes it,
     // keepers get a bigger reach (that's their whole job).
     let best = null, bd = 1e9;
-    a.players.forEach((p) => {
-      if (p.cooldown > 0 || p.stun > 0) return;
-      const r = p.isGK ? POSSESS_R + 1.5 * p.attrs.reflex : POSSESS_R;
-      if (b.y > 2.2 && !p.isGK) return;            // can't collect a high ball
+    const list = a.players;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (p.cooldown > 0 || p.stun > 0) continue;
+      const r = p.isGK ? POSSESS_R + 1.4 + 1.6 * p.attrs.reflex : POSSESS_R + (p.lunge > 0 ? 0.7 : 0);
+      if (b.y > 2.2 && !p.isGK) continue;            // can't collect a high ball
       const d = dist(p.x, p.z, b.x, b.z);
       if (d < r && d < bd) { bd = d; best = p; }
-    });
-    if (best) {
-      const wasShot = Math.hypot(b.vx, b.vz) > 12;
-      if (best.isGK && wasShot) {
-        // Save: strong keepers hold it, weaker ones parry.
-        if (Math.random() < best.attrs.reflex) {
-          possessionChange(a, best);
-          toast(a, "🧤 Save by " + lastName(best.name) + "!");
-          a.stat[best.team].saved++;   // credited to the keeper's own team
-        } else {
-          b.vx *= -0.35; b.vz *= -0.35; b.vy = 3.2;
-          best.cooldown = 0.4;
-          toast(a, "🧤 Parried!");
-        }
-        return;
+    }
+    if (!best) return;
+
+    const wasShot = Math.hypot(b.vx, b.vz) > 12;
+    if (best.isGK && wasShot) {
+      // Save: strong keepers hold it, weaker ones parry.
+      if (Math.random() < best.attrs.reflex) {
+        possessionChange(a, best);
+        toast(a, "🧤 Save by " + lastName(best.name) + "!");
+        a.stat[best.team].saved++;   // credited to the keeper's own team
+      } else {
+        b.vx *= -0.35; b.vz *= -0.35; b.vy = 3.2;
+        best.cooldown = 0.4;
+        toast(a, "🧤 Parried!");
       }
-      possessionChange(a, best);
+      return;
+    }
+    possessionChange(a, best);
+  }
+
+  // ----------------------------------------------------------------- restarts
+
+  // Throw-ins, goal kicks and corners used to be an instant teleport. Now the
+  // ball is placed dead, a taker walks to it, the other side backs off ten
+  // yards and play restarts when someone actually reaches the ball. Costs
+  // about a second and stops the match reading as a series of jump cuts.
+  function beginRestart(a, kind, team, x, z) {
+    const b = a.ball;
+    b.owner = null; b.vx = b.vy = b.vz = 0;
+    b.x = x; b.z = z; b.y = BALL_R;
+
+    let taker = null, bd = 1e9;
+    const list = a.players;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (p.team !== team) continue;
+      if (kind === "goalkick") { if (p.isGK) taker = p; continue; }
+      if (p.isGK) continue;
+      const d = dist2(p.x, p.z, x, z);
+      if (d < bd) { bd = d; taker = p; }
+    }
+    a.restart = { kind, team, x, z, taker, t: 0, wait: kind === "corner" ? 1.5 : 1.0 };
+    a.tacticTimer = 0;
+    if (taker && team === TEAM_MY) setControlled(a, taker);
+    const label = kind === "corner" ? "Corner" : kind === "goalkick" ? "Goal kick" : "Throw-in";
+    toast(a, (team === TEAM_MY ? "🟢 " : "🔴 ") + label, 1200);
+  }
+
+  function stepRestart(a, dt) {
+    const r = a.restart;
+    if (!r) return;
+    r.t += dt;
+    const b = a.ball;
+    b.x = r.x; b.z = r.z; b.y = BALL_R;
+    b.vx = b.vy = b.vz = 0;
+
+    let taker = r.taker;
+    if (!taker || taker.stun > 0) taker = null;
+    const close = taker && dist(taker.x, taker.z, r.x, r.z) < 1.5;
+    if ((close && r.t > 0.3) || r.t > r.wait + 2.6) {
+      if (!taker || !close) {
+        // Timed out (or the human wandered off) -- whoever is nearest takes it.
+        let bd = 1e9;
+        const list = a.players;
+        for (let i = 0; i < list.length; i++) {
+          const p = list[i];
+          if (p.team !== r.team) continue;
+          const d = dist2(p.x, p.z, r.x, r.z);
+          if (d < bd) { bd = d; taker = p; }
+        }
+      }
+      a.restart = null;
+      if (taker) {
+        taker.x = lerp(taker.x, r.x, 0.5); taker.z = lerp(taker.z, r.z, 0.5);
+        possessionChange(a, taker);
+        a.lastTouch = taker;
+      }
+      a.tacticTimer = 0;
     }
   }
 
   function stepBounds(a) {
     const b = a.ball;
-    if (b.owner) return;
+    if (b.owner || !ballLive(a)) return;
 
     // Goal check first -- crossing the line inside the frame beats any
     // out-of-play handling.
@@ -672,40 +1491,35 @@
     if (b.z > OPP_GOAL_Z && b.z < OPP_GOAL_Z + GOAL_DEPTH + 1 && inMouth) { onGoal(a, TEAM_MY); return; }
     if (b.z < MY_GOAL_Z && b.z > MY_GOAL_Z - GOAL_DEPTH - 1 && inMouth) { onGoal(a, TEAM_OPP); return; }
 
-    // Out of play. Kept deliberately simple/arcade: hand it to the team that
-    // didn't touch it last, near where it left, and play on. No throw-in
-    // animation, no stoppage -- a phone match can't afford dead time.
     const outSide = Math.abs(b.x) > PITCH_W / 2 + 0.4;
     const outEnd = Math.abs(b.z) > PITCH_L / 2 + 0.4;
     if (!outSide && !outEnd) return;
 
     const lastTeam = a.lastTouch ? a.lastTouch.team : TEAM_OPP;
     const giveTo = lastTeam === TEAM_MY ? TEAM_OPP : TEAM_MY;
-    let rx = clamp(b.x, -PITCH_W / 2 + 1.5, PITCH_W / 2 - 1.5);
+    let kind = "throw";
+    let rx = clamp(b.x, -PITCH_W / 2 + 1.2, PITCH_W / 2 - 1.2);
     let rz = clamp(b.z, -PITCH_L / 2 + 3, PITCH_L / 2 - 3);
     if (outEnd) {
-      // Goal kick for the defending side / corner-ish restart otherwise.
       const conceding = b.z > 0 ? TEAM_OPP : TEAM_MY;
-      if (giveTo === conceding) { rx = 0; rz = (b.z > 0 ? PITCH_L / 2 - 8 : -PITCH_L / 2 + 8); }
-      else { rx = b.x > 0 ? PITCH_W / 2 - 2 : -PITCH_W / 2 + 2; }
+      if (giveTo === conceding) {
+        kind = "goalkick";
+        rx = clamp(b.x * 0.4, -8, 8);
+        rz = b.z > 0 ? PITCH_L / 2 - 6 : -PITCH_L / 2 + 6;
+      } else {
+        kind = "corner";
+        rx = b.x > 0 ? PITCH_W / 2 - 1.2 : -PITCH_W / 2 + 1.2;
+        rz = b.z > 0 ? PITCH_L / 2 - 1.2 : -PITCH_L / 2 + 1.2;
+      }
     }
-    b.x = rx; b.z = rz; b.y = BALL_R;
-    b.vx = b.vy = b.vz = 0;
-    // Nearest player from the receiving side picks it up.
-    let cand = null, cd = 1e9;
-    a.players.forEach((p) => {
-      if (p.team !== giveTo || p.isGK) return;
-      const d = dist(p.x, p.z, rx, rz);
-      if (d < cd) { cd = d; cand = p; }
-    });
-    if (cand) { cand.x = rx - 0.8; cand.z = rz; possessionChange(a, cand); }
-    toast(a, giveTo === TEAM_MY ? "Ball to you" : "Their throw", 1100);
+    beginRestart(a, kind, giveTo, rx, rz);
   }
 
   function onGoal(a, team) {
     a.score[team]++;
     HUD.setScore(a, a.score.my, a.score.opp);
-    const scorer = a.lastTouch && a.lastTouch.team === team ? lastName(a.lastTouch.name) : null;
+    const hero = a.lastTouch && a.lastTouch.team === team ? a.lastTouch : null;
+    const scorer = hero ? lastName(hero.name) : null;
     if (team === TEAM_MY) {
       banner(a, "GOAL!", "#2FD180", 1700);
       toast(a, scorer ? "⚽ " + scorer + " scores!" : "⚽ GOAL!", 2200);
@@ -715,7 +1529,13 @@
       toast(a, scorer ? "😖 " + scorer + " scores for them." : "😖 They score.", 2200);
       if (window.playLose) window.playLose();
     }
-    resetKickoff(a, team === TEAM_MY ? TEAM_OPP : TEAM_MY);
+    // Hold on the moment before the reset -- see celebrateMove().
+    a.celebrate = 1.9;
+    a.celebrateBy = hero;
+    a.celebrateFor = team === TEAM_MY ? TEAM_OPP : TEAM_MY;
+    if (hero) hero.celebrate = 1.9;
+    a.ball.owner = null;
+    a.ball.vx *= 0.2; a.ball.vz *= 0.2;
   }
 
   // -------------------------------------------------------------- camera step
@@ -730,41 +1550,105 @@
     // the top half of the frame on empty sky and shrinks the players to specks;
     // looking down harder fills the screen with pitch and keeps the ball and
     // the nearby run of play readable at thumb distance.
-    const speed = Math.hypot(b.vx, b.vz);
+    let fx = b.x, fz = b.z, fy = b.y;
+    let speed = Math.hypot(b.vx, b.vz);
+    if (a.celebrate > 0 && a.celebrateBy) {
+      fx = a.celebrateBy.x; fz = a.celebrateBy.z; fy = 1.2; speed = 0;
+    } else if (a.controlled) {
+      // Nudge the frame toward the player you are driving so a manual switch to
+      // a deep defender does not put them off-screen. Capped hard (6m) so the
+      // ball stays the subject and the tuned framing survives.
+      const dx = a.controlled.x - b.x, dz = a.controlled.z - b.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 1) {
+        const k = Math.min(6, d * 0.18) / d;
+        fx += dx * k; fz += dz * k;
+      }
+    }
+
     const back = 24 + clamp(speed * 0.45, 0, 8);
     const high = 14.5 + clamp(speed * 0.3, 0, 6);
     const lookAhead = clamp(b.vz * 0.3, -7, 7);
 
-    const tx = clamp(b.x * 0.62, -PITCH_W / 2 + 8, PITCH_W / 2 - 8);
-    const tz = b.z - back;
+    const tx = clamp(fx * 0.62, -PITCH_W / 2 + 8, PITCH_W / 2 - 8);
+    const tz = fz - back;
     a.camPos.x = lerp(a.camPos.x, tx, Math.min(1, 3.4 * dt));
     a.camPos.y = lerp(a.camPos.y, high, Math.min(1, 2.6 * dt));
     a.camPos.z = lerp(a.camPos.z, tz, Math.min(1, 3.4 * dt));
     a.camera.position.set(a.camPos.x, a.camPos.y, a.camPos.z);
 
-    a.camLook.x = lerp(a.camLook.x, b.x * 0.75, Math.min(1, 5 * dt));
-    a.camLook.y = lerp(a.camLook.y, Math.max(0.4, b.y * 0.5), Math.min(1, 5 * dt));
-    a.camLook.z = lerp(a.camLook.z, b.z + lookAhead + 2.5, Math.min(1, 5 * dt));
+    a.camLook.x = lerp(a.camLook.x, fx * 0.75, Math.min(1, 5 * dt));
+    a.camLook.y = lerp(a.camLook.y, Math.max(0.4, fy * 0.5), Math.min(1, 5 * dt));
+    a.camLook.z = lerp(a.camLook.z, fz + lookAhead + 2.5, Math.min(1, 5 * dt));
     a.camera.lookAt(a.camLook.x, a.camLook.y, a.camLook.z);
+  }
+
+  // --------------------------------------------------------------- indicators
+
+  // Aim arrow while charging a shot, plus a ring on whoever PASS would find.
+  // Both are scene objects rather than HUD DOM because they have to sit on the
+  // pitch in perspective -- an overlay cannot show you where you are aiming.
+  function stepIndicators(a) {
+    const c = a.controlled;
+    const charging = a.input.shootHeld > 0 && c && a.ball.owner === c;
+    if (a.aimArrow) {
+      a.aimArrow.visible = !!charging;
+      if (charging) {
+        const w = stickWorld(a, a.input.mx, a.input.mz);
+        let dx, dz;
+        if (w.mag > 0.2) { dx = w.x; dz = w.z; }
+        else {
+          const gz = goalZFor(c.team);
+          dx = 0 - c.x; dz = gz - c.z;
+          const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+        }
+        a.aimArrow.position.set(c.x, 0.06, c.z);
+        a.aimArrow.rotation.z = -Math.atan2(dz, dx);
+        const f = a.input.shootHeld / 0.62;
+        a.aimArrow.scale.set(0.6 + f * 0.9, 1, 1);
+      }
+    }
+    if (a.tgtMarker) {
+      const show = c && a.ball.owner === c && ballLive(a);
+      let t = null;
+      if (show) {
+        const w = stickWorld(a, a.input.mx, a.input.mz);
+        t = bestPassTarget(a, c, w.x, w.z, w.mag);
+      }
+      a.tgtMarker.visible = !!t;
+      if (t) a.tgtMarker.position.set(t.x, 0.055, t.z);
+    }
   }
 
   // ---------------------------------------------------------- control switch
 
-  // You always drive whoever is best placed: nearest my-team outfielder to the
-  // ball, or the carrier if we have it. Switching is sticky (a small hysteresis
-  // margin) so control doesn't flicker between two equidistant players.
+  // You normally drive whoever is best placed -- the carrier if we have it,
+  // otherwise the nearest outfielder to the ball, with hysteresis so control
+  // doesn't flicker between two equidistant players. A manual SWITCH pins that
+  // off until we win the ball back, because auto-switch fighting you is the
+  // single most infuriating thing a football game can do.
   function updateControlled(a) {
     const b = a.ball;
     if (b.owner && b.owner.team === TEAM_MY) {
+      a.manualHold = false;
       setControlled(a, b.owner);
       return;
     }
+    if (a.restart && a.restart.team === TEAM_MY && a.restart.taker) {
+      setControlled(a, a.restart.taker);
+      return;
+    }
+    if (a.manualHold && a.controlled && a.t < a.manualUntil) return;
+    a.manualHold = false;
+
     let best = null, bd = 1e9;
-    a.players.forEach((p) => {
-      if (p.team !== TEAM_MY || p.isGK) return;
+    const mine = a.teamMy;
+    for (let i = 0; i < mine.length; i++) {
+      const p = mine[i];
+      if (p.isGK) continue;
       const d = dist2(p.x, p.z, b.x, b.z);
       if (d < bd) { bd = d; best = p; }
-    });
+    }
     if (!best) return;
     if (a.controlled && a.controlled !== best) {
       const cd = dist2(a.controlled.x, a.controlled.z, b.x, b.z);
@@ -773,14 +1657,107 @@
     setControlled(a, best);
   }
 
+  // Manual switch. With the stick pushed it picks the teammate best lined up
+  // with that direction (so you can switch AT someone); centred it just cycles
+  // outward by distance to the ball.
+  function doSwitch(a) {
+    const b = a.ball;
+    const mine = a.teamMy;
+    const cur = a.controlled;
+    let best = null, bestScore = -1e9;
+    const aimed = a.input.aimMag > 0.3;
+    for (let i = 0; i < mine.length; i++) {
+      const p = mine[i];
+      if (p.isGK || p === cur) continue;
+      let s;
+      if (aimed && cur) {
+        const dx = p.x - cur.x, dz = p.z - cur.z;
+        const d = Math.hypot(dx, dz) || 1;
+        const align = (dx / d) * a.input.aimX + (dz / d) * a.input.aimZ;
+        if (align < 0.1) continue;
+        s = align * 40 - d * 0.5;
+      } else {
+        // Cycle: prefer the next player further from the ball than the one you
+        // are on, wrapping to the closest when you run out.
+        const d = dist(p.x, p.z, b.x, b.z);
+        const cd = cur ? dist(cur.x, cur.z, b.x, b.z) : 0;
+        s = d > cd ? 100 - (d - cd) : 40 - d;
+      }
+      if (s > bestScore) { bestScore = s; best = p; }
+    }
+    if (!best) return false;
+    setControlled(a, best);
+    a.manualHold = true;
+    a.manualUntil = a.t + 8;
+    return true;
+  }
+
   function setControlled(a, p) {
     if (a.controlled === p) return;
     if (a.marker && a.controlled) a.controlled.mesh.remove(a.marker);
     a.controlled = p;
     if (a.marker) p.mesh.add(a.marker);
-    a.el.nameplate.innerHTML =
-      '<span style="color:' + a.myColor + '">●</span> ' + p.name +
-      ' <span style="opacity:.6">' + p.position + " " + p.attrs.power + "</span>";
+    if (a.el.nameplate) {
+      a.el.nameplate.innerHTML =
+        '<span style="color:' + a.myColor + '">●</span> ' + p.name +
+        ' <span style="opacity:.6">' + p.position + " " + p.attrs.power + "</span>";
+    }
+  }
+
+  // ------------------------------------------------------------ human actions
+
+  // One place where every button turns into something happening. Actions are
+  // consumed once, on the frame after the press.
+  function handleActions(a) {
+    const c = a.controlled;
+    const inp = a.input;
+    if (!c) { clearWants(a); return; }
+
+    if (inp.wantSwitch && a.celebrate <= 0) doSwitch(a);
+
+    if (!ballLive(a) || c.stun > 0) { clearWants(a); return; }
+    const onBall = a.ball.owner === c;
+
+    if (onBall) {
+      if (c.cooldown <= 0) {
+        if (inp.wantShoot > 0) {
+          const press = nearestOppDist(a, c.team, c.x, c.z);
+          shoot(a, c, inp.wantShoot, clamp((3.5 - press) / 3.5, 0, 1),
+            inp.aimX, inp.aimZ, inp.aimMag);
+          toast(a, inp.aimMag > 0.25 ? "Aimed shot!" : "Shot!", 700);
+        } else if (inp.wantThrough) {
+          const t = bestThroughTarget(a, c, inp.aimX, inp.aimZ, inp.aimMag);
+          if (t) {
+            throughBall(a, c, t, a._thruX, a._thruZ);
+            toast(a, "⇢ " + lastName(t.name) + " in behind!", 900);
+          } else {
+            const p2 = bestPassTarget(a, c, inp.aimX, inp.aimZ, inp.aimMag);
+            if (p2) { pass(a, c, p2); toast(a, "→ " + lastName(p2.name), 800); }
+          }
+        } else if (inp.wantPass) {
+          const t = bestPassTarget(a, c, inp.aimX, inp.aimZ, inp.aimMag);
+          if (t) { pass(a, c, t); toast(a, "→ " + lastName(t.name), 800); }
+        } else if (inp.wantSkill) {
+          doSkill(a, c);
+        }
+      }
+    } else {
+      // Off the ball, TACKLE is press-or-call: lunge if you are close enough,
+      // otherwise send the nearest teammate and keep your own position.
+      if (inp.wantTackle) {
+        if (!startTackle(a, c)) callPressure(a);
+      }
+      if (inp.wantSkill && c.stamina > 0.2) {
+        // A burst to close ground -- cheap, but it does cost legs.
+        const w = stickWorld(a, inp.mx, inp.mz);
+        if (w.mag > 0.2) {
+          c.vx = w.x * c.attrs.topSpeed * 1.3;
+          c.vz = w.z * c.attrs.topSpeed * 1.3;
+          c.stamina = Math.max(0, c.stamina - 0.1);
+        }
+      }
+    }
+    clearWants(a);
   }
 
   // ------------------------------------------------------------- clock / loop
@@ -802,30 +1779,31 @@
     if (a.input.shootHeld > 0) {
       a.input.shootHeld = Math.min(0.62, a.input.shootHeld + dt);
       const f = a.input.shootHeld / 0.62;
-      a.el.powerRing.style.borderColor =
-        f > 0.85 ? "#FB5A5A" : f > 0.5 ? "#FFB020" : "#2FD18066";
-      a.el.powerRing.style.transform = "scale(" + (0.9 + f * 0.14) + ")";
+      if (a.el.powerRing) {
+        a.el.powerRing.style.borderColor =
+          f > 0.85 ? "#FB5A5A" : f > 0.5 ? "#FFB020" : "#2FD18066";
+        a.el.powerRing.style.transform = "scale(" + (0.9 + f * 0.14) + ")";
+      }
     }
 
     if (a.kickoffFreeze > 0) {
       a.kickoffFreeze -= dt;
-      if (a.kickoffFreeze <= 0) a.el.card.style.display = "none";
+      if (a.kickoffFreeze <= 0 && a.el.card) a.el.card.style.display = "none";
     }
+    if (a.celebrate > 0) {
+      a.celebrate -= dt;
+      if (a.celebrate <= 0) resetKickoff(a, a.celebrateFor);
+    }
+    if (a.restart) stepRestart(a, dt);
 
-    // Human actions are consumed once, on the frame after the button fires.
-    const c = a.controlled;
-    if (c && a.ball.owner === c && c.cooldown <= 0 && a.kickoffFreeze <= 0) {
-      if (a.input.wantShoot > 0) {
-        let press = 99;
-        a.players.forEach((o) => { if (o.team !== c.team) press = Math.min(press, dist(o.x, o.z, c.x, c.z)); });
-        shoot(a, c, a.input.wantShoot, clamp((3.5 - press) / 3.5, 0, 1));
-        toast(a, "Shot!", 700);
-      } else if (a.input.wantPass) {
-        const t = bestPassTarget(a, c);
-        if (t) { pass(a, c, t); toast(a, "→ " + lastName(t.name), 800); }
-      }
+    handleActions(a);
+
+    // Cadenced thinking -- see the header note. Everything O(n^2) is in here.
+    a.tacticTimer -= dt;
+    if (a.tacticTimer <= 0 && a.celebrate <= 0) {
+      a.tacticTimer = 0.14;
+      updateTactics(a);
     }
-    a.input.wantShoot = 0; a.input.wantPass = false;
 
     stepPlayers(a, dt);
     stepBall(a, dt);
@@ -833,6 +1811,9 @@
     stepBounds(a);
     updateControlled(a);
     stepCamera(a, dt);
+    stepIndicators(a);
+    if (a.el.staminaFill) a.el.staminaFill.style.width =
+      Math.round((a.controlled ? a.controlled.stamina : 1) * 100) + "%";
 
     // Match clock: each half runs halfSeconds of real time mapped to 45'.
     a.elapsed += dt;
@@ -889,6 +1870,7 @@
   //   formationKey, oppFormationKey
   //   myName, myColor, oppName, oppColor
   //   halfSeconds           real seconds per half (default 75)
+  //   toughness             optional 0..8, index.html's streak difficulty
   //   onHalfEnd(half, score), onFullTime(score)
   M.begin = function (cfg) {
     if (!M.available()) return false;
@@ -912,6 +1894,22 @@
       el: {}, paused: false, running: true, forfeited: false,
       camPos: { x: 0, y: 16, z: -30 }, camLook: { x: 0, y: 0, z: 0 },
       kickoffFreeze: 1.4, lastTouch: null, controlled: null,
+      celebrate: 0, celebrateBy: null, celebrateFor: TEAM_OPP,
+      restart: null, tacticTimer: 0,
+      manualHold: false, manualUntil: -1,
+      pressMate: null, pressUntil: -1,
+      oppEdge: 0,
+      // Scratch objects reused every frame so the hot path never allocates.
+      _sw: { x: 0, z: 0, mag: 0 },
+      _st: {
+        speed: 0, facing: 0, t: 0, kicking: false, stunned: false, hasBall: false,
+        controlled: false, tackling: false, celebrating: false, sprinting: false,
+        stamina: 1, team: TEAM_MY,
+      },
+      _bufMy: [], _bufOpp: [],
+      _score: 0, _thruX: 0, _thruZ: 0,
+      // near post / far post / penalty spot / edge-of-box, as (|x|, depth) pairs.
+      _cornerSpots: [4.5, 5.5, 2.0, 11.0, 8.5, 13.0, 1.0, 18.0],
     };
 
     a.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
@@ -928,9 +1926,21 @@
     a.camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.5, 400);
 
     a.shared = VIS.makeKitSet(THREE, myColor, oppColor);
-    a.players = []
-      .concat(buildTeam(TEAM_MY, cfg.myLineup, cfg.formationKey || "balanced", myColor, a.shared, a.scene))
-      .concat(buildTeam(TEAM_OPP, cfg.oppLineup, cfg.oppFormationKey || "balanced", oppColor, a.shared, a.scene));
+    a.teamMy = buildTeam(TEAM_MY, cfg.myLineup, cfg.formationKey || "balanced", myColor, a.shared, a.scene);
+    a.teamOpp = buildTeam(TEAM_OPP, cfg.oppLineup, cfg.oppFormationKey || "balanced", oppColor, a.shared, a.scene);
+    a.players = a.teamMy.concat(a.teamOpp);
+    a.gk = { my: null, opp: null };
+    for (let i = 0; i < a.players.length; i++) if (a.players[i].isGK) a.gk[a.players[i].team] = a.players[i];
+
+    // Difficulty. index.html scales the opponent SQUAD by `toughness`; if it
+    // also passes the number we scale their PLAY -- reactions, pressing and
+    // decision quality. With no number we infer it from the power gap so the
+    // hook does something useful today either way.
+    if (cfg.toughness != null) {
+      a.oppEdge = clamp(cfg.toughness / 8, 0, 1) * 0.85;
+    } else {
+      a.oppEdge = clamp((avgPower(a.teamOpp) - avgPower(a.teamMy)) / 22, 0, 0.85);
+    }
 
     // Ball + its shadow.
     a.ball = { x: 0, y: BALL_R, z: 0, vx: 0, vy: 0, vz: 0, owner: null };
@@ -948,6 +1958,27 @@
     a.marker.rotation.x = -Math.PI / 2;
     a.marker.position.y = 0.05;
 
+    // Faint ring on whoever PASS would pick, so directional passing is
+    // learnable instead of a lottery.
+    a.tgtMarker = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 0.66, 14),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(myColor), transparent: true, opacity: 0.42, side: THREE.DoubleSide })
+    );
+    a.tgtMarker.rotation.x = -Math.PI / 2;
+    a.tgtMarker.visible = false;
+    a.scene.add(a.tgtMarker);
+
+    // Shot aim arrow: a flat wedge on the grass anchored at the player. Built
+    // pointing down +X so rotation.z (after the -90 x-tilt) is a plain yaw.
+    const aimGeo = new THREE.PlaneGeometry(5.2, 0.85);
+    aimGeo.translate(2.9, 0, 0);
+    a.aimArrow = new THREE.Mesh(aimGeo, new THREE.MeshBasicMaterial({
+      color: new THREE.Color("#FFB020"), transparent: true, opacity: 0.42, side: THREE.DoubleSide,
+    }));
+    a.aimArrow.rotation.x = -Math.PI / 2;
+    a.aimArrow.visible = false;
+    a.scene.add(a.aimArrow);
+
     A = a;
     const built = HUD.build({
       canvas: a.renderer.domElement,
@@ -960,6 +1991,7 @@
 
     resetKickoff(a, TEAM_MY);
     a.kickoffFreeze = 1.4;
+    updateTactics(a);
     updateControlled(a);
     titleCard(a, "KICK OFF", a.myName + "  vs  " + a.oppName, 1400);
     if (window.ensureAudio) window.ensureAudio();
@@ -970,6 +2002,13 @@
     return true;
   };
 
+  function avgPower(list) {
+    if (!list.length) return 70;
+    let s = 0;
+    for (let i = 0; i < list.length; i++) s += list[i].attrs.power;
+    return s / list.length;
+  }
+
   // Resumes into the second half, optionally with a substituted lineup.
   M.resumeSecondHalf = function (newMyLineup) {
     const a = A;
@@ -977,21 +2016,26 @@
     if (newMyLineup) {
       // Re-point existing my-team players at whatever card now occupies their
       // slot, so a halftime sub is reflected without rebuilding the scene.
-      a.players.forEach((p) => {
-        if (p.team !== TEAM_MY) return;
+      for (let i = 0; i < a.teamMy.length; i++) {
+        const p = a.teamMy[i];
         const card = newMyLineup[p.slotId];
-        if (!card) return;
-        if (p.card && card.id === p.card.id) return;
+        if (!card) continue;
+        if (p.card && card.id === p.card.id) continue;
         p.card = card; p.name = card.name;
         p.attrs = deriveAttrs(card, p.position);
-      });
+      }
     }
     a.elapsed = 0; a.half = 2; a.shownMinute = -1;
     a.paused = false;
-    a.el.pauseSheet.style.display = "none";
+    if (a.el.pauseSheet) a.el.pauseSheet.style.display = "none";
     show(a);
     resetKickoff(a, TEAM_OPP);
+    // Fresh legs after the break -- the interval is a real reset, and without
+    // it a sprint-heavy first half would leave you walking through the second.
+    for (let i = 0; i < a.players.length; i++) a.players[i].stamina = 1;
+    a.manualHold = false;
     a.kickoffFreeze = 1.4;
+    updateTactics(a);
     updateControlled(a);
     titleCard(a, "2ND HALF", a.score.my + " - " + a.score.opp, 1400);
     if (window.playWhistle) window.playWhistle();
@@ -1003,6 +2047,35 @@
 
   M.getScore = function () { return A ? { my: A.score.my, opp: A.score.opp } : null; };
   M.getStats = function () { return A ? JSON.parse(JSON.stringify(A.stat)) : null; };
+
+  // Lightweight positional snapshot for a HUD radar/minimap. Mutates a cached
+  // structure in place -- this can legitimately be polled every frame, so it
+  // must not allocate. Coordinates are world metres; `pitch` gives the extents
+  // to normalise against.
+  M.getRadar = function () {
+    const a = A;
+    if (!a) return null;
+    const r = a._radar || (a._radar = {
+      players: [], ball: { x: 0, z: 0, y: 0 }, pitch: { w: PITCH_W, l: PITCH_L },
+      stamina: 1, name: "",
+    });
+    const list = a.players;
+    while (r.players.length < list.length) {
+      r.players.push({ x: 0, z: 0, team: TEAM_MY, controlled: false, gk: false, ball: false });
+    }
+    r.players.length = list.length;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i], o = r.players[i];
+      o.x = p.x; o.z = p.z; o.team = p.team;
+      o.controlled = p === a.controlled;
+      o.gk = p.isGK;
+      o.ball = a.ball.owner === p;
+    }
+    r.ball.x = a.ball.x; r.ball.z = a.ball.z; r.ball.y = a.ball.y;
+    r.stamina = a.controlled ? a.controlled.stamina : 1;
+    r.name = a.controlled ? a.controlled.name : "";
+    return r;
+  };
 
   // Full teardown -- disposes GL resources and removes every listener. Called
   // on full time, on abort, and defensively at the start of every begin().
@@ -1023,6 +2096,9 @@
       }
     } catch (e) {}
     try {
+      // The control marker lives parented to a player, so it is inside the
+      // scene graph and gets disposed by the traverse below along with
+      // everything else.
       a.scene.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
         if (o.material) {
@@ -1030,6 +2106,9 @@
           mats.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
         }
       });
+      if (a.marker && !a.marker.parent) {
+        a.marker.geometry.dispose(); a.marker.material.dispose();
+      }
       a.renderer.dispose();
       if (a.renderer.forceContextLoss) a.renderer.forceContextLoss();
     } catch (e) {}
