@@ -1483,10 +1483,11 @@
 
   function stepBounds(a) {
     const b = a.ball;
-    if (b.owner || !ballLive(a)) return;
+    if (!ballLive(a)) return;
 
     // Goal check first -- crossing the line inside the frame beats any
-    // out-of-play handling.
+    // out-of-play handling. Deliberately also true for a carried ball: you can
+    // dribble it over the line for a goal, exactly like the real thing.
     const inMouth = Math.abs(b.x) < GOAL_W / 2 && b.y < GOAL_H + 0.15;
     if (b.z > OPP_GOAL_Z && b.z < OPP_GOAL_Z + GOAL_DEPTH + 1 && inMouth) { onGoal(a, TEAM_MY); return; }
     if (b.z < MY_GOAL_Z && b.z > MY_GOAL_Z - GOAL_DEPTH - 1 && inMouth) { onGoal(a, TEAM_OPP); return; }
@@ -1495,11 +1496,28 @@
     const outEnd = Math.abs(b.z) > PITCH_L / 2 + 0.4;
     if (!outSide && !outEnd) return;
 
-    const lastTeam = a.lastTouch ? a.lastTouch.team : TEAM_OPP;
+    // A ball that is being dribbled counts as out the moment it crosses the
+    // line, and the carrier is the last touch. Without this a player could
+    // simply run off the pitch with the ball and play would never stop --
+    // possession was the only thing being checked before.
+    let lastTeam;
+    if (b.owner) {
+      a.lastTouch = b.owner;
+      lastTeam = b.owner.team;
+      b.owner = null;
+      b.vx = b.vy = b.vz = 0;
+    } else {
+      lastTeam = a.lastTouch ? a.lastTouch.team : TEAM_OPP;
+    }
     const giveTo = lastTeam === TEAM_MY ? TEAM_OPP : TEAM_MY;
+    // Throw-in: taken from the touchline at the point it went out, not from
+    // somewhere out in the pitch. Only the length is pulled in, so a ball that
+    // crosses right by the corner flag doesn't spawn the restart on top of it.
     let kind = "throw";
-    let rx = clamp(b.x, -PITCH_W / 2 + 1.2, PITCH_W / 2 - 1.2);
-    let rz = clamp(b.z, -PITCH_L / 2 + 3, PITCH_L / 2 - 3);
+    let rx = (b.x > 0 ? 1 : -1) * (PITCH_W / 2 - 0.35);
+    let rz = clamp(b.z, -PITCH_L / 2 + 4, PITCH_L / 2 - 4);
+    // A ball that leaves over the goal line is never a throw-in, even if it
+    // was drifting wide when it crossed -- check the end first.
     if (outEnd) {
       const conceding = b.z > 0 ? TEAM_OPP : TEAM_MY;
       if (giveTo === conceding) {
