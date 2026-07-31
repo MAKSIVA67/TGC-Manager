@@ -1405,14 +1405,36 @@
 
     const wasShot = Math.hypot(b.vx, b.vz) > 12;
     if (best.isGK && wasShot) {
-      // Save: strong keepers hold it, weaker ones parry.
+      // Save: strong keepers hold it, weaker ones only get a hand to it.
       if (Math.random() < best.attrs.reflex) {
         possessionChange(a, best);
         toast(a, "🧤 Save by " + lastName(best.name) + "!");
         a.stat[best.team].saved++;   // credited to the keeper's own team
+      } else if (Math.random() < 0.55) {
+        // Tipped around the post. This is the main way corners happen in a
+        // real match -- before this the ball only ever left over the goal line
+        // off an attacker's wayward shot, which is a goal kick every time, so
+        // corners were literally unreachable.
+        //
+        // The ball is displaced outside the post FIRST. Sending it goalwards
+        // and hoping the sideways velocity clears the frame in time risks it
+        // crossing between the posts on the next step and being scored as an
+        // own goal.
+        const side = b.x >= 0 ? 1 : -1;
+        const ownGoalZ = best.team === TEAM_MY ? MY_GOAL_Z : OPP_GOAL_Z;
+        const behind = ownGoalZ < 0 ? -1 : 1;
+        b.x = side * (GOAL_W / 2 + rand(0.8, 2.2));
+        b.vx = side * rand(2, 5);
+        b.vz = behind * rand(6, 10);
+        b.vy = 2.2;
+        best.cooldown = 0.4;
+        a.lastTouch = best;      // defender's touch => corner, not a goal kick
+        a.stat[best.team].saved++;
+        toast(a, "🧤 " + lastName(best.name) + " tips it behind!");
       } else {
         b.vx *= -0.35; b.vz *= -0.35; b.vy = 3.2;
         best.cooldown = 0.4;
+        a.lastTouch = best;
         toast(a, "🧤 Parried!");
       }
       return;
