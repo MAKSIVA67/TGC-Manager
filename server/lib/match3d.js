@@ -1808,14 +1808,62 @@
 
   // ------------------------------------------------------------- clock / loop
 
+  // The render call used to be the last statement of the step. That meant any
+  // exception part-way through a frame skipped it -- and because the same
+  // exception then recurred every frame, the picture stayed frozen on the last
+  // good image while requestAnimationFrame carried on spinning. It looked
+  // exactly like the game hanging at a random moment.
+  //
+  // Stepping and drawing are now separate: the step is allowed to fail, the
+  // draw happens regardless, and a failing step tries to put the sim back into
+  // a sane state instead of wedging.
   function frame(now) {
     if (!A) return;
     const a = A;
     a.raf = requestAnimationFrame(frame);
 
+    try {
+      stepFrame(a, now);
+    } catch (err) {
+      a.errCount = (a.errCount || 0) + 1;
+      // Log the first few only; a per-frame error would otherwise flood the
+      // console and make the page unusable in its own right.
+      if (a.errCount <= 3) console.error("Match3D: frame step failed", err);
+      recoverFrame(a);
+    }
+
+    // A step that ended the match tears the instance down, taking the renderer
+    // with it -- don't try to draw a disposed context.
+    if (A !== a || !a.renderer) return;
+    try {
+      a.renderer.render(a.scene, a.camera);
+    } catch (e) {
+      if ((a.errCount || 0) <= 3) console.error("Match3D: render failed", e);
+    }
+  }
+
+  // Last-ditch repair. NaN is the usual culprit -- once a single position or
+  // velocity goes non-finite it spreads through every steering calculation on
+  // the next frame and the whole match silently stops moving.
+  function recoverFrame(a) {
+    const b = a.ball;
+    if (b && (!isFinite(b.x) || !isFinite(b.y) || !isFinite(b.z) ||
+              !isFinite(b.vx) || !isFinite(b.vy) || !isFinite(b.vz))) {
+      b.x = 0; b.y = BALL_R; b.z = 0; b.vx = b.vy = b.vz = 0; b.owner = null;
+    }
+    const list = a.players || [];
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (!isFinite(p.x) || !isFinite(p.z)) { p.x = p.homeX; p.z = p.homeZ; }
+      if (!isFinite(p.vx) || !isFinite(p.vz)) { p.vx = 0; p.vz = 0; }
+      if (!isFinite(p.facing)) p.facing = 0;
+    }
+  }
+
+  function stepFrame(a, now) {
     let dt = (now - a.last) / 1000;
     a.last = now;
-    if (a.paused) { a.renderer.render(a.scene, a.camera); return; }
+    if (a.paused) return;
     // Clamp so a backgrounded tab or a GC hitch can't teleport the sim.
     dt = Math.min(dt, 1 / 20);
     if (dt <= 0) return;
@@ -1870,8 +1918,6 @@
       HUD.setClock(a, a.half, shown);
     }
     if (a.elapsed >= a.halfSeconds) { endHalf(a); return; }
-
-    a.renderer.render(a.scene, a.camera);
   }
 
   function endHalf(a) {
@@ -1908,6 +1954,97 @@
 
   function hide(a) { if (a.root) a.root.style.display = "none"; }
   function show(a) { if (a.root) a.root.style.display = "block"; }
+
+  // -------------------------------------------------------------- orientation
+
+  // A football pitch is 105m long and 68m wide, so a portrait phone shows a
+  // tall slice of a wide world -- you end up looking down a corridor. Landscape
+  // is the right shape for the game.
+  //
+  // There is no single reliable way to force it on the web. Android Chrome will
+  // honour an orientation lock, but ONLY while fullscreen, and iOS Safari does
+  // not implement locking at all. So: ask for fullscreen, try to lock, and if
+  // the device is still portrait afterwards, ask the player to turn the phone.
+  // All three steps are best-effort -- none may throw into the match.
+  function goLandscape(a) {
+    const root = a.root;
+    try {
+      const req = root.requestFullscreen || root.webkitRequestFullscreen || root.webkitRequestFullScreen;
+      if (req) {
+        const p = req.call(root, { navigationUI: "hide" });
+        if (p && p.then) p.then(lockOrientation, lockOrientation);
+        else lockOrientation();
+      } else {
+        lockOrientation();
+      }
+    } catch (e) { lockOrientation(); }
+
+    a.onOrient = () => { if (A === a) updateRotatePrompt(a); };
+    window.addEventListener("resize", a.onOrient);
+    window.addEventListener("orientationchange", a.onOrient);
+    // Give the browser a moment to settle after a lock/fullscreen request
+    // before judging the orientation, or we flash the prompt unnecessarily.
+    setTimeout(() => { if (A === a) updateRotatePrompt(a); }, 450);
+  }
+
+  function lockOrientation() {
+    try {
+      const so = window.screen && window.screen.orientation;
+      if (so && so.lock) {
+        const p = so.lock("landscape");
+        if (p && p.catch) p.catch(() => {});   // unsupported / rejected: fine
+      }
+    } catch (e) {}
+  }
+
+  function isPortrait() {
+    return window.innerHeight > window.innerWidth;
+  }
+
+  // Shown only while the device is actually portrait. Deliberately does not
+  // pause the match -- on a tablet or desktop, portrait is unusual but still
+  // playable, and freezing the game behind an un-dismissable prompt would be
+  // worse than a slightly awkward view.
+  function updateRotatePrompt(a) {
+    if (!a.root) return;
+    const want = isPortrait();
+    if (want && !a.rotateEl) {
+      const el = document.createElement("div");
+      el.setAttribute("style",
+        "position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;" +
+        "align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;" +
+        "background:rgba(6,10,18,.93);font-family:'Outfit',system-ui,sans-serif");
+      el.innerHTML =
+        '<div style="font-size:46px;line-height:1;animation:none">📱</div>' +
+        '<div style="font-family:\'Teko\',sans-serif;font-size:34px;line-height:1;color:#fff">' +
+        "ROTATE YOUR PHONE</div>" +
+        '<div style="font-size:12.5px;color:#6C84A3;max-width:260px;line-height:1.5">' +
+        "Turn the device sideways to play. The pitch is far too wide to fit " +
+        "on an upright screen.</div>";
+      a.root.appendChild(el);
+      a.rotateEl = el;
+    } else if (!want && a.rotateEl) {
+      if (a.rotateEl.parentNode) a.rotateEl.parentNode.removeChild(a.rotateEl);
+      a.rotateEl = null;
+    }
+  }
+
+  function exitLandscape(a) {
+    try {
+      const so = window.screen && window.screen.orientation;
+      if (so && so.unlock) so.unlock();
+    } catch (e) {}
+    try {
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        const ex = document.exitFullscreen || document.webkitExitFullscreen;
+        if (ex) { const p = ex.call(document); if (p && p.catch) p.catch(() => {}); }
+      }
+    } catch (e) {}
+    try {
+      window.removeEventListener("resize", a.onOrient);
+      window.removeEventListener("orientationchange", a.onOrient);
+    } catch (e) {}
+  }
 
   // ------------------------------------------------------------------ public
 
@@ -2038,6 +2175,7 @@
     a.root = built.root; a.el = built.el;
     document.body.appendChild(a.root);
     bindControls(a);
+    goLandscape(a);
 
     resetKickoff(a, TEAM_MY);
     a.kickoffFreeze = 1.4;
@@ -2135,6 +2273,10 @@
     A = null;
     if (a.raf) cancelAnimationFrame(a.raf);
     clearTimeout(a.toastTimer); clearTimeout(a.bannerTimer); clearTimeout(a.cardTimer);
+    // Hand the screen back before anything else -- leaving the app locked to
+    // landscape and fullscreen after the whistle would strand the player in a
+    // sideways menu.
+    exitLandscape(a);
     try {
       window.removeEventListener("keydown", a.onKeyDown);
       window.removeEventListener("keyup", a.onKeyUp);

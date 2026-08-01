@@ -303,11 +303,17 @@
     // Floats above the control zone, never over it, and fades on its own so a
     // returning player is never blocked. pointer-events:none: play can start
     // mid-hint.
+    // The offset is capped against viewport height, not fixed. The match is
+    // played in landscape, where the screen is only ~430px tall -- a flat
+    // 258px offset pushed this card off the top edge and straight over the
+    // scoreboard. It stays clear of the controls horizontally (they hug the
+    // left and right edges; this is centred and capped at 330px).
     el.hint = h("div",
-      "position:absolute;left:0;right:0;bottom:calc(" + SB + " + 258px);z-index:4;pointer-events:none;" +
-      "display:flex;justify-content:center;opacity:0;transition:opacity .4s ease");
+      "position:absolute;left:0;right:0;bottom:calc(" + SB + " + min(258px, 24vh));z-index:2;" +
+      "pointer-events:none;display:flex;justify-content:center;opacity:0;transition:opacity .4s ease");
     el.hint.appendChild(h("div",
-      "width:84vw;max-width:330px;padding:13px 15px 15px;border-radius:16px;" +
+      "width:84vw;max-width:330px;max-height:min(230px,54vh);overflow:hidden;" +
+      "padding:13px 15px 15px;border-radius:16px;" +
       "background:linear-gradient(180deg,rgba(19,34,52,.94),rgba(9,16,26,.94));" +
       "border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.55);" +
       "display:flex;flex-direction:column;gap:8px",
