@@ -526,6 +526,11 @@ const state = {
   },
   shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, dupeShards:0, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
   trainCardId: null,   // card open in the training sheet, null when closed
+  // Knockout cup (lib/game-data.js). `cup` is the active cup_runs row or null;
+  // cupAvailable goes false if the table isn't there yet (migration 002 not
+  // run), which hides the feature instead of erroring on every load.
+  cup: null,
+  cupAvailable: true,
   confettiOn:false,
   // Auth/account state (Phase A) -- populated by lib/auth.js.
   session: null,
@@ -953,6 +958,84 @@ function indexView(){
     <div class="grid2">${visible.map(p=>playerCard(p,{mode:"index"})).join("")}</div>
   </div>`;
 }
+// ---------- Knockout cup ----------
+// Eight teams, single elimination: quarter-final, semi-final, final. The
+// bracket is generated up front so the player can see who they might meet.
+const CUP_FIELD = ["Ironclad FC","Blaze United","Falcon Rovers","Crimson Athletic",
+  "Storm City","Aurora Sporting","Vantage Rangers","Kestrel Town"];
+const CUP_ROUNDS = ["QUARTER-FINAL","SEMI-FINAL","FINAL"];
+const CUP_REWARDS = [120, 260, 600];
+const CUP_ENTRY_COST = 150;
+
+function newCupBracket(){
+  // Seven AI sides plus the player, shuffled, so the route differs every run.
+  const pool = CUP_FIELD.slice();
+  for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+  const opponents = pool.slice(0,7);
+  return {
+    // Who the player faces in each round; rounds 1 and 2 are only revealed
+    // once reached, but generated now so the run is fixed rather than being
+    // re-rolled if the player quits and returns.
+    route: [opponents[0], opponents[1], opponents[2]],
+    // Purely decorative -- the other half of the draw, so the bracket looks
+    // like a real competition instead of a single line of fixtures.
+    others: opponents.slice(3),
+    results: [],   // "win" per round survived
+  };
+}
+
+function cupRoundLabel(round){ return CUP_ROUNDS[round] || "FINAL"; }
+function cupOpponent(){
+  const cup = state.cup;
+  if(!cup || !cup.bracket || !cup.bracket.route) return null;
+  return cup.bracket.route[cup.round] || null;
+}
+
+function cupView(){
+  const cup = state.cup;
+  if(!state.cupAvailable){
+    return `<div class="panel" style="padding:14px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:800;color:${COLORS.cream};margin-bottom:4px">🏆 Cup</div>
+      <div style="font-size:11px;color:${COLORS.muted}">Not set up yet — run migration 002 in Supabase to enable it.</div>
+    </div>`;
+  }
+  if(!cup){
+    return `<div class="panel" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.purple}22, ${COLORS.panel})">
+      <div class="row between" style="margin-bottom:6px">
+        <span class="display" style="font-size:19px;color:${COLORS.cream}">🏆 KNOCKOUT CUP</span>
+        <span style="font-size:11px;font-weight:800;color:${COLORS.gold}">${CUP_ENTRY_COST} gems</span>
+      </div>
+      <div style="font-size:12px;color:${COLORS.muted};margin-bottom:10px;line-height:1.5">
+        Eight teams, three rounds, one winner. Lose once and you're out —
+        but every round survived pays out, and lifting the trophy pays
+        ${CUP_REWARDS[2]} gems.
+      </div>
+      <button data-action="cup-enter" ${state.gems<CUP_ENTRY_COST?"disabled":""} class="btn scrimtap wfull" style="padding:12px 0;font-size:14px;font-weight:900;background:${state.gems>=CUP_ENTRY_COST?COLORS.gold:COLORS.panelLight};color:${state.gems>=CUP_ENTRY_COST?COLORS.bg:COLORS.muted}">
+        ${state.gems>=CUP_ENTRY_COST?"ENTER THE CUP":"NOT ENOUGH GEMS"}
+      </button>
+    </div>`;
+  }
+  const opp = cupOpponent();
+  return `<div class="panel" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.purple}22, ${COLORS.panel});border:1px solid ${COLORS.gold}55">
+    <div class="row between" style="margin-bottom:10px">
+      <span class="display" style="font-size:19px;color:${COLORS.cream}">🏆 ${cupRoundLabel(cup.round)}</span>
+      <span style="font-size:11px;font-weight:800;color:${COLORS.gold}">+${CUP_REWARDS[cup.round]} gems</span>
+    </div>
+    <div class="col" style="gap:6px;margin-bottom:12px">
+      ${CUP_ROUNDS.map((r,i)=>{
+        const done = i < cup.round, now = i === cup.round;
+        return `<div class="row between" style="padding:7px 10px;border-radius:10px;background:${now?COLORS.panelLight:"transparent"};border:1px solid ${now?COLORS.gold+"66":"transparent"}">
+          <span style="font-size:11px;font-weight:800;color:${done?COLORS.turf:now?COLORS.cream:COLORS.muted}">${done?"✓ ":""}${r}</span>
+          <span style="font-size:11px;color:${done?COLORS.turf:now?COLORS.gold:COLORS.muted}">${done?"won":now?esc(cup.bracket.route[i]||""):"—"}</span>
+        </div>`;
+      }).join("")}
+    </div>
+    <div style="font-size:12px;color:${COLORS.muted};margin-bottom:10px">Next up: <span style="color:${COLORS.cream};font-weight:800">${esc(opp||"TBD")}</span></div>
+    <button data-action="cup-play" class="btn scrimtap wfull" style="padding:12px 0;font-size:14px;font-weight:900;background:${COLORS.turf};color:${COLORS.bg}">PLAY ${cupRoundLabel(cup.round)}</button>
+    <button data-action="cup-forfeit" class="btn scrimtap wfull" style="padding:8px 0;font-size:11px;margin-top:8px;background:transparent;color:${COLORS.danger}">Withdraw from cup</button>
+  </div>`;
+}
+
 // ---------- Chemistry ----------
 // Players link when they share a league or a region. Deliberately coarse:
 // real club sides would be far more data to get wrong, and league/region still
@@ -1304,6 +1387,7 @@ function playView(){
   }
 
   if(pl.phase==="building"){
+    body += cupView();
     const chem = chemistryFor(pl.myLineup);
     body += `<div class="panel" style="padding:10px 12px;margin-bottom:10px">
       <div class="row between" style="margin-bottom:6px">
@@ -1359,6 +1443,14 @@ function playView(){
       </div>`).join("")}
     </div>` : liveMatchStatsHTML(fr)}
     ${pl.isChallengeMatch ? `<div style="font-size:10px;text-align:center;margin-bottom:16px;color:${COLORS.muted}">⚔️ Friendly challenge — season & matchday weren't affected.</div>` : ""}
+    ${pl.cupSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:${pl.cupSummary.won?`linear-gradient(135deg, ${COLORS.gold}, ${COLORS.pink})`:COLORS.panel};border:1px solid ${pl.cupSummary.won?"transparent":COLORS.danger+"66"}">
+      <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:${pl.cupSummary.won?"#fff":COLORS.danger}">
+        ${pl.cupSummary.champion ? "🏆 CUP CHAMPIONS!" : pl.cupSummary.won ? `🏆 Through to the ${cupRoundLabel(pl.cupSummary.round+1)}` : "🏆 Knocked out of the cup"}
+      </div>
+      <div style="font-size:12px;color:${pl.cupSummary.won?"#ffffffdd":COLORS.muted}">
+        ${pl.cupSummary.won ? `+${pl.cupSummary.reward} gems${pl.cupSummary.champion?" — you've won the whole thing.":""}` : "Knockout football. Enter again from the Play tab."}
+      </div>
+    </div>` : ""}
     ${pl.seasonSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:linear-gradient(135deg, ${COLORS.purple}, ${COLORS.pink})">
       <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:#fff">🏁 Season ${pl.seasonSummary.number} Complete!</div>
       <div style="font-size:13px;margin-bottom:4px;color:#ffffffdd">${pl.seasonSummary.wins}W - ${pl.seasonSummary.draws||0}D - ${pl.seasonSummary.losses}L · ${pl.seasonSummary.points} pts</div>
@@ -2298,6 +2390,63 @@ function kickOff(){
   pl.opponentMeta = null; pl.isChallengeMatch = false;
   beginMatch(newOppSlots, opp, `vs ${currentClub()}`);
 }
+// A cup tie. Reuses the whole AI-match path -- the only differences are the
+// opponent's name, and that the result advances (or ends) the cup run instead
+// of the league season. Cup opponents scale with the round, so a final is a
+// genuinely harder game than a quarter-final.
+function kickOffCup(){
+  const pl = state.play;
+  const cup = state.cup;
+  if(!cup) return;
+  saveSquadRemote();
+  const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
+  const formationKeys = Object.keys(FORMATIONS);
+  const chosenOppFormation = formationKeys[Math.floor(Math.random()*formationKeys.length)];
+  pendingOppFormation = chosenOppFormation;
+  const newOppSlots = buildSlots(chosenOppFormation,"opp");
+  // Rounds 0/1/2 -> progressively stronger fields.
+  const toughness = Math.min(3 + cup.round * 2 + state.stats.streak, 8);
+  const opp = {};
+  newOppSlots.forEach(slot=>{
+    const pool = state.players.filter(p=>p.position===slot.position && !usedIds.includes(p.id));
+    let source = pool.length ? pool : state.players.filter(p=>p.position===slot.position);
+    const sorted=[...source].sort((a,b)=>b.power-a.power);
+    source = sorted.slice(0, Math.max(1, Math.ceil(sorted.length*(1-toughness*0.06))));
+    opp[slot.id] = source[Math.floor(Math.random()*source.length)];
+  });
+  const name = cupOpponent() || "Cup Rival";
+  pl.opponentMeta = { teamName: name, profileName: name, avatar:"🏆", color: COLORS.gold };
+  pl.isChallengeMatch = false;
+  pl.isCupMatch = true;
+  beginMatch(newOppSlots, opp, `vs ${esc(name)} — ${cupRoundLabel(cup.round)}`);
+}
+
+// Applies a finished cup tie. A draw counts as elimination: this is knockout
+// football and there is no shootout on this path yet.
+function resolveCupResult(won){
+  const cup = state.cup;
+  if(!cup) return;
+  const round = cup.round;
+  if(won){
+    const reward = CUP_REWARDS[round] || 0;
+    state.gems += reward;
+    const results = (cup.bracket.results||[]).concat(["win"]);
+    const bracket = {...cup.bracket, results};
+    if(round >= CUP_ROUNDS.length-1){
+      state.play.cupSummary = { won:true, champion:true, reward, round };
+      saveCupRun({ status:"won", round: round+1, bracket, gems_won:(cup.gems_won||0)+reward })
+        .then(()=>{ state.cup=null; updateProfile({gems:state.gems}); });
+    } else {
+      state.play.cupSummary = { won:true, champion:false, reward, round };
+      saveCupRun({ round: round+1, bracket, gems_won:(cup.gems_won||0)+reward })
+        .then(()=>updateProfile({gems:state.gems}));
+    }
+  } else {
+    state.play.cupSummary = { won:false, champion:false, reward:0, round };
+    saveCupRun({ status:"eliminated" }).then(()=>{ state.cup=null; });
+  }
+}
+
 // Phase D: real challenge acceptance. Called from lib/social.js once
 // resolveChallengeAccept() has already written the authoritative result to
 // the challenges row -- this just drives the SAME local beginMatch() ticker
@@ -2392,7 +2541,11 @@ function finalizeMatch(res){
   state.stats = { wins: state.stats.wins+(won?1:0), losses: state.stats.losses+(!won&&!isDraw?1:0), draws: (state.stats.draws||0)+(isDraw?1:0), streak: ns, bestStreak: Math.max(state.stats.bestStreak, ns) };
   state.gems += gemsEarned;
 
-  if(!pl.isChallengeMatch){
+  // Cup ties sit outside the league entirely -- they must not advance the
+  // matchday or season points, same as a friendly.
+  if(pl.isCupMatch) resolveCupResult(won);
+
+  if(!pl.isChallengeMatch && !pl.isCupMatch){
     const s = state.season;
     const pts = s.points+(won?3:isDraw?1:0), w = s.wins+(won?1:0), l = s.losses+(!won&&!isDraw?1:0), d = (s.draws||0)+(isDraw?1:0);
     if(s.matchday>=6){
@@ -2416,7 +2569,9 @@ function finalizeMatch(res){
   state.confettiOn = won;
   checkRankUp();
   render();
-  commitMatchResult({result:outcome, myWins:res.myWins, myTotalPower:res.myTotalPower, oppTotalPower:res.oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, pl.isChallengeMatch);
+  // The last argument suppresses the season fields on the profile write; a cup
+  // tie needs that suppression for the same reason a friendly does.
+  commitMatchResult({result:outcome, myWins:res.myWins, myTotalPower:res.myTotalPower, oppTotalPower:res.oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, pl.isChallengeMatch || pl.isCupMatch);
 }
 
 function continueSecondHalf(){
@@ -2553,6 +2708,24 @@ document.getElementById("stage").addEventListener("click", function(e){
       continueSecondHalf(); break;
     case "close-season-summary":
       pl.seasonSummary = null; render(); break;
+    case "cup-enter": {
+      if(state.gems < CUP_ENTRY_COST) break;
+      playTap();
+      state.gems -= CUP_ENTRY_COST;
+      updateProfile({ gems: state.gems });
+      createCupRun(newCupBracket()).then(()=>render());
+      render(); break;
+    }
+    case "cup-play": {
+      const pl2 = state.play;
+      const complete = buildSlots(pl2.formationKey,"my").every(s=>pl2.myLineup[s.id]);
+      if(!complete){ alert("Fill every position before playing a cup tie."); break; }
+      kickOffCup(); break;
+    }
+    case "cup-forfeit":
+      if(!confirm("Withdraw from the cup? Your entry fee is not refunded.")) break;
+      saveCupRun({ status:"eliminated" }).then(()=>{ state.cup=null; render(); });
+      break;
     case "open-train":
       playTap(); state.trainCardId = Number(el.dataset.playerId); render(); break;
     case "close-train":
@@ -2572,7 +2745,7 @@ document.getElementById("stage").addEventListener("click", function(e){
       // ended by some other route the overlay must not survive into the next
       // squad-building screen.
       if(window.Match3D && window.Match3D.isRunning()) window.Match3D.stop();
-      state.play = {...pl, activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false, live3d:false};
+      state.play = {...pl, activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false, isCupMatch:false, cupSummary:null, live3d:false};
       render(); break;
     case "friend-send-challenge":
       submitChallengeFriend(el.dataset.targetId); break;

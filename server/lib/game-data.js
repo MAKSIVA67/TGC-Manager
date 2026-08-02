@@ -268,6 +268,55 @@ function commitPackRefund() {
   return updateProfile({ gems: window.state.gems }).then(() => window.render());
 }
 
+// -------------------------------------------------------------------- cup
+// An 8-team single-elimination knockout: quarter-final, semi-final, final.
+// The bracket is one jsonb blob rather than a row per tie -- it is only ever
+// read and written whole by the owning client, so splitting it would buy
+// nothing and cost a join.
+//
+// Every call here tolerates the cup_runs table not existing yet (migration
+// 002). On failure it resolves with null and the UI simply hides the cup.
+const CUP_ROUND_NAMES = ["Quarter-final", "Semi-final", "Final"];
+const CUP_ROUND_REWARD = [120, 260, 600];   // gems for winning each round
+
+function loadCupRun() {
+  const session = window.state.session;
+  const userId = session && session.user && session.user.id;
+  if (!userId) return Promise.resolve(null);
+  return sb.from("cup_runs").select("*").eq("user_id", userId).eq("status", "active")
+    .maybeSingle()
+    .then(({ data, error }) => {
+      if (error) { window.state.cupAvailable = false; return null; }
+      window.state.cupAvailable = true;
+      window.state.cup = data || null;
+      return data || null;
+    })
+    .catch(() => { window.state.cupAvailable = false; return null; });
+}
+
+function createCupRun(bracket) {
+  const session = window.state.session;
+  const userId = session && session.user && session.user.id;
+  if (!userId) return Promise.resolve(null);
+  return sb.from("cup_runs")
+    .insert({ user_id: userId, status: "active", round: 0, bracket: bracket, gems_won: 0 })
+    .select().maybeSingle()
+    .then(({ data, error }) => {
+      if (error) { console.error("createCupRun failed:", error.message); return null; }
+      window.state.cup = data;
+      return data;
+    });
+}
+
+function saveCupRun(fields) {
+  const cup = window.state.cup;
+  if (!cup) return Promise.resolve(null);
+  Object.keys(fields).forEach(k => { cup[k] = fields[k]; });
+  if (fields.status && fields.status !== "active") fields.finished_at = new Date().toISOString();
+  return sb.from("cup_runs").update(fields).eq("id", cup.id)
+    .then(({ error }) => { if (error) console.error("saveCupRun failed:", error.message); });
+}
+
 // Promo codes (Phase F addendum #3). The actual grant happens entirely
 // server-side inside the redeem_promo_code() RPC (SECURITY DEFINER, so it
 // can validate against the admin-only promo_codes table and credit gems

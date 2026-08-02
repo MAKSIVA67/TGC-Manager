@@ -179,6 +179,9 @@ function handleSignedIn(userId) {
         loadCatalogAndOwnership(userId),
         loadSquad(userId),
         loadRecentMatchesAndSeason(userId),
+        // Resolves to null (and hides the cup) if migration 002 hasn't been
+        // run, so it can't block sign-in on a database without the table.
+        loadCupRun(),
         refreshFriendsList(),
         refreshFriendRequests(),
         refreshChallenges(),
