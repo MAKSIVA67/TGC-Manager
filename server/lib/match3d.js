@@ -2248,17 +2248,12 @@
     }
   }
 
+  // Only detaches this match's listeners. It deliberately does NOT unlock the
+  // orientation or leave fullscreen any more: the whole app is landscape now,
+  // and index.html applies that lock once on the first tap and never reapplies
+  // it. Releasing here dropped the player back into portrait menus, in a
+  // window, for the rest of the session after their first match.
   function exitLandscape(a) {
-    try {
-      const so = window.screen && window.screen.orientation;
-      if (so && so.unlock) so.unlock();
-    } catch (e) {}
-    try {
-      if (document.fullscreenElement || document.webkitFullscreenElement) {
-        const ex = document.exitFullscreen || document.webkitExitFullscreen;
-        if (ex) { const p = ex.call(document); if (p && p.catch) p.catch(() => {}); }
-      }
-    } catch (e) {}
     try {
       window.removeEventListener("resize", a.onOrient);
       window.removeEventListener("orientationchange", a.onOrient);

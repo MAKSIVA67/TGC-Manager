@@ -667,6 +667,7 @@ const state = {
   // run), which hides the feature instead of erroring on every load.
   cup: null,
   cupAvailable: true,
+  cupEntering: false,   // guards the entry button while the run is being created
   confettiOn:false,
   // Auth/account state (Phase A) -- populated by lib/auth.js.
   session: null,
@@ -1255,8 +1256,8 @@ function cupView(){
         but every round survived pays out, and lifting the trophy pays
         ${CUP_REWARDS[2]} gems.
       </div>
-      <button data-action="cup-enter" ${state.gems<CUP_ENTRY_COST?"disabled":""} class="btn scrimtap wfull" style="padding:12px 0;font-size:14px;font-weight:900;background:${state.gems>=CUP_ENTRY_COST?COLORS.gold:COLORS.panelLight};color:${state.gems>=CUP_ENTRY_COST?COLORS.bg:COLORS.muted}">
-        ${state.gems>=CUP_ENTRY_COST?"ENTER THE CUP":"NOT ENOUGH GEMS"}
+      <button data-action="cup-enter" ${(state.gems<CUP_ENTRY_COST||state.cupEntering)?"disabled":""} class="btn scrimtap wfull" style="padding:12px 0;font-size:14px;font-weight:900;background:${(state.gems>=CUP_ENTRY_COST&&!state.cupEntering)?COLORS.gold:COLORS.panelLight};color:${(state.gems>=CUP_ENTRY_COST&&!state.cupEntering)?COLORS.bg:COLORS.muted}">
+        ${state.cupEntering?"STARTING…":state.gems>=CUP_ENTRY_COST?"ENTER THE CUP":"NOT ENOUGH GEMS"}
       </button>
     </div>`;
   }
@@ -1516,12 +1517,24 @@ function startSpinAnimation(){
       track.style.transform = `translateX(${target}px)`;
     });
   });
+  // The reveal used to depend solely on this transitionend. Any render() during
+  // the 2.9s spin -- a realtime friend/trade notification, the rank-up timer --
+  // replaces #stage wholesale and destroys the node the listener is attached
+  // to, so the event never fired: the card was already granted but the shop sat
+  // in "spinning" forever, and open-pack is gated on phase==="list", which
+  // locked the shop for the rest of the session.
+  //
+  // landPack() is idempotent (it clears pendingPick), so a belt-and-braces
+  // timer costs nothing and guarantees the reveal always lands.
+  let landed = false;
+  const land = ()=>{ if(landed) return; landed = true; landPack(); };
   const onEnd = (e)=>{
     if(e.propertyName !== "transform") return;
     track.removeEventListener("transitionend", onEnd);
-    landPack();
+    land();
   };
   track.addEventListener("transitionend", onEnd);
+  setTimeout(land, 3400);
 }
 // Shards a duplicate is worth. Scaled by rarity so pulling a GOAT you already
 // have still feels like a result rather than a let-down.
@@ -1730,11 +1743,16 @@ function playView(){
     </div>` : liveMatchStatsHTML(fr)}
     ${pl.isChallengeMatch ? `<div style="font-size:10px;text-align:center;margin-bottom:16px;color:${COLORS.muted}">⚔️ Friendly challenge — season & matchday weren't affected.</div>` : ""}
     ${pl.cupSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:${pl.cupSummary.won?`linear-gradient(135deg, ${COLORS.gold}, ${COLORS.pink})`:COLORS.panel};border:1px solid ${pl.cupSummary.won?"transparent":COLORS.danger+"66"}">
-      <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:${pl.cupSummary.won?"#fff":COLORS.danger}">
-        ${pl.cupSummary.champion ? "🏆 CUP CHAMPIONS!" : pl.cupSummary.won ? `🏆 Through to the ${cupRoundLabel(pl.cupSummary.round+1)}` : "🏆 Knocked out of the cup"}
+      <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:${pl.cupSummary.saveFailed?COLORS.danger:pl.cupSummary.won?"#fff":COLORS.danger}">
+        ${pl.cupSummary.saveFailed ? "🏆 Couldn't save your cup progress"
+          : pl.cupSummary.champion ? "🏆 CUP CHAMPIONS!"
+          : pl.cupSummary.won ? `🏆 Through to the ${cupRoundLabel(pl.cupSummary.round+1)}`
+          : "🏆 Knocked out of the cup"}
       </div>
-      <div style="font-size:12px;color:${pl.cupSummary.won?"#ffffffdd":COLORS.muted}">
-        ${pl.cupSummary.won ? `+${pl.cupSummary.reward} gems${pl.cupSummary.champion?" — you've won the whole thing.":""}` : "Knockout football. Enter again from the Play tab."}
+      <div style="font-size:12px;color:${(pl.cupSummary.won&&!pl.cupSummary.saveFailed)?"#ffffffdd":COLORS.muted}">
+        ${pl.cupSummary.saveFailed ? "You won the tie, but it didn't reach the server. Check your connection — the round hasn't been counted."
+          : pl.cupSummary.won ? `+${pl.cupSummary.reward} gems${pl.cupSummary.champion?" — you've won the whole thing.":""}`
+          : "Knockout football. Enter again from the Play tab."}
       </div>
     </div>` : ""}
     ${pl.seasonSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:linear-gradient(135deg, ${COLORS.purple}, ${COLORS.pink})">
@@ -2625,6 +2643,10 @@ function beginMatch(newOppSlots, opp, label){
       const c = pl.myLineup[k];
       boosted[k] = c ? {...c, power: Math.round(c.power * (1 + chem.bonus))} : null;
     });
+    // Kept so the halftime substitute handed to resumeSecondHalf() carries the
+    // same uplift as the eleven that started; without it a sub came on with
+    // raw attributes while everyone around them kept chemistry.
+    pl.boostedLineup = boosted;
     const started = window.Match3D.begin({
       myLineup: boosted,
       oppLineup: pl.oppLineup,
@@ -2683,6 +2705,7 @@ function kickOff(){
     opp[slot.id] = source[Math.floor(Math.random()*source.length)];
   });
   pl.opponentMeta = null; pl.isChallengeMatch = false;
+  pl.isCupMatch = false; pl.cupSummary = null;
   beginMatch(newOppSlots, opp, `vs ${currentClub()}`);
 }
 // A cup tie. Reuses the whole AI-match path -- the only differences are the
@@ -2721,24 +2744,37 @@ function kickOffCup(){
 function resolveCupResult(won){
   const cup = state.cup;
   if(!cup) return;
-  const round = cup.round;
+  // Clamped: a stale or corrupted round would otherwise index past the reward
+  // table and pay out `undefined` gems.
+  const round = Math.max(0, Math.min(cup.round|0, CUP_ROUNDS.length-1));
   if(won){
     const reward = CUP_REWARDS[round] || 0;
-    state.gems += reward;
-    const results = (cup.bracket.results||[]).concat(["win"]);
-    const bracket = {...cup.bracket, results};
-    if(round >= CUP_ROUNDS.length-1){
-      state.play.cupSummary = { won:true, champion:true, reward, round };
-      saveCupRun({ status:"won", round: round+1, bracket, gems_won:(cup.gems_won||0)+reward })
-        .then(()=>{ state.cup=null; updateProfile({gems:state.gems}); });
-    } else {
-      state.play.cupSummary = { won:true, champion:false, reward, round };
-      saveCupRun({ round: round+1, bracket, gems_won:(cup.gems_won||0)+reward })
-        .then(()=>updateProfile({gems:state.gems}));
-    }
+    const champion = round >= CUP_ROUNDS.length-1;
+    const results = ((cup.bracket && cup.bracket.results)||[]).concat(["win"]);
+    const bracket = {...(cup.bracket||{}), results};
+    const fields = champion
+      ? { status:"won", round: round+1, bracket, gems_won:(cup.gems_won||0)+reward }
+      : { round: round+1, bracket, gems_won:(cup.gems_won||0)+reward };
+    state.play.cupSummary = { won:true, champion, reward, round };
+    // Gems are credited only once the run has actually advanced. Paying first
+    // meant a failed save left the stored round unchanged, so reloading
+    // replayed the same tie for the same reward, over and over.
+    saveCupRun(fields).then(res=>{
+      if(res && res.error){
+        state.play.cupSummary = { won:true, champion:false, reward:0, round, saveFailed:true };
+        render();
+        return;
+      }
+      state.gems += reward;
+      if(champion) state.cup = null;
+      updateProfile({gems:state.gems}).then(()=>render());
+    });
   } else {
     state.play.cupSummary = { won:false, champion:false, reward:0, round };
-    saveCupRun({ status:"eliminated" }).then(()=>{ state.cup=null; });
+    saveCupRun({ status:"eliminated" }).then(res=>{
+      if(!res || !res.error) state.cup = null;
+      render();
+    });
   }
 }
 
@@ -2758,6 +2794,12 @@ function beginChallengeMatch(challengeRow, challengerLineup){
   newOppSlots.forEach(slot=>{ opp[slot.id] = challengerLineup[slot.id] || null; });
   pl.opponentMeta = { teamName: (friend&&friend.team_name)||"Rival Squad", profileName: (friend&&friend.display_name)||"Friend", avatar: (friend&&friend.avatar)||"⚔️", color: COLORS.pink };
   pl.isChallengeMatch = true;
+  // social.js calls straight into here, bypassing "play-again" -- the only
+  // other place these flags reset. Accepting a challenge while sat on a cup
+  // tie's full-time screen would otherwise resolve the CUP off the back of the
+  // friendly: free round rewards, or a silent elimination.
+  pl.isCupMatch = false;
+  pl.cupSummary = null;
   state.tab = "play";
   render();
   beginMatch(newOppSlots, opp, `vs ${esc((friend&&friend.display_name)||"a friend")}'s squad`);
@@ -2873,8 +2915,16 @@ function continueSecondHalf(){
   const pl = state.play;
   if(pl.live3d && window.Match3D && window.Match3D.isRunning()){
     pl.currentHalf=2; pl.phase="battling"; pl.commentary="Second half underway!";
-    // Pass the (possibly substituted) lineup so a halftime change takes effect.
-    window.Match3D.resumeSecondHalf(pl.myLineup);
+    // Pass the (possibly substituted) lineup so a halftime change takes effect,
+    // re-applying chemistry so a substitute isn't the only player on the pitch
+    // without it.
+    const chem2 = pl.chemistry || chemistryFor(pl.myLineup);
+    const boosted2 = {};
+    Object.keys(pl.myLineup).forEach(k=>{
+      const c = pl.myLineup[k];
+      boosted2[k] = c ? {...c, power: Math.round(c.power * (1 + chem2.bonus))} : null;
+    });
+    window.Match3D.resumeSecondHalf(boosted2);
     render();
     return;
   }
@@ -3004,12 +3054,22 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "close-season-summary":
       pl.seasonSummary = null; render(); break;
     case "cup-enter": {
-      if(state.gems < CUP_ENTRY_COST) break;
+      // The fee is charged only once the run actually exists. Deducting first
+      // meant a failed insert took 150 gems and gave nothing -- and because
+      // render() ran before the insert resolved, the button stayed live long
+      // enough for a second tap to charge twice for one cup.
+      if(state.gems < CUP_ENTRY_COST || state.cupEntering) break;
       playTap();
-      state.gems -= CUP_ENTRY_COST;
-      updateProfile({ gems: state.gems });
-      createCupRun(newCupBracket()).then(()=>render());
-      render(); break;
+      state.cupEntering = true;
+      render();
+      createCupRun(newCupBracket()).then(run=>{
+        state.cupEntering = false;
+        if(!run){ alert("Couldn't start the cup — check your connection and try again."); render(); return; }
+        state.gems -= CUP_ENTRY_COST;
+        updateProfile({ gems: state.gems });
+        render();
+      });
+      break;
     }
     case "cup-play": {
       const pl2 = state.play;

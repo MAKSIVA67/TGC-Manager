@@ -123,7 +123,14 @@ function grantShards(cardId, n) {
   if (card) card.shards = next;
   return sb.from("user_cards").update({ shards: next })
     .eq("user_id", userId).eq("card_id", cardId)
-    .then(({ error }) => { if (error) console.error("grantShards failed:", error.message); });
+    .then(({ error }) => {
+      if (error) { console.error("grantShards failed:", error.message); return; }
+      // The pack's gem cost is only deducted locally by the open-pack handler.
+      // commitPackOpen() persists it on the new-card path; without the same
+      // call here a duplicate pull was refunded on reload, so packs became
+      // free once a collection was complete.
+      return updateProfile({ gems: window.state.gems });
+    });
 }
 
 function trainCard(cardId) {
@@ -150,10 +157,20 @@ function trainCard(cardId) {
   return sb.from("user_cards").update({ level: newLevel, shards: newShards })
     .eq("user_id", userId).eq("card_id", cardId)
     .then(({ error }) => {
-      if (error) console.error("trainCard failed:", error.message);
-      return updateProfile({ gems: window.state.gems });
-    })
-    .then(() => ({ error: null, level: newLevel }));
+      if (error) {
+        // Roll the optimistic changes back. Charging gems for a level that
+        // never persisted means the player pays and gets nothing the moment
+        // they reload.
+        console.error("trainCard failed:", error.message);
+        card.level = newLevel - 1;
+        card.shards = newShards + needShards;
+        card.power = card.basePower + card.level;
+        window.state.gems += needGems;
+        return { error: "Couldn't save that — check your connection and try again." };
+      }
+      return updateProfile({ gems: window.state.gems })
+        .then(() => ({ error: null, level: newLevel }));
+    });
 }
 
 function loadSquad(userId) {
@@ -308,13 +325,26 @@ function createCupRun(bracket) {
     });
 }
 
+// Resolves { error } so callers can tell a failed save from a successful one.
+// It used to swallow errors, which meant a failed write left the stored round
+// behind while the reward had already been paid -- reloading replayed the same
+// round for the same gems.
 function saveCupRun(fields) {
   const cup = window.state.cup;
-  if (!cup) return Promise.resolve(null);
-  Object.keys(fields).forEach(k => { cup[k] = fields[k]; });
-  if (fields.status && fields.status !== "active") fields.finished_at = new Date().toISOString();
-  return sb.from("cup_runs").update(fields).eq("id", cup.id)
-    .then(({ error }) => { if (error) console.error("saveCupRun failed:", error.message); });
+  if (!cup) return Promise.resolve({ error: "No active cup run." });
+  const prev = {};
+  Object.keys(fields).forEach(k => { prev[k] = cup[k]; cup[k] = fields[k]; });
+  const payload = Object.assign({}, fields);
+  if (payload.status && payload.status !== "active") payload.finished_at = new Date().toISOString();
+  return sb.from("cup_runs").update(payload).eq("id", cup.id)
+    .then(({ error }) => {
+      if (error) {
+        console.error("saveCupRun failed:", error.message);
+        Object.keys(prev).forEach(k => { cup[k] = prev[k]; });
+        return { error: error.message };
+      }
+      return { error: null };
+    });
 }
 
 // Promo codes (Phase F addendum #3). The actual grant happens entirely
