@@ -73,6 +73,9 @@
   // match3d.js, so the shadow decision made there is visible to everything.
   let _T = null;                 // the THREE namespace we were handed
   let _shadowsOn = false;
+  // Retained so setShadowsEnabled() can reach every mesh when the sim decides
+  // mid-match that this device can't afford shadows. Cleared in disposeShared.
+  let _scene = null;
   let _stadiumOwned = [];        // geometries/materials/textures to dispose
 
   // ------------------------------------------------------------ small helpers
@@ -386,6 +389,7 @@
     const O = _stadiumOwned;
 
     const scene = new THREE.Scene();
+    _scene = scene;
     scene.background = new THREE.Color(0x05080F);
     // Fog does the heavy lifting on the stands: they dissolve into the night
     // instead of forming a hard silhouette against the sky.
@@ -1260,6 +1264,19 @@
     return makeTex(THREE, cv);
   }
 
+  // Lets the sim shed shadows mid-match when it measures the device failing to
+  // keep up. Turning off renderer.shadowMap alone leaves every castShadow flag
+  // set, so three.js still walks the shadow path each frame -- the flags have
+  // to come off the meshes too.
+  V.setShadowsEnabled = function (on) {
+    _shadowsOn = !!on;
+    if (!_scene) return;
+    _scene.traverse(function (o) {
+      if (o.isMesh) o.castShadow = _shadowsOn && o.userData.wantsShadow !== false;
+      if (o.isLight && o.shadow) o.castShadow = _shadowsOn;
+    });
+  };
+
   V.createBall = function (THREE) {
     _T = _T || THREE;
     // BALL_R (0.36) is oversized versus a real 0.11m ball -- that is the sim's
@@ -1307,6 +1324,7 @@
     if (shared && shared._owned) disposeList(shared._owned);
     disposeList(_stadiumOwned);
     _shadowsOn = false;
+    _scene = null;   // don't pin a dead scene graph in memory between matches
   };
 
   window.Match3DVisuals = V;

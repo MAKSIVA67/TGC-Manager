@@ -2053,6 +2053,46 @@
     } catch (e) {
       if ((a.errCount || 0) <= 3) console.error("Match3D: render failed", e);
     }
+    adaptQuality(a, now);
+  }
+
+  // Adaptive quality. There is no way to know from the browser whether a phone
+  // can carry this scene, so measure it: if frames are consistently slow, shed
+  // the most expensive things in order of cost-to-looks.
+  //
+  // Only ever steps DOWN. Recovering quality when frame time improves sounds
+  // nicer but oscillates -- dropping quality speeds things up, which then
+  // triggers an upgrade, which slows it down again, and the picture pulses.
+  const QUALITY_STEPS = [
+    { pixelRatio: 1.25 },
+    { pixelRatio: 1.0 },
+    { pixelRatio: 1.0, shadows: false },
+    { pixelRatio: 0.85, shadows: false },
+  ];
+  function adaptQuality(a, now) {
+    if (a.qualityStep >= QUALITY_STEPS.length) return;
+    // Ignore the first second or so: startup, shader compilation and texture
+    // upload all land there and would trip the check on any device.
+    if (a.qStart === undefined) { a.qStart = now; a.qFrames = 0; a.qTime = 0; a.qLast = now; return; }
+    const dt = now - a.qLast;
+    a.qLast = now;
+    if (now - a.qStart < 1200) return;
+    // A single hitch (GC, a notification) shouldn't downgrade anything, so
+    // judge on a rolling window rather than any one frame.
+    a.qFrames++; a.qTime += Math.min(dt, 200);
+    if (a.qFrames < 45) return;
+    const avg = a.qTime / a.qFrames;
+    a.qFrames = 0; a.qTime = 0;
+    if (avg <= 24) return;          // ~42fps or better: leave it alone
+    const step = QUALITY_STEPS[a.qualityStep++];
+    try {
+      a.renderer.setPixelRatio(Math.min(a.pixelRatio, step.pixelRatio));
+      a.renderer.setSize(window.innerWidth, window.innerHeight, false);
+      if (step.shadows === false && a.renderer.shadowMap && a.renderer.shadowMap.enabled) {
+        a.renderer.shadowMap.enabled = false;
+        if (VIS && VIS.setShadowsEnabled) VIS.setShadowsEnabled(false);
+      }
+    } catch (e) {}
   }
 
   // Last-ditch repair. NaN is the usual culprit -- once a single position or
@@ -2311,10 +2351,16 @@
       _score: 0, _thruX: 0, _thruZ: 0,
       // near post / far post / penalty spot / edge-of-box, as (|x|, depth) pairs.
       _cornerSpots: [4.5, 5.5, 2.0, 11.0, 8.5, 13.0, 1.0, 18.0],
+      qualityStep: 0,   // how many times adaptQuality() has shed detail
     };
 
     a.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-    a.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // Capped at 1.5, not 2. Phone screens are commonly 3x, and every step of
+    // pixel ratio costs its SQUARE in fragments -- 2.0 renders 78% more pixels
+    // than 1.5 for a difference nobody can see at arm's length on a pitch this
+    // busy. This was the single biggest cost in the frame.
+    a.pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    a.renderer.setPixelRatio(a.pixelRatio);
     a.renderer.setSize(window.innerWidth, window.innerHeight, false);
     if (THREE.SRGBColorSpace) a.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // The visuals module owns the look but not the renderer, so this is the
