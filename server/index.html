@@ -524,7 +524,8 @@ const state = {
     zoneResultsLive:{}, seasonSummary:null, minuteInterval:null,
     opponentMeta:null, isChallengeMatch:false, ballOwnerKey:null, ballInterval:null,
   },
-  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
+  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, dupeShards:0, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
+  trainCardId: null,   // card open in the training sheet, null when closed
   confettiOn:false,
   // Auth/account state (Phase A) -- populated by lib/auth.js.
   session: null,
@@ -707,7 +708,16 @@ function playerCard(p, opts){
   // without art yet keep the placeholder foil design with those overlays
   // so they're still identifiable in the meantime.
   const enlargeAttr = opts.mode==="index" && hasImage ? `data-action="enlarge-card" data-player-id="${p.id}"` : "";
-  const clickAttr = enlargeAttr || (opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "");
+  // "train" mode (My Cards) makes the whole tile open the training sheet, and
+  // takes priority over enlarging so the tap does one predictable thing.
+  const trainAttr = opts.mode==="train" ? `data-action="open-train" data-player-id="${p.id}"` : "";
+  const clickAttr = trainAttr || enlargeAttr || (opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "");
+  // Level pip + "ready to train" dot, drawn over art and placeholder alike so
+  // progress is visible without opening every card.
+  const readyToTrain = opts.mode==="train" && p.level<MAX_CARD_LEVEL && p.shards>=trainShardCost(p.level);
+  const trainBadges = opts.mode!=="train" ? "" : `
+    ${p.level>0 ? `<div style="position:absolute;top:6px;left:6px;z-index:3;padding:2px 7px;border-radius:999px;background:${COLORS.gold};color:${COLORS.bg};font-size:9px;font-weight:900;letter-spacing:.04em">LV ${p.level}</div>` : ""}
+    ${readyToTrain ? `<div style="position:absolute;top:6px;right:6px;z-index:3;width:12px;height:12px;border-radius:50%;background:${COLORS.turf};box-shadow:0 0 10px ${COLORS.turf};animation:pulseLive 1.4s ease-in-out infinite"></div>` : ""}`;
   const disabled = opts.disabled ? "disabled" : "";
   const selectedOutline = opts.selected ? `;outline:3px solid ${COLORS.gold};outline-offset:-3px` : "";
   const foilBg = locked
@@ -716,9 +726,11 @@ function playerCard(p, opts){
   if(hasImage){
     return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;aspect-ratio:${CARD_ART_RATIO};border:1px solid ${rarity.color}77;background:${foilBg};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
       <img src="${esc(p.imageThumbUrl||p.imageUrl)}" style="display:block;width:100%;height:100%;object-fit:cover" />
+      ${trainBadges}
     </button>`;
   }
   return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;border:1px solid ${locked?"transparent":rarity.color+"77"};background:${foilBg};opacity:${locked?0.55:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
+    ${trainBadges}
     <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:hidden">
       <span class="display" style="font-size:64px;color:${locked?"transparent":rarity.color}14;transform:translateY(6px)">${POSITION_GLYPH[p.position]||""}</span>
     </div>
@@ -941,18 +953,103 @@ function indexView(){
     <div class="grid2">${visible.map(p=>playerCard(p,{mode:"index"})).join("")}</div>
   </div>`;
 }
+// ---------- Chemistry ----------
+// Players link when they share a league or a region. Deliberately coarse:
+// real club sides would be far more data to get wrong, and league/region still
+// turns squad building into a puzzle rather than "pick the eleven biggest
+// numbers". Chemistry is a squad-wide multiplier, so a slightly weaker but
+// well-linked eleven can beat a stronger collection of strangers.
+const CHEM_MAX_BONUS = 0.12;   // +12% effective power at perfect chemistry
+
+function chemistryFor(lineup){
+  const players = Object.keys(lineup || {}).map(k=>lineup[k]).filter(Boolean);
+  if(players.length < 2) return { score:0, links:0, maxLinks:0, bonus:0, unset:0 };
+  let links = 0, maxLinks = 0, unset = 0;
+  for(let i=0;i<players.length;i++){
+    if(!players[i].league && !players[i].region) unset++;
+    for(let j=i+1;j<players.length;j++){
+      maxLinks++;
+      const a = players[i], b = players[j];
+      if(a.league && b.league && a.league === b.league) { links++; continue; }
+      if(a.region && b.region && a.region === b.region) links += 0.5;
+    }
+  }
+  // Every pair linking is unrealistic, so the curve tops out well below it --
+  // roughly a third of possible links already counts as a strong squad.
+  const score = maxLinks ? Math.min(100, Math.round((links / (maxLinks*0.34)) * 100)) : 0;
+  return { score, links:Math.round(links), maxLinks, bonus: (score/100)*CHEM_MAX_BONUS, unset };
+}
+
+function chemColor(score){
+  return score>=80 ? COLORS.turf : score>=50 ? COLORS.gold : score>=25 ? COLORS.cyan : COLORS.muted;
+}
+
+// ---------- Training ----------
+// Mirrors shardsForLevel()/gemsForLevel() in lib/game-data.js. Those are the
+// authority (they gate the actual write); these exist so the UI can show costs
+// without reaching across files mid-render.
+const MAX_CARD_LEVEL = 10;
+function trainShardCost(level){ return 2 + level*2; }
+function trainGemCost(level){ return 40 + level*30; }
+
+function trainSheetHTML(){
+  const card = state.players.find(p=>p.id===state.trainCardId);
+  if(!card) return "";
+  const maxed = card.level >= MAX_CARD_LEVEL;
+  const needS = trainShardCost(card.level), needG = trainGemCost(card.level);
+  const okS = card.shards >= needS, okG = state.gems >= needG;
+  const rc = RARITY[card.rarity].color;
+  const pct = Math.min(100, Math.round((card.shards / needS) * 100));
+  return `<div class="overlayFull" style="background:rgba(3,7,14,.94)" data-action="close-train">
+    <div class="panel" style="width:88vw;max-width:340px;padding:18px;border:2px solid ${rc}" onclick="event.stopPropagation()">
+      <div class="row center" style="gap:12px;margin-bottom:12px">
+        <div class="avatarCircle" style="width:58px;height:58px;font-weight:900;font-size:20px;background:${rc};color:${COLORS.bg}">${card.power}</div>
+        <div style="flex:1;min-width:0">
+          <div class="display" style="font-size:17px;color:${COLORS.cream}">${esc(card.name)}</div>
+          <div style="font-size:11px;color:${COLORS.muted}">${card.position} · ${RARITY[card.rarity].label}</div>
+          <div style="font-size:11px;font-weight:800;color:${COLORS.gold};margin-top:2px">
+            ${card.level>0 ? `LEVEL ${card.level} · base ${card.basePower} +${card.level}` : "UNTRAINED"}
+          </div>
+        </div>
+      </div>
+      ${maxed ? `<div style="text-align:center;padding:12px 0;font-size:13px;font-weight:800;color:${COLORS.gold}">⭐ Fully trained — maximum level reached.</div>` : `
+        <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:6px">SHARDS ${card.shards} / ${needS}</div>
+        <div style="height:10px;border-radius:999px;overflow:hidden;background:${COLORS.panelLight};margin-bottom:12px">
+          <div style="height:100%;width:${pct}%;border-radius:999px;background:linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.turf})"></div>
+        </div>
+        <div class="row between" style="font-size:12px;margin-bottom:12px">
+          <span style="color:${COLORS.muted}">Cost to reach level ${card.level+1}</span>
+          <span style="font-weight:800;color:${okG?COLORS.gold:COLORS.danger}">${needG} gems</span>
+        </div>
+        <button data-action="do-train" data-card-id="${card.id}" ${(!okS||!okG)?"disabled":""} class="btn scrimtap wfull" style="padding:12px 0;font-size:14px;font-weight:900;background:${(okS&&okG)?COLORS.turf:COLORS.panelLight};color:${(okS&&okG)?COLORS.bg:COLORS.muted};opacity:${(okS&&okG)?1:0.6}">
+          ${!okS ? `NEED ${needS-card.shards} MORE SHARDS` : !okG ? "NOT ENOUGH GEMS" : `TRAIN → +1 POWER`}
+        </button>
+        <div style="font-size:10px;color:${COLORS.muted};text-align:center;margin-top:8px">Shards come from opening a pack with a card you already own.</div>
+      `}
+      <button data-action="close-train" class="btn scrimtap wfull" style="padding:9px 0;font-size:12px;margin-top:10px;background:transparent;color:${COLORS.muted}">CLOSE</button>
+    </div>
+  </div>`;
+}
+
 function myCardsView(){
   const owned = state.players.filter(p=>p.owned);
   const groups = ["GK","DEF","MID","FWD"].map(pos=>({pos,cards:owned.filter(p=>p.position===pos)}));
+  const trainable = owned.filter(p=>p.level<MAX_CARD_LEVEL && p.shards>=trainShardCost(p.level)).length;
+  const totalShards = owned.reduce((s,p)=>s+(p.shards||0),0);
   return `<div class="view">
+    ${trainSheetHTML()}
     <div class="panel" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight})">
       <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:4px">YOUR SQUAD</div>
       <div style="font-size:26px;font-weight:900;color:${COLORS.cream}">${owned.length} <span style="color:${COLORS.muted};font-weight:700">players owned</span></div>
+      <div class="row" style="gap:14px;margin-top:8px;font-size:11px;font-weight:800">
+        <span style="color:${COLORS.cyan}">${totalShards} shards</span>
+        ${trainable ? `<span style="color:${COLORS.turf}">${trainable} ready to train</span>` : `<span style="color:${COLORS.muted}">Tap a card to train it</span>`}
+      </div>
     </div>
     ${groups.map(g=>`
       <div style="margin-bottom:16px">
         <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">${g.pos} (${g.cards.length})</div>
-        ${g.cards.length===0 ? `<div style="font-size:13px;color:${COLORS.muted}">None yet — try the Shop.</div>` : `<div class="grid2">${g.cards.map(p=>playerCard(p,{mode:"index"})).join("")}</div>`}
+        ${g.cards.length===0 ? `<div style="font-size:13px;color:${COLORS.muted}">None yet — try the Shop.</div>` : `<div class="grid2">${g.cards.map(p=>playerCard(p,{mode:"train"})).join("")}</div>`}
       </div>`).join("")}
   </div>`;
 }
@@ -977,6 +1074,11 @@ function shopView(){
             <div style="font-size:11px;font-weight:700;color:${COLORS.muted};margin-top:2px">${card.position}</div>
             <div style="font-weight:900;font-size:11px;letter-spacing:.12em;color:${rarityColor};margin-top:6px">${RARITY[card.rarity].label}</div>
           </div>
+          ${s.dupeShards ? `<div style="margin-top:12px;text-align:center;animation:riseIn .7s var(--ease-out-strong) both">
+            <div style="font-size:11px;font-weight:800;letter-spacing:.12em;color:${COLORS.muted}">ALREADY IN YOUR COLLECTION</div>
+            <div class="display" style="font-size:24px;color:${COLORS.cyan};margin-top:2px">+${s.dupeShards} SHARDS</div>
+            <div style="font-size:11px;color:${COLORS.muted};margin-top:2px">Train ${esc(card.name)} in My Cards to raise their power</div>
+          </div>` : ""}
         </div>`
       : `<div style="text-align:center"><div class="display" style="font-size:22px;color:${COLORS.gold};margin-bottom:6px">Collection complete!</div><div style="font-size:13px;color:${COLORS.muted}">Here's a partial refund instead.</div></div>`}
       <button data-action="close-reveal" class="display btn scrimtap" style="margin-top:26px;padding:12px 30px;font-size:16px;background:${rarityColor};color:${COLORS.bg};box-shadow:0 4px 0 rgba(0,0,0,.35)">CONTINUE</button>
@@ -1074,11 +1176,25 @@ function startSpinAnimation(){
   };
   track.addEventListener("transitionend", onEnd);
 }
+// Shards a duplicate is worth. Scaled by rarity so pulling a GOAT you already
+// have still feels like a result rather than a let-down.
+function shardsForDuplicate(rarity){
+  const r = tierRank(rarity);
+  if(r >= tierRank("Icon")) return 12;
+  if(r >= tierRank("Mythic")) return 8;
+  if(r >= tierRank("Legendary")) return 6;
+  if(r >= tierRank("Ultra")) return 4;
+  if(r >= tierRank("Epic")) return 3;
+  return 2;
+}
+
 function landPack(){
   const s = state.shop;
   const pick = s.pendingPick;
   if(!pick){ return; }
-  state.players = state.players.map(p=> p.id===pick.id ? {...p, owned:true} : p);
+  // A duplicate was already credited as shards when the pack was opened; only
+  // a genuinely new card flips the owned flag.
+  if(!s.dupeShards) state.players = state.players.map(p=> p.id===pick.id ? {...p, owned:true} : p);
   if(isTopTier(pick.rarity)){ playFanfare(); playImpact(); } else if(isHighTier(pick.rarity)) playSparkle(); else playChime();
   s.revealed = pick; s.phase="revealed"; s.pendingPick=null;
   render();
@@ -1188,7 +1304,21 @@ function playView(){
   }
 
   if(pl.phase==="building"){
-    body += `<button data-action="equip-best" class="btn scrimtap wfull row center" style="gap:6px;padding:10px 0;margin-bottom:10px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.gold};border:1px solid ${COLORS.gold}55">${icon("Sparkles",14,COLORS.gold)} EQUIP BEST SQUAD</button>
+    const chem = chemistryFor(pl.myLineup);
+    body += `<div class="panel" style="padding:10px 12px;margin-bottom:10px">
+      <div class="row between" style="margin-bottom:6px">
+        <span style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">TEAM CHEMISTRY</span>
+        <span style="font-size:13px;font-weight:900;color:${chemColor(chem.score)}">${chem.score}%${chem.bonus>0?` · +${Math.round(chem.bonus*100)}% power`:""}</span>
+      </div>
+      <div style="height:8px;border-radius:999px;overflow:hidden;background:${COLORS.panelLight}">
+        <div style="height:100%;width:${chem.score}%;border-radius:999px;background:${chemColor(chem.score)};transition:width .3s ease"></div>
+      </div>
+      <div style="font-size:10px;color:${COLORS.muted};margin-top:5px">
+        ${chem.unset ? `${chem.unset} card${chem.unset>1?"s":""} missing league data — chemistry will improve once set.`
+          : "Players link when they share a league, or half-link by region."}
+      </div>
+    </div>
+    <button data-action="equip-best" class="btn scrimtap wfull row center" style="gap:6px;padding:10px 0;margin-bottom:10px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.gold};border:1px solid ${COLORS.gold}55">${icon("Sparkles",14,COLORS.gold)} EQUIP BEST SQUAD</button>
     <div style="text-align:center;font-size:12px;color:${COLORS.muted};margin-bottom:12px">${filled}/${mySlots.length} positions filled — tap a slot to assign a player</div>
     <button data-action="kickoff" ${!isComplete?"disabled":""} class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C;opacity:${!isComplete?0.4:1}">▶️ KICK OFF</button>
     <div style="text-align:center;font-size:11px;margin-top:8px;color:${COLORS.muted}">Want to challenge a friend instead? Head to the Friends tab — this squad is what you'll battle with.</div>`;
@@ -2096,8 +2226,20 @@ function beginMatch(newOppSlots, opp, label){
   // server-side rethink of challenge resolution, not a client change.
   pl.live3d = !pl.isChallengeMatch && !!(window.Match3D && window.Match3D.available());
   if(pl.live3d){
+    // Chemistry is applied as a power uplift on a COPY of the lineup, so the
+    // arena's attribute derivation picks it up with no knowledge of chemistry
+    // at all. Deliberately not applied to computeZone(): lib/social.js resolves
+    // friend challenges with that same pure function and both clients must
+    // agree on the result, so squad-state-dependent modifiers cannot go there.
+    const chem = chemistryFor(pl.myLineup);
+    pl.chemistry = chem;
+    const boosted = {};
+    Object.keys(pl.myLineup).forEach(k=>{
+      const c = pl.myLineup[k];
+      boosted[k] = c ? {...c, power: Math.round(c.power * (1 + chem.bonus))} : null;
+    });
     const started = window.Match3D.begin({
-      myLineup: pl.myLineup,
+      myLineup: boosted,
       oppLineup: pl.oppLineup,
       formationKey: pl.formationKey,
       oppFormationKey: pendingOppFormation,
@@ -2411,6 +2553,19 @@ document.getElementById("stage").addEventListener("click", function(e){
       continueSecondHalf(); break;
     case "close-season-summary":
       pl.seasonSummary = null; render(); break;
+    case "open-train":
+      playTap(); state.trainCardId = Number(el.dataset.playerId); render(); break;
+    case "close-train":
+      state.trainCardId = null; render(); break;
+    case "do-train": {
+      const id = Number(el.dataset.cardId);
+      trainCard(id).then(res=>{
+        if(res && res.error){ playLose(); alert(res.error); return; }
+        playFanfare();
+        render();
+      });
+      break;
+    }
     case "play-again":
       state.confettiOn=false;
       // Defensive: the arena tears itself down at full time, but if a match
@@ -2530,11 +2685,19 @@ document.getElementById("stage").addEventListener("click", function(e){
       const s = state.shop;
       if(state.gems<pack.cost || s.phase!=="list") break;
       playWhoosh(); state.gems -= pack.cost;
-      const locked = state.players.filter(p=>!p.owned && !p.exclusive && p.active!==false);
-      const pick = pickWeighted(locked, pack.weights);
+      // Packs used to draw only from cards you DIDN'T own, which meant a
+      // completed collection turned every pack into a partial gem refund.
+      // Now they roll the whole active pool: a card you already have comes
+      // back as shards for that card, so a pull is never wasted and there is
+      // still a reason to open packs once you own everything.
+      const pool = state.players.filter(p=>!p.exclusive && p.active!==false);
+      const pick = pickWeighted(pool, pack.weights);
       s.selectedPack = pack;
       if(!pick){ state.gems += Math.round(pack.cost/3); playTap(); s.revealed=null; s.phase="revealed"; render(); commitPackRefund(); break; }
-      commitPackOpen(pick.id);
+      const wasOwned = !!pick.owned;
+      s.dupeShards = wasOwned ? shardsForDuplicate(pick.rarity) : 0;
+      if(wasOwned) grantShards(pick.id, s.dupeShards);
+      else commitPackOpen(pick.id);
       const spinPool = state.players.filter(p=>!p.exclusive && p.active!==false);
       const items = Array.from({length: SPIN_FILLER_COUNT}, ()=> spinPool[Math.floor(Math.random()*spinPool.length)]);
       // Land on the real pick at a randomized position in the strip (not always
@@ -2552,7 +2715,7 @@ document.getElementById("stage").addEventListener("click", function(e){
       break;
     }
     case "close-reveal": {
-      const s = state.shop; s.phase="list"; s.revealed=null; s.pendingPick=null; s.selectedPack=null; render(); break;
+      const s = state.shop; s.phase="list"; s.revealed=null; s.pendingPick=null; s.selectedPack=null; s.dupeShards=0; render(); break;
     }
     case "buy-gem-pass": {
       const pass = GEM_PASSES.find(p=>p.id===el.dataset.passId);

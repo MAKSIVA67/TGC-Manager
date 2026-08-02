@@ -69,21 +69,91 @@ function decideMatchFromZones(zGK, zDEF, zMID, zFWD) {
 function loadCatalogAndOwnership(userId) {
   return Promise.all([
     sb.from("cards").select("*").order("id"),
-    sb.from("user_cards").select("card_id").eq("user_id", userId),
+    // level/shards (training) and league/region (chemistry) arrive with
+    // migration 002. Selecting "*" rather than naming them means this keeps
+    // working against a database where that migration hasn't been run yet --
+    // the fields simply come back undefined and everything defaults.
+    sb.from("user_cards").select("*").eq("user_id", userId),
   ]).then(([cardsRes, ownedRes]) => {
-    const ownedIds = new Set((ownedRes.data || []).map(r => r.card_id));
-    window.state.players = (cardsRes.data || []).map(c => ({
-      id: c.id, name: c.name, position: c.position, power: c.power, rarity: c.rarity,
-      owned: ownedIds.has(c.id),
-      exclusive: !!c.exclusive, priceEUR: c.price_eur,
-      imageUrl: c.image_url || null, imageThumbUrl: c.image_thumb_url || null,
-      // Retired cards (roster shrink to 100 active players) stay owned by
-      // whoever already had them, but drop out of pack odds and starter
-      // selection -- see pickStarterCardIds() below and the "open-pack"
-      // handler in index.html.
-      active: c.active !== false,
-    }));
+    const ownedRows = ownedRes.data || [];
+    const owned = {};
+    ownedRows.forEach(r => { owned[r.card_id] = r; });
+    window.state.players = (cardsRes.data || []).map(c => {
+      const row = owned[c.id];
+      const level = row && row.level ? row.level : 0;
+      return {
+        id: c.id, name: c.name, position: c.position,
+        // basePower is the printed value; power is what the game actually
+        // uses, so every existing power comparison picks up training for free.
+        basePower: c.power,
+        power: c.power + level,
+        rarity: c.rarity,
+        owned: !!row,
+        level: level,
+        shards: row && row.shards ? row.shards : 0,
+        league: c.league || null, region: c.region || null,
+        exclusive: !!c.exclusive, priceEUR: c.price_eur,
+        imageUrl: c.image_url || null, imageThumbUrl: c.image_thumb_url || null,
+        // Retired cards (roster shrink to 100 active players) stay owned by
+        // whoever already had them, but drop out of pack odds and starter
+        // selection -- see pickStarterCardIds() below and the "open-pack"
+        // handler in index.html.
+        active: c.active !== false,
+      };
+    });
   });
+}
+
+// ---------------------------------------------------------------- training
+// Levels are +1 power each, capped at 10. Cost curve is deliberately steep at
+// the top so a maxed card is a real achievement rather than a formality.
+const MAX_CARD_LEVEL = 10;
+function shardsForLevel(level) { return 2 + level * 2; }        // 2,4,6,... 20
+function gemsForLevel(level) { return 40 + level * 30; }        // 40,70,...,310
+
+// A duplicate pull. The client never stores a second user_cards row -- every
+// "do I own this?" check in the app is a set membership test and would break.
+// The duplicate becomes shards on the row that already exists.
+function grantShards(cardId, n) {
+  const session = window.state.session;
+  const userId = session && session.user && session.user.id;
+  if (!userId) return Promise.resolve();
+  const card = window.state.players.find(p => p.id === cardId);
+  const next = ((card && card.shards) || 0) + n;
+  if (card) card.shards = next;
+  return sb.from("user_cards").update({ shards: next })
+    .eq("user_id", userId).eq("card_id", cardId)
+    .then(({ error }) => { if (error) console.error("grantShards failed:", error.message); });
+}
+
+function trainCard(cardId) {
+  const session = window.state.session;
+  const userId = session && session.user && session.user.id;
+  if (!userId) return Promise.resolve({ error: "Not signed in." });
+  const card = window.state.players.find(p => p.id === cardId);
+  if (!card || !card.owned) return Promise.resolve({ error: "You don't own that card." });
+  if (card.level >= MAX_CARD_LEVEL) return Promise.resolve({ error: "Already at maximum level." });
+  const needShards = shardsForLevel(card.level);
+  const needGems = gemsForLevel(card.level);
+  if (card.shards < needShards) return Promise.resolve({ error: "Not enough shards." });
+  if (window.state.gems < needGems) return Promise.resolve({ error: "Not enough gems." });
+
+  const newLevel = card.level + 1;
+  const newShards = card.shards - needShards;
+  // Applied locally first so the card jumps immediately; the writes below are
+  // the same optimistic pattern the rest of the app uses.
+  card.level = newLevel;
+  card.shards = newShards;
+  card.power = card.basePower + newLevel;
+  window.state.gems -= needGems;
+
+  return sb.from("user_cards").update({ level: newLevel, shards: newShards })
+    .eq("user_id", userId).eq("card_id", cardId)
+    .then(({ error }) => {
+      if (error) console.error("trainCard failed:", error.message);
+      return updateProfile({ gems: window.state.gems });
+    })
+    .then(() => ({ error: null, level: newLevel }));
 }
 
 function loadSquad(userId) {
