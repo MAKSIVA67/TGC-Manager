@@ -375,6 +375,13 @@ function submitChallengeFriend(opponentId) {
 }
 function submitAcceptChallenge(challengeId) {
   const pl = window.state.play;
+  // Accepting mid-match started a second match on top of the first, and the
+  // abandoned one's timers then finalised against the new lineups.
+  if (window.matchInProgress && window.matchInProgress()) {
+    window.state.friendsUI.challengeStatus = "Finish the match you're playing first.";
+    window.render();
+    return;
+  }
   const mySlots = window.buildSlots(pl.formationKey, "my");
   const filled = Object.values(pl.myLineup).filter(Boolean).length;
   if (filled !== mySlots.length) {

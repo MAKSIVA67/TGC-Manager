@@ -79,8 +79,49 @@ function applyPendingSignupProfile() {
 // points are) -- see loadRecentMatchesAndSeason() in game-data.js, which
 // derives them from match history instead and is expected to have already
 // populated state.season.wins/losses/draws before/after this runs.
+// The profile values the server is believed to hold: whatever we last received
+// from it, or last sent to it. Everything the player spends is applied to local
+// state FIRST and persisted a round trip later, so `local - knownServer` is
+// exactly the change that hasn't landed yet. Re-applying a row on top of that
+// without accounting for it is what made packs free: claim a reward, open a
+// pack while the claim's write is still in flight, and the realtime echo of
+// the claim reset gems to the pre-pack balance -- which the pack's own
+// updateProfile then wrote back as the truth. Card granted, cost refunded.
+// The same reset re-armed a claimed objective's button and paid it twice.
+let knownServer = null;
+
+function snapshotServer(row) {
+  return {
+    gems: row.gems,
+    wins: row.wins, losses: row.losses, draws: row.draws,
+    win_streak: row.win_streak, best_streak: row.best_streak,
+    season_number: row.season_number, season_matchday: row.season_matchday,
+    season_points: row.season_points,
+    daily_last_claim: row.daily_last_claim, daily_streak: row.daily_streak,
+    objectives_claimed: row.objectives_claimed || [],
+  };
+}
+
+// Server value plus whatever local hasn't persisted yet. Falls back to the
+// server value outright on the first load, when there is no baseline.
+function merged(serverValue, localValue, baseValue) {
+  if (knownServer == null) return serverValue;
+  const n = Number(serverValue) + (Number(localValue) - Number(baseValue));
+  return Number.isFinite(n) ? n : serverValue;
+}
+
+// Called whenever WE write a field, so the baseline moves forward with our own
+// writes instead of trailing behind them and double-counting the difference.
+function noteProfileWrite(fields) {
+  if (!knownServer || !fields) return;
+  Object.keys(fields).forEach(k => {
+    if (k in knownServer) knownServer[k] = fields[k];
+  });
+}
+
 function applyProfileRow(row) {
   const s = window.state;
+  const k = knownServer;
   s.profile = {
     name: row.display_name || "Player",
     avatar: row.avatar || "⚽",
@@ -90,14 +131,42 @@ function applyProfileRow(row) {
     username: row.username || "",
     fullName: row.full_name || "",
   };
-  s.gems = row.gems;
-  s.stats = { wins: row.wins, losses: row.losses, draws: row.draws, streak: row.win_streak, bestStreak: row.best_streak };
-  s.home = { dailyLastClaim: row.daily_last_claim, dailyStreak: row.daily_streak, objectivesClaimed: row.objectives_claimed || [] };
+  s.gems = merged(row.gems, s.gems, k && k.gems);
+  s.stats = {
+    wins:       merged(row.wins,        s.stats.wins,       k && k.wins),
+    losses:     merged(row.losses,      s.stats.losses,     k && k.losses),
+    draws:      merged(row.draws,       s.stats.draws,      k && k.draws),
+    streak:     merged(row.win_streak,  s.stats.streak,     k && k.win_streak),
+    bestStreak: merged(row.best_streak, s.stats.bestStreak, k && k.best_streak),
+  };
+  // Objectives are append-only, so the union can never drop a claim that is
+  // still in flight -- which is what re-enabled an already-claimed button.
+  const localClaimed = (s.home && s.home.objectivesClaimed) || [];
+  const claimed = Array.from(new Set([...(row.objectives_claimed || []), ...localClaimed]));
+  // Daily claim dates are ISO yyyy-mm-dd, so a plain string compare orders
+  // them. Keep whichever side has actually claimed more recently.
+  const localDaily = s.home || {};
+  const localDailyNewer = !!localDaily.dailyLastClaim &&
+    (!row.daily_last_claim || localDaily.dailyLastClaim > row.daily_last_claim);
+  s.home = {
+    dailyLastClaim: localDailyNewer ? localDaily.dailyLastClaim : row.daily_last_claim,
+    dailyStreak:    localDailyNewer ? localDaily.dailyStreak    : row.daily_streak,
+    objectivesClaimed: claimed,
+  };
+  // A season rollover is written the same optimistic way, so a stale row could
+  // wind the season back and re-arm the doubled end-of-season payout.
+  const localSeason = s.season || {};
+  const localSeasonAhead = !!k && (
+    localSeason.number > row.season_number ||
+    (localSeason.number === row.season_number && localSeason.matchday > row.season_matchday));
   s.season = {
-    number: row.season_number, matchday: row.season_matchday, points: row.season_points,
+    number:   localSeasonAhead ? localSeason.number   : row.season_number,
+    matchday: localSeasonAhead ? localSeason.matchday : row.season_matchday,
+    points:   localSeasonAhead ? localSeason.points   : row.season_points,
     wins: s.season.wins || 0, losses: s.season.losses || 0, draws: s.season.draws || 0,
   };
   s.profileRow = row;
+  knownServer = snapshotServer(row);
   s.prevRankName = rankForWins(s.stats.wins).name;
 }
 
@@ -124,6 +193,9 @@ function updateProfile(fields) {
   if (!session || !session.user) return Promise.resolve({ error: "Not signed in." });
   return sb.from("profiles").update(fields).eq("id", session.user.id).then(({ error }) => {
     if (error) return { error: error.message };
+    // Move the baseline forward BEFORE the reload, or the difference between
+    // local and server gets counted a second time when the row comes back.
+    noteProfileWrite(fields);
     return loadProfile(session.user.id).then(() => ({ error: null }));
   });
 }
@@ -152,6 +224,9 @@ function initAuthListener() {
       if (newSession.user.id !== lastHandledUserId) handleSignedIn(newSession.user.id);
     } else {
       lastHandledUserId = null;
+      // Otherwise the next account to sign in on this browser inherits the
+      // previous one's baseline and gets their unpersisted delta applied.
+      knownServer = null;
       unsubscribeFromChat();
       unsubscribeFromNotifications();
       unsubscribeFromAdminLiveUpdates();

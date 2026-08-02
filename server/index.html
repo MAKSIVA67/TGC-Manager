@@ -2580,6 +2580,39 @@ function checkRankUp(){
 }
 function clearMinuteInterval(){ if(state.play.minuteInterval){ clearInterval(state.play.minuteInterval); state.play.minuteInterval=null; } }
 function clearBallInterval(){ if(state.play.ballInterval){ clearInterval(state.play.ballInterval); state.play.ballInterval=null; } }
+// The legacy timed match drives its zone reveals, half-time and FULL TIME off
+// setTimeout. Only the intervals above used to be tracked, so those timeouts
+// survived a match ending or a new one starting: accept a friend challenge
+// mid-match and the previous match's full-time timer still fired, calling
+// finalizeMatch() against the NEW match's lineups -- committing a bogus
+// result, paying gems for it, and (because isChallengeMatch was true by then)
+// silently swallowing the league matchday. Every match timeout goes through
+// here so a new match can cancel the old one's.
+function matchTimeout(fn, ms){
+  const pl = state.play;
+  if(!pl.timeouts) pl.timeouts = [];
+  const id = setTimeout(fn, ms);
+  pl.timeouts.push(id);
+  return id;
+}
+function clearMatchTimeouts(){
+  const pl = state.play;
+  (pl.timeouts||[]).forEach(id=>clearTimeout(id));
+  pl.timeouts = [];
+}
+// Everything that starts a match funnels through this, so no path can forget.
+function resetMatchTimers(){
+  clearMinuteInterval();
+  clearBallInterval();
+  clearMatchTimeouts();
+}
+// True while a match is actually running. Accepting a friend challenge had no
+// phase guard at all, so it would start a second match on top of a live one.
+function matchInProgress(){
+  const p = state.play.phase;
+  return p==="battling" || p==="halftime";
+}
+window.matchInProgress = matchInProgress;
 function motionSlotList(){
   const pl = state.play;
   const mySlots = buildSlots(pl.formationKey,"my");
@@ -2626,6 +2659,12 @@ let pendingOppFormation = "balanced";
 
 function beginMatch(newOppSlots, opp, label){
   const pl = state.play;
+  // Cancel anything still pending from a previous match before touching state.
+  // Every start path funnels through here, so this is the one place that has
+  // to remember. Without it the old match's full-time timer fired against the
+  // new match's lineups.
+  resetMatchTimers();
+  if(window.Match3D && window.Match3D.isRunning()) window.Match3D.stop();
   ensureAudio(); playWhistle(); setTimeout(playKick,150);
 
   pl.oppSlots = newOppSlots; pl.oppLineup = opp;
@@ -2687,7 +2726,7 @@ function beginMatch(newOppSlots, opp, label){
     if(el) el.textContent = pl.matchMinute;
   }, 250);
 
-  const reveal = (zoneKey, delay)=> setTimeout(()=>{
+  const reveal = (zoneKey, delay)=> matchTimeout(()=>{
     const {result} = computeZone(zoneKey, pl.firstHalfLineup, pl.oppLineup);
     pl.zoneResultsLive = {...pl.zoneResultsLive, [zoneKey]:result};
     pl.commentary = COMMENTARY[zoneKey][result];
@@ -2696,7 +2735,7 @@ function beginMatch(newOppSlots, opp, label){
   }, delay);
   reveal("GK",6000); reveal("DEF",13000);
 
-  setTimeout(()=>{ clearMinuteInterval(); clearBallInterval(); playWhistle(); pl.commentary="⏸️ Half-time — make a substitution if you need one."; pl.phase="halftime"; render(); }, 15000);
+  matchTimeout(()=>{ clearMinuteInterval(); clearBallInterval(); playWhistle(); pl.commentary="⏸️ Half-time — make a substitution if you need one."; pl.phase="halftime"; render(); }, 15000);
 }
 function kickOff(){
   const pl = state.play;
@@ -2952,7 +2991,7 @@ function continueSecondHalf(){
     if(el) el.textContent = pl.matchMinute;
   }, 250);
 
-  const reveal = (zoneKey, delay)=> setTimeout(()=>{
+  const reveal = (zoneKey, delay)=> matchTimeout(()=>{
     const {result} = computeZone(zoneKey, secondHalfLineup, pl.oppLineup);
     pl.zoneResultsLive = {...pl.zoneResultsLive, [zoneKey]:result};
     pl.commentary = COMMENTARY[zoneKey][result];
@@ -2961,7 +3000,7 @@ function continueSecondHalf(){
   }, delay);
   reveal("MID",6000); reveal("FWD",13000);
 
-  setTimeout(()=>{
+  matchTimeout(()=>{
     clearMinuteInterval();
     clearBallInterval();
     const zGK = computeZone("GK", pl.firstHalfLineup, pl.oppLineup);
@@ -3049,6 +3088,7 @@ document.getElementById("stage").addEventListener("click", function(e){
       playFanfare(); render(); break;
     }
     case "kickoff":
+      if(matchInProgress()) break;
       kickOff(); break;
     case "open-sub": {
       if(pl.halfSubUsed) break;
@@ -3076,6 +3116,16 @@ document.getElementById("stage").addEventListener("click", function(e){
       createCupRun(newCupBracket()).then(run=>{
         state.cupEntering = false;
         if(!run){ alert("Couldn't start the cup — check your connection and try again."); render(); return; }
+        // Re-checked here, not just at click time. The insert costs a round
+        // trip and nothing stops the player leaving the Play tab and spending
+        // in the shop meanwhile -- the balance then went negative and was
+        // persisted, and every price in the game read "NOT ENOUGH GEMS" until
+        // the debt was earned back. Withdraw the run rather than charge it.
+        if(state.gems < CUP_ENTRY_COST){
+          saveCupRun({ status:"eliminated" }).then(()=>{ state.cup = null; render(); });
+          alert("You spent those gems elsewhere before the cup could start, so it wasn't entered. Nothing was charged.");
+          render(); return;
+        }
         state.gems -= CUP_ENTRY_COST;
         updateProfile({ gems: state.gems });
         render();
@@ -3083,6 +3133,7 @@ document.getElementById("stage").addEventListener("click", function(e){
       break;
     }
     case "cup-play": {
+      if(matchInProgress()) break;
       const pl2 = state.play;
       const complete = buildSlots(pl2.formationKey,"my").every(s=>pl2.myLineup[s.id]);
       if(!complete){ alert("Fill every position before playing a cup tie."); break; }
@@ -3090,7 +3141,14 @@ document.getElementById("stage").addEventListener("click", function(e){
     }
     case "cup-forfeit":
       if(!confirm("Withdraw from the cup? Your entry fee is not refunded.")) break;
-      saveCupRun({ status:"eliminated" }).then(()=>{ state.cup=null; render(); });
+      // Only clear the local run once the write actually landed. Clearing it
+      // regardless left the row still `active` in the database, and the
+      // one-active-run index then rejected every future entry -- the cup was
+      // permanently unstartable until a reload.
+      saveCupRun({ status:"eliminated" }).then(({error})=>{
+        if(error){ alert("Couldn't withdraw — check your connection and try again."); render(); return; }
+        state.cup=null; render();
+      });
       break;
     case "open-train":
       playTap(); state.trainCardId = Number(el.dataset.playerId); render(); break;
@@ -3111,7 +3169,8 @@ document.getElementById("stage").addEventListener("click", function(e){
       // ended by some other route the overlay must not survive into the next
       // squad-building screen.
       if(window.Match3D && window.Match3D.isRunning()) window.Match3D.stop();
-      state.play = {...pl, activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false, isCupMatch:false, cupSummary:null, live3d:false};
+      resetMatchTimers();
+      state.play = {...pl, timeouts:[], activeSlot:null, subSlot:null, phase:"building", oppLineup:null, oppSlots:[], finalResult:null, matchMinute:0, halfSubUsed:false, zoneResultsLive:{}, seasonSummary:pl.seasonSummary, opponentMeta:null, isChallengeMatch:false, isCupMatch:false, cupSummary:null, live3d:false};
       render(); break;
     case "friend-send-challenge":
       submitChallengeFriend(el.dataset.targetId); break;
