@@ -89,7 +89,8 @@ create policy "addressee answers the request"
 do $$
 declare p record;
 begin
-  for p in select policyname from pg_policies
+  -- `cmd` must be selected, not just filtered on -- the notice below reads it.
+  for p in select policyname, cmd from pg_policies
            where schemaname='public' and tablename='challenges' and cmd in ('UPDATE','INSERT')
   loop
     execute format('drop policy %I on public.challenges', p.policyname);
@@ -117,7 +118,8 @@ create policy "parties settle a pending challenge"
 do $$
 declare p record;
 begin
-  for p in select policyname from pg_policies
+  -- `cmd` must be selected, not just filtered on -- the notice below reads it.
+  for p in select policyname, cmd from pg_policies
            where schemaname='public' and tablename='trades' and cmd in ('UPDATE','INSERT')
   loop
     execute format('drop policy %I on public.trades', p.policyname);
