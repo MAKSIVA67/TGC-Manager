@@ -96,6 +96,67 @@
     FWD: { speed:  0.10, shot:  0.20, pass: 0.00, tackle: -0.06, reflex: 0.00 },
   };
 
+  // -------------------------------------------------------------- mentalities
+  //
+  // The managerial dial, switchable mid-match without pausing. There is no
+  // separate "tactics engine" here: every field below is read by the shape code
+  // that already existed (updateTactics / attackRole / defendRole / aiKeeper)
+  // and by the pass model, so a change bends the same machinery rather than
+  // running a parallel one. Order matters -- the index is the HUD's index.
+  const MENTALITY = [
+    {
+      key: "defensive", name: "DEFENSIVE", short: "DEF", icon: "🛡",
+      blurb: "Sit deep, stay compact",
+      line: -14,        // metres added to the defensive line's depth
+      lineMax: 62,      // how high that line is ever allowed to get
+      commit: -8,       // lowers the bar for "make an attacking run"
+      runBonus: -6,     // how far beyond the line the runners go
+      support: 0.38,    // how far the holding shape squeezes up behind the ball
+      urge: 0.94,       // attacking-run urgency
+      pressRanks: 1,    // how many players leave shape to hunt the ball
+      press: 0.90,      // pressing urgency
+      standoff: 2.2,    // presser holds this far goal-side instead of diving in
+      chase: 0.78,      // how far a marker will travel from his slot
+      markSlack: -4,    // how far in front of the line a marker may stand
+      recover: 1.30,    // hustle back when caught upfield of the line
+      risk: 0.62,       // passing risk appetite
+      thru: 0.50,       // relative value of a through ball to the AI
+      shootRange: -4,   // metres added to the AI's shooting range
+      gkLine: 0,        // how much of the defensive line's height the GK follows
+      gkPush: 0,        // metres the keeper is ever allowed to leave his line by
+      gkSweep: -3,      // extra radius the keeper will sweep loose balls from
+    },
+    {
+      key: "balanced", name: "BALANCED", short: "BAL", icon: "⚖",
+      blurb: "Hold shape, pick your moment",
+      line: 0, lineMax: 82, commit: 0, runBonus: 0, support: 0.55, urge: 1.0,
+      pressRanks: 1, press: 1.0, standoff: 0, chase: 1.0, markSlack: 0,
+      recover: 1.12, risk: 1.0, thru: 1.0, shootRange: 0,
+      gkLine: 0.04, gkPush: 3, gkSweep: 0,
+    },
+    {
+      key: "attacking", name: "ATTACKING", short: "ATT", icon: "⚔",
+      blurb: "High line, get after them",
+      line: 11, lineMax: 88, commit: 16, runBonus: 6, support: 0.72, urge: 1.06,
+      pressRanks: 2, press: 1.07, standoff: 0, chase: 1.15, markSlack: 5,
+      recover: 0.98, risk: 1.32, thru: 1.40, shootRange: 4,
+      gkLine: 0.16, gkPush: 9, gkSweep: 6,
+    },
+    {
+      key: "allout", name: "ALL-OUT ATTACK", short: "ALL-OUT", icon: "🔥",
+      blurb: "Everyone up. No safety net",
+      line: 26, lineMax: 94, commit: 55, runBonus: 14, support: 0.95, urge: 1.14,
+      pressRanks: 3, press: 1.16, standoff: 0, chase: 1.45, markSlack: 14,
+      recover: 0.84, risk: 1.75, thru: 1.90, shootRange: 9,
+      gkLine: 0.45, gkPush: 28, gkSweep: 22,
+    },
+  ];
+  const MENT_BAL = 1;
+
+  function mentalityFor(a, team) {
+    return MENTALITY[(team === TEAM_MY ? a.mind.my : a.mind.opp)] || MENTALITY[MENT_BAL];
+  }
+
   // ------------------------------------------------------------------- module
 
   const M = {};
@@ -348,6 +409,16 @@
     press(el.btnTackle, () => { a.input.wantTackle = true; snapAim(a); });
     press(el.btnSkill, () => { a.input.wantSkill = true; snapAim(a); });
 
+    // Mentality chips. press() swallows the event, so a tap on the tactics bar
+    // can never also be read as the floating joystick starting a drag.
+    if (el.tacticBtns) {
+      for (let i = 0; i < el.tacticBtns.length; i++) {
+        (function (idx) {
+          press(el.tacticBtns[idx], () => { setMyMentality(a, idx); });
+        })(i);
+      }
+    }
+
     // Keyboard for desktop play/testing. Keys mirror the buttons 1:1.
     const keys = a.keys = {};
     a.onKeyDown = (e) => {
@@ -361,6 +432,8 @@
       if (k === "f" || k === "tab") { a.input.wantSwitch = true; snapAim(a); }
       if (k === "c" || k === "v") { a.input.wantTackle = true; snapAim(a); }
       if (k === "r") { a.input.wantSkill = true; snapAim(a); }
+      // 1-4 mirror the tactics chips for desktop play and automated testing.
+      if (k >= "1" && k <= "4") setMyMentality(a, parseInt(k, 10) - 1);
       if (k === "escape" || k === "p") togglePause(a);
       if ([" ", "tab", "arrowup", "arrowdown", "arrowleft", "arrowright"].indexOf(k) >= 0) e.preventDefault();
     };
@@ -588,6 +661,11 @@
     const mates = mateListFor(a, p.team);
     const dir = attackDirZ(p.team);
     const gz = goalZFor(p.team);
+    // Risk appetite. It is one number and it moves three things: how tight a
+    // lane we will squeeze the ball through, how much a forward pass is worth
+    // against a safe one, and how much we care that the receiver is free.
+    const risk = mentalityFor(a, p.team).risk;
+    const minLane = 0.85 / risk;
     let best = null, bestScore = -1e9;
     for (let i = 0; i < mates.length; i++) {
       const q = mates[i];
@@ -595,11 +673,11 @@
       const d = dist(p.x, p.z, q.x, q.z);
       if (d < 3.5 || d > p.attrs.vision + 10) continue;
       const clear = laneClearance(a, p.team, p.x, p.z, q.x, q.z);
-      if (clear < 0.85) continue;                 // straight into a defender
+      if (clear < minLane) continue;              // straight into a defender
       const pressQ = nearestOppDist(a, p.team, q.x, q.z);
       const forward = (q.z - p.z) * dir;
-      let s = 30 + forward * 1.35 + clamp(pressQ, 0, 11) * 2.3
-        + clamp(clear, 0, 5) * 2.8 - d * 0.5 + (q.attrs.power - 70) * 0.25;
+      let s = 30 + forward * (1.35 * risk) + clamp(pressQ, 0, 11) * (2.3 / risk)
+        + clamp(clear, 0, 5) * 2.8 - d * (0.5 / risk) + (q.attrs.power - 70) * 0.25;
       const qGoal = dist(q.x, q.z, 0, gz);
       if (qGoal < 26) s += (26 - qGoal) * 1.2;    // a shooting position is gold
       if (q.chaseUntil > a.t) s += 22;            // already running -- find them
@@ -647,6 +725,7 @@
     const dir = attackDirZ(p.team);
     const gz = goalZFor(p.team);
     const maxZ = PITCH_L / 2 - 5;
+    const risk = mentalityFor(a, p.team).risk;
     let best = null, bestScore = -1e9, bx = 0, bz = 0;
     for (let i = 0; i < mates.length; i++) {
       const q = mates[i];
@@ -655,7 +734,8 @@
       if (forward < -6) continue;                       // no through balls backwards
       const d = dist(p.x, p.z, q.x, q.z);
       if (d < 4 || d > p.attrs.vision + 16) continue;
-      const lead = clamp(6.5 + q.attrs.topSpeed * 0.85, 7, 15);
+      // A bolder side asks for a bigger ball into space in front of the runner.
+      const lead = clamp((6.5 + q.attrs.topSpeed * 0.85) * (0.75 + risk * 0.3), 6, 20);
       let lx = q.x + q.vx * 0.35, lz = q.z + dir * lead;
       lx = clamp(lx, -PITCH_W / 2 + 3, PITCH_W / 2 - 3);
       lz = clamp(lz, -maxZ, maxZ);
@@ -802,6 +882,67 @@
     return true;
   }
 
+  // ------------------------------------------------------------ mentality use
+
+  // The player's dial. Applied instantly -- no pause, no restart, and the next
+  // shape tick is forced so the team visibly reacts inside a fifth of a second.
+  function setMyMentality(a, idx, quiet) {
+    if (!a) return false;
+    idx = clamp(Math.round(idx) || 0, 0, MENTALITY.length - 1);
+    if (a.mind.my === idx) return false;
+    a.mind.my = idx;
+    const m = MENTALITY[idx];
+    if (HUD && HUD.setMentality) HUD.setMentality(a, idx);
+    if (!quiet) toast(a, m.icon + " " + m.name + " — " + m.blurb, 1500);
+    a.tacticTimer = 0;
+    return true;
+  }
+
+  function setOppMentality(a, idx, quiet) {
+    idx = clamp(Math.round(idx) || 0, 0, MENTALITY.length - 1);
+    if (a.mind.opp === idx) return false;
+    const prev = a.mind.opp;
+    a.mind.opp = idx;
+    if (HUD && HUD.setOppMentality) HUD.setOppMentality(a, idx);
+    a.tacticTimer = 0;
+    // Announce the big swings only, and never more than once every 12s -- the
+    // toast lane is shared with commentary and a nagging manager is noise.
+    if (!quiet && (idx === 0 || idx === 3) && a.t > a.oppMindToast) {
+      a.oppMindToast = a.t + 12;
+      const going = idx > prev;
+      toast(a, going ? "🔥 " + a.oppName + " throw men forward!"
+                     : "🧱 " + a.oppName + " shut up shop.", 1600);
+    }
+    return true;
+  }
+
+  // The opposition manager. Reads the scoreboard and the clock exactly like a
+  // human would: protect a lead late, chase the game when behind, and commit
+  // everything once there is nothing left to lose. `oppEdge` (the difficulty /
+  // toughness scaler) decides how sharply they read it -- a strong side reacts
+  // to the game state earlier, a weak one barely manages it at all.
+  function updateOppMentality(a) {
+    const lead = a.score.opp - a.score.my;
+    const min = a.shownMinute < 0 ? 0 : a.shownMinute;
+    const e = a.oppEdge;
+    let idx = MENT_BAL;
+
+    if (lead < 0) {
+      // Behind. Early on there is time to play; from the second half onward
+      // they get after it. Conceding in the third minute should not turn them
+      // into a different team.
+      idx = min > 20 ? 2 : MENT_BAL;
+      if (min > 72 - e * 14 || (lead <= -2 && min > 55 - e * 12)) idx = 3;
+    } else if (lead > 0) {
+      if (min > 62 - e * 20 || (lead >= 2 && min > 42)) idx = 0; // see it out
+    } else if (min > 74) {
+      idx = e > 0.45 ? 2 : 0;      // level and late: good sides go for it
+    }
+    // A limited side never finds the nerve for the truly reckless one.
+    if (e < 0.25 && idx === 3) idx = 2;
+    setOppMentality(a, idx);
+  }
+
   // ---------------------------------------------------------------- tactics
 
   // Runs ~7x/second, not per frame. Everything expensive lives here: role
@@ -832,13 +973,19 @@
     const ownZ = ownGoalZFor(side);
     const edge = edgeFor(a, side);
     const ballDepth = (b.z - ownZ) * dir;
+    const m = mentalityFor(a, side);
 
     // Defensive line as a DEPTH from our own goal. Squeezes up when we have it
     // (compact, high) and drops toward the box when they do -- the block stays
-    // roughly 30m front to back either way.
-    const lineDepth = hasBall
+    // roughly 30m front to back either way. The mentality then slides the whole
+    // block up or down the pitch and caps how high it may ever sit: a low block
+    // camps on the edge of its own box, all-out attack shoves it past halfway.
+    const base = hasBall
       ? clamp(ballDepth - 4, 26, 82)
       : clamp(ballDepth - 9 + edge * 5, 15, 64);
+    const lineDepth = clamp(base + m.line, 12, m.lineMax);
+    // Published for aiKeeper, which is a per-frame path and must not redo this.
+    if (side === TEAM_MY) a.lineMy = lineDepth; else a.lineOpp = lineDepth;
 
     // Rank outfielders by distance to the ball into a reusable buffer. Ten-ish
     // elements, so an insertion sort on the pre-computed _bd beats allocating a
@@ -887,8 +1034,8 @@
         }
       }
 
-      if (hasBall || restartOurs) attackRole(a, p, i, side, dir, ownZ, lineDepth, carrier, restart);
-      else defendRole(a, p, i, side, dir, ownZ, lineDepth, carrier, edge);
+      if (hasBall || restartOurs) attackRole(a, p, i, side, dir, ownZ, lineDepth, carrier, restart, m);
+      else defendRole(a, p, i, side, dir, ownZ, lineDepth, carrier, edge, m);
 
       p.tgtX = clamp(p.tgtX, -PITCH_W / 2 + 1.5, PITCH_W / 2 - 1.5);
       p.tgtZ = clamp(p.tgtZ, -PITCH_L / 2 + 2.5, PITCH_L / 2 - 2.5);
@@ -898,7 +1045,7 @@
   // In possession: one short option, the rest either run in behind or hold the
   // shape that stops a counter. Runners hunt for actual space rather than
   // charging the same channel as everyone else.
-  function attackRole(a, p, rank, side, dir, ownZ, lineDepth, carrier, restart) {
+  function attackRole(a, p, rank, side, dir, ownZ, lineDepth, carrier, restart, m) {
     const b = a.ball;
     const homeDepth = (p.homeZ - ownZ) * dir;
     const cx = carrier ? carrier.x : b.x, cz = carrier ? carrier.z : b.z;
@@ -924,11 +1071,14 @@
       return;
     }
 
-    if (homeDepth > lineDepth - 14) {
+    // Who commits forward. `commit` lowers the bar for joining the attack, so a
+    // low block leaves the front man alone up there and all-out attack drags
+    // the centre-backs into the box with everyone else.
+    if (homeDepth > lineDepth - 14 - m.commit) {
       // Forward players make runs. Three candidate lanes, pick the emptiest --
       // bounded work (3 x 11 distance checks) and it stops the whole front line
       // converging on the same blade of grass.
-      const baseDepth = clamp(Math.max(ballDepthOf(b, ownZ, dir) + 10, lineDepth + 14) + rank * 3, 22, 98);
+      const baseDepth = clamp(Math.max(ballDepthOf(b, ownZ, dir) + 10, lineDepth + 14) + rank * 3 + m.runBonus, 22, 98);
       const baseX = lerp(p.homeX * 1.05, b.x * 0.4, 0.35);
       let bestX = baseX, bestScore = -1e9;
       for (let k = -1; k <= 1; k++) {
@@ -937,32 +1087,48 @@
         const sc = nearestOppDist(a, side, tx, tz) * 2.4 - Math.abs(tx - p.homeX) * 0.35;
         if (sc > bestScore) { bestScore = sc; bestX = tx; }
       }
-      p.role = R_RUN; p.urgency = 1.02;
+      p.role = R_RUN; p.urgency = 1.02 * m.urge;
       p.tgtX = bestX;
       p.tgtZ = clamp(ownZ + dir * baseDepth, -PITCH_L / 2 + 4, PITCH_L / 2 - 4);
       return;
     }
 
     // Everyone else holds the shape, pushed up to the line and shaded toward
-    // the ball so we are not stretched if it breaks down.
-    p.role = R_HOLD; p.urgency = 0.86;
+    // the ball so we are not stretched if it breaks down. `support` is how much
+    // of the gap to the line they actually close: a low block keeps a spare
+    // man; all-out attack leaves nobody behind the ball at all.
+    p.role = R_HOLD; p.urgency = 0.86 * m.urge;
     p.tgtX = lerp(p.homeX, clamp(b.x * 0.6, -PITCH_W / 2 + 3, PITCH_W / 2 - 3), 0.35);
-    p.tgtZ = ownZ + dir * clamp(homeDepth + (lineDepth - homeDepth) * 0.55, 8, 92);
+    p.tgtZ = ownZ + dir * clamp(homeDepth + (lineDepth - homeDepth) * m.support, 8, 92);
   }
 
   function ballDepthOf(b, ownZ, dir) { return (b.z - ownZ) * dir; }
 
   // Out of possession: one presser, one cover, the rest mark goal-side of a
   // man each and hold the line. This is where "arcade" becomes "a match".
-  function defendRole(a, p, rank, side, dir, ownZ, lineDepth, carrier, edge) {
+  function defendRole(a, p, rank, side, dir, ownZ, lineDepth, carrier, edge, m) {
     const b = a.ball;
     const called = a.pressMate === p && a.t < a.pressUntil;
 
-    if (rank === 0 || called) {
+    // How many bodies leave the shape to hunt the ball. One is the honest
+    // default; attacking adds a second-wave presser behind the cover man and
+    // all-out attack sends three and keeps nobody spare.
+    const pressing = rank === 0 || called ||
+      (rank === 1 && m.pressRanks >= 3) || (rank === 2 && m.pressRanks >= 2);
+
+    if (pressing) {
       // Attack the ball, leading it slightly so you arrive where it is going.
-      p.role = R_PRESS; p.urgency = 1.1 + edge * 0.1;
+      p.role = R_PRESS; p.urgency = (1.1 + edge * 0.1) * m.press;
       p.tgtX = b.x + b.vx * 0.18;
       p.tgtZ = b.z + b.vz * 0.18;
+      // A low block contains rather than commits: stand off, goal-side, and
+      // make them play through you instead of round you.
+      if (m.standoff) {
+        const gx = 0 - b.x, gz = ownZ - b.z;
+        const l = Math.hypot(gx, gz) || 1;
+        p.tgtX += (gx / l) * m.standoff;
+        p.tgtZ += (gz / l) * m.standoff;
+      }
       return;
     }
 
@@ -971,11 +1137,17 @@
       const gx = 0, gz = ownZ;
       let ux = gx - b.x, uz = gz - b.z;
       const l = Math.hypot(ux, uz) || 1; ux /= l; uz /= l;
-      p.role = R_COVER; p.urgency = 1.02 + edge * 0.08;
+      p.role = R_COVER; p.urgency = (1.02 + edge * 0.08) * m.press;
       p.tgtX = b.x + ux * 6.5;
       p.tgtZ = b.z + uz * 6.5;
       return;
     }
+
+    // Recovery: caught upfield of our own line, how hard do we run back? This
+    // is the difference between a side that swarms back behind the ball and one
+    // that jogs while the counter goes past it.
+    const behindLine = (p.z - ownZ) * dir - lineDepth;
+    const hustle = behindLine > 6 ? m.recover : 1;
 
     // Man-marking, greedy nearest-unmarked. Threat is a mix of how advanced
     // they are and how close they are to the ball, so the dangerous runner
@@ -986,7 +1158,7 @@
       const o = opps[i];
       if (o.isGK || o.marked || o === carrier) continue;
       const d = dist(o.x, o.z, p.x, p.z);
-      if (d > 30) continue;
+      if (d > 30 * m.chase) continue;      // how far we'll travel to pick a man up
       const threat = 60 - (o.z - ownZ) * dir * 0.55 - dist(o.x, o.z, b.x, b.z) * 0.5 - d * 0.9;
       if (threat > bestScore) { bestScore = threat; mark = o; }
     }
@@ -1005,14 +1177,15 @@
       // Never in front of the defensive line -- that is what keeps the block
       // compact instead of a string of individual duels.
       const depth = (tz - ownZ) * dir;
-      if (depth > lineDepth + 10) tz = ownZ + dir * (lineDepth + 10);
-      p.role = R_MARK; p.urgency = 0.98 + edge * 0.06;
+      const slack = lineDepth + 10 + m.markSlack;
+      if (depth > slack) tz = ownZ + dir * slack;
+      p.role = R_MARK; p.urgency = (0.98 + edge * 0.06) * hustle;
       p.tgtX = tx; p.tgtZ = tz;
       return;
     }
 
     p.mark = null;
-    p.role = R_HOLD; p.urgency = 0.9;
+    p.role = R_HOLD; p.urgency = 0.9 * hustle;
     const homeDepth = (p.homeZ - ownZ) * dir;
     p.tgtX = lerp(p.homeX, clamp(b.x * 0.55, -PITCH_W / 2 + 3, PITCH_W / 2 - 3), 0.4);
     p.tgtZ = ownZ + dir * clamp(Math.min(homeDepth, lineDepth + 16), 6, 92);
@@ -1032,6 +1205,8 @@
     const press = nearestOppDist(a, p.team, p.x, p.z);
     const edge = edgeFor(a, p.team);
     const poise = clamp(p.attrs.composure * (1 + edge * 0.35), 0, 1);
+    const m = mentalityFor(a, p.team);
+    const range = 34 + m.shootRange;
 
     p.think -= dt;
     if (p.think <= 0 && p.cooldown <= 0 && a.kickoffFreeze <= 0) {
@@ -1041,9 +1216,9 @@
       const noise = (1 - poise) * 30;
 
       let shootV = -1e9;
-      if (dGoal < 34) {
+      if (dGoal < range) {
         const angle = clamp(1 - Math.abs(p.x) / 26, 0.12, 1);
-        shootV = (34 - dGoal) * 2.5 * angle * (0.55 + p.attrs.shotAccuracy * 0.95);
+        shootV = (range - dGoal) * 2.5 * angle * (0.55 + p.attrs.shotAccuracy * 0.95);
         shootV *= clamp(press / 3.0, 0.35, 1.15);
         if (laneClearance(a, p.team, p.x, p.z, 0, gz) < 1.6) shootV *= 0.45;
         const gk = a.gk[p.team === TEAM_MY ? TEAM_OPP : TEAM_MY];
@@ -1058,7 +1233,7 @@
 
       const tt = bestThroughTarget(a, p, 0, 0, 0);
       const tx = a._thruX, tz = a._thruZ;
-      let thruV = tt ? a._score * (0.55 + p.attrs.vision / 30) : -1e9;
+      let thruV = tt ? a._score * (0.55 + p.attrs.vision / 30) * m.thru : -1e9;
       if (tt) thruV += rand(-noise, noise);
 
       let dribV = 24 + clamp(press - 2.4, 0, 9) * 4.2 + p.attrs.control * 16
@@ -1111,6 +1286,33 @@
     if (window.playKick) window.playKick();
   }
 
+  // Keeper in possession. aiOnBall has always delegated here, but the function
+  // itself was missing -- so every time a goalkeeper picked the ball up the
+  // frame step threw, the rest of that frame (ball, possession, bounds) never
+  // ran, and play froze in his hands until something else jolted it. It is the
+  // reason matches could sit in one penalty area for a minute at a time.
+  //
+  // He does not dribble out of his own box: take the beat that possessionChange
+  // already gave him (think = 0.7), find the free man, otherwise put it long.
+  function aiKeeperOnBall(a, p, dt) {
+    // Stand still while he looks up.
+    p.vx *= Math.max(0, 1 - 6 * dt);
+    p.vz *= Math.max(0, 1 - 6 * dt);
+    p.think -= dt;
+    if (p.think > 0 || p.cooldown > 0 || a.kickoffFreeze > 0) return;
+
+    const pressed = nearestOppDist(a, p.team, p.x, p.z) < 6.5;
+    const t = bestPassTarget(a, p, 0, 0, 0);
+    // A keeper's bar for playing out is much higher than an outfielder's --
+    // rolling it to a marked centre-back is how you concede a stupid goal --
+    // and it rises again when somebody is closing him down. Mentality moves it:
+    // a low block hoofs it clear, an all-out side builds from the back because
+    // it wants the extra body in the move.
+    const bar = (pressed ? 52 : 34) / mentalityFor(a, p.team).risk;
+    if (t && a._score > bar) { pass(a, p, t); return; }
+    clearIt(a, p);
+  }
+
   // Keeper. Two jobs: stand on the bisector at the right depth so the angle is
   // narrow, and come and get anything loose you can reach first.
   function aiKeeper(a, p, dt) {
@@ -1119,6 +1321,16 @@
     const gz = ownGoalZFor(p.team);
     const dx = b.x - 0, dz = b.z - gz;
     const d = Math.hypot(dx, dz) || 1;
+    // Sweeper-keeper. He follows a fraction of his own defensive line rather
+    // than the ball, which is what a real one does: when the back four are on
+    // halfway he has to be on the edge of the D covering the space behind them,
+    // and when they are camped in the box he is on his line. On ALL-OUT ATTACK
+    // that fraction is high enough to leave him standing near the centre circle
+    // with an empty net behind him -- the whole trade of the mentality.
+    const m = mentalityFor(a, p.team);
+    const line = (p.team === TEAM_MY ? a.lineMy : a.lineOpp) || 30;
+    const push = clamp((line - 30) * m.gkLine, 0, m.gkPush);
+    const pushFrac = m.gkPush > 0 ? push / m.gkPush : 1;
 
     // Predictive dive: if a shot is actually travelling toward the line, go to
     // where it will cross rather than where the ball is now.
@@ -1135,7 +1347,7 @@
 
     // Sweep: loose ball near the box that we are clearly closest to.
     const boxDepth = Math.abs(b.z - gz);
-    if (!b.owner && boxDepth < 17 && b.y < 2.4) {
+    if (!b.owner && boxDepth < Math.max(8, 17 + m.gkSweep * pushFrac) && b.y < 2.4) {
       let rivalClose = false;
       const opps = oppListFor(a, p.team);
       for (let i = 0; i < opps.length; i++) {
@@ -1152,9 +1364,10 @@
     // when the keeper is good enough to trust himself off his line.
     const advance = clamp(d * 0.17, 0.5, 6.0) * (0.7 + p.attrs.reflex * 0.55);
     let tx = (dx / d) * advance;
-    let tz = gz + (dz / d) * advance;
-    tx = clamp(tx, -GOAL_W / 2 - 1.8, GOAL_W / 2 + 1.8);
-    steer(p, tx, tz, dt, 1.05);
+    let tz = gz + dir * push + (dz / d) * advance;
+    const wide = GOAL_W / 2 + 1.8 + push * 0.6;
+    tx = clamp(tx, -wide, wide);
+    steer(p, tx, tz, dt, 1.05 + (push > 4 ? 0.15 : 0));
     p.facing = Math.atan2(b.x - p.x, b.z - p.z);
   }
 
@@ -1892,6 +2105,12 @@
 
     handleActions(a);
 
+    // The opposition manager reads the game every couple of seconds. Cheap --
+    // two integers and a clock -- but it is what makes a late lead feel like a
+    // siege and a two-goal deficit feel like they are coming at you.
+    a.aiMindTimer -= dt;
+    if (a.aiMindTimer <= 0) { a.aiMindTimer = 2.0; updateOppMentality(a); }
+
     // Cadenced thinking -- see the header note. Everything O(n^2) is in here.
     a.tacticTimer -= dt;
     if (a.tacticTimer <= 0 && a.celebrate <= 0) {
@@ -2082,6 +2301,10 @@
       manualHold: false, manualUntil: -1,
       pressMate: null, pressUntil: -1,
       oppEdge: 0,
+      // Team mentality, switchable mid-match. Indices into MENTALITY.
+      mind: { my: MENT_BAL, opp: MENT_BAL },
+      aiMindTimer: 6, oppMindToast: 0,
+      lineMy: 40, lineOpp: 40,
       // Scratch objects reused every frame so the hot path never allocates.
       _sw: { x: 0, z: 0, mag: 0 },
       _st: {
@@ -2176,6 +2399,10 @@
     document.body.appendChild(a.root);
     bindControls(a);
     goLandscape(a);
+    // Paint the tactics bar with the starting shape before the first frame, so
+    // it is never briefly blank or showing the wrong chip.
+    if (HUD.setMentality) HUD.setMentality(a, a.mind.my);
+    if (HUD.setOppMentality) HUD.setOppMentality(a, a.mind.opp);
 
     resetKickoff(a, TEAM_MY);
     a.kickoffFreeze = 1.4;
@@ -2231,6 +2458,16 @@
     a.running = true;
     a.raf = requestAnimationFrame(frame);
     return true;
+  };
+
+  // Optional extras -- purely additive, nothing in index.html has to call them.
+  // Lets a caller drive the mentality from outside (a pre-match team-talk, a
+  // keyboard shortcut, a tutorial) without reaching into the instance.
+  M.setMentality = function (idx) { return A ? setMyMentality(A, idx) : false; };
+  M.getMentality = function () {
+    if (!A) return null;
+    const m = MENTALITY[A.mind.my], o = MENTALITY[A.mind.opp];
+    return { index: A.mind.my, key: m.key, name: m.name, oppIndex: A.mind.opp, oppKey: o.key };
   };
 
   M.getScore = function () { return A ? { my: A.score.my, opp: A.score.opp } : null; };

@@ -29,6 +29,10 @@
 //   H.setMode(a, "attack"|"defend")   swaps the right-hand button cluster
 //   H.updateRadar(a, data)            data: { players:[{x,z,team,controlled}], ball:{x,z} }
 //   H.flash(a, color, ms) / H.hideHint(a)
+//   H.setMentality(a, idx)            lights the tactics chip for MENTALITY[idx]
+//   H.setOppMentality(a, idx)         shows what shape the opposition switched to
+//   H.SHAPES                          the mentality display table (order must
+//                                     match MENTALITY[] in match3d.js)
 // `a` is the live match instance; `a.el` is the element map from build().
 "use strict";
 
@@ -87,6 +91,28 @@
     let out = words[0].slice(0, 3);
     for (let i = 1; i < words.length && out.length < 3; i++) out += words[i].slice(0, 3 - out.length);
     return out || "TBD";
+  }
+
+  // Team mentality, presentation side. The simulation owns the numbers and
+  // passes an INDEX; this array owns what that index looks like, and the two
+  // must stay in the same order as MENTALITY[] in match3d.js.
+  // `top` is where the line sits in the little pitch glyph -- the whole point
+  // of the glyph is that you can read "how high do we sit" without reading.
+  const SHAPES = [
+    { short: "DEF", name: "DEFENSIVE", color: C.cyan, top: 68 },
+    { short: "BAL", name: "BALANCED", color: C.turf, top: 50 },
+    { short: "ATT", name: "ATTACKING", color: C.gold, top: 32 },
+    { short: "ALL-OUT", name: "ALL-OUT ATTACK", color: C.danger, top: 14 },
+  ];
+  H.SHAPES = SHAPES;
+
+  // A 12x16 pitch with a line across it. currentColor so it re-tints for free
+  // when the chip goes active.
+  function shapeGlyph(top) {
+    return '<span style="position:relative;display:block;width:11px;height:15px;flex:0 0 auto;' +
+      'border-radius:2px;border:1px solid currentColor;opacity:.85">' +
+      '<span style="position:absolute;left:1px;right:1px;top:' + top + '%;height:2px;' +
+      'background:currentColor"></span></span>';
   }
 
   function legendRow(color, label, text) {
@@ -291,6 +317,52 @@
       "border:3px solid transparent;box-shadow:0 0 18px rgba(0,0,0,.35)");
     root.appendChild(el.powerRing);
 
+    // ------------------------------------------------------ tactics selector
+    // Bottom-centre: the one strip of screen neither thumb cluster uses (the
+    // stick floats in the left 55%, the buttons hug the right edge). Four fixed
+    // chips rather than a menu, because changing shape has to cost exactly one
+    // tap and no pause -- opening a sheet mid-move is a goal conceded.
+    // Sized for landscape: the whole module is ~60px tall, which at a 430px
+    // viewport leaves the hint card and the nameplate clear above it.
+    const tacWrap = h("div",
+      "position:absolute;left:50%;bottom:calc(" + SB + " + 8px);transform:translateX(-50%);z-index:4;" +
+      "display:flex;flex-direction:column;gap:4px;padding:5px 6px 6px;border-radius:13px;" +
+      "background:linear-gradient(180deg,rgba(19,34,52,.90),rgba(9,16,26,.92));" +
+      "border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 22px rgba(0,0,0,.5)");
+    el.tactics = tacWrap;
+
+    const tacHead = h("div",
+      "display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 4px;" +
+      "font-size:8px;font-weight:900;letter-spacing:.14em;white-space:nowrap");
+    el.tacticName = h("div", "color:" + C.turf, "BALANCED");
+    el.tacticOpp = h("div", "color:" + C.muted, "THEM · BALANCED");
+    tacHead.appendChild(el.tacticName);
+    tacHead.appendChild(el.tacticOpp);
+    tacWrap.appendChild(tacHead);
+
+    const tacRow = h("div", "display:flex;align-items:stretch;gap:4px");
+    el.tacticBtns = [];
+    for (let i = 0; i < SHAPES.length; i++) {
+      const sh = SHAPES[i];
+      const chip = h("div",
+        "display:flex;align-items:center;justify-content:center;gap:6px;flex:0 0 auto;" +
+        "height:36px;padding:0 10px;border-radius:10px;cursor:pointer;touch-action:none;" +
+        "font-size:10px;font-weight:900;letter-spacing:.07em;" +
+        "transition:background .14s ease,color .14s ease,border-color .14s ease," +
+        "box-shadow .14s ease,transform .08s ease",
+        shapeGlyph(sh.top) + "<span>" + sh.short + "</span>");
+      // Visual press feedback only; match3d.js owns the actual binding.
+      chip.addEventListener("pointerdown", () => { chip.style.transform = "scale(.94)"; });
+      const rel = () => { chip.style.transform = ""; };
+      chip.addEventListener("pointerup", rel);
+      chip.addEventListener("pointercancel", rel);
+      chip.addEventListener("pointerleave", rel);
+      tacRow.appendChild(chip);
+      el.tacticBtns.push(chip);
+    }
+    tacWrap.appendChild(tacRow);
+    root.appendChild(tacWrap);
+
     // ------------------------------------------------------------ pause bug
     el.pause = h("div",
       "position:absolute;top:calc(" + ST + " + 10px);right:12px;width:40px;height:40px;z-index:4;" +
@@ -328,7 +400,8 @@
       legendRow(C.turf, "PASS", "Tap to find the best-placed teammate") +
       legendRow(C.gold, "THRU", "Slide a pass into space behind the defence") +
       legendRow(C.pink, "SKILL", "Burst past your marker") +
-      legendRow(C.gold, "RUN", "Hold to sprint")));
+      legendRow(C.gold, "RUN", "Hold to sprint") +
+      legendRow(C.cyan, "SHAPE", "Change tactics any time — no pause needed")));
     root.appendChild(el.hint);
 
     // --------------------------------------------------------------- banner
@@ -439,6 +512,8 @@
     // ------------------------------------------------------------ initial state
     renderScore(s, 0, 0, null);
     applyMode(s, "attack", true);
+    applyShape(s, 1, true);
+    applyOppShape(s, 1);
     el.nameplate.textContent = "";
 
     // Hint choreography: wait for the kickoff card to clear, hold ~6s, and
@@ -592,6 +667,59 @@
       [{ transform: "scale(.72)", opacity: 0.2 }, { transform: "scale(1)", opacity: 1 }],
       { duration: 200, easing: "cubic-bezier(.2,1.2,.4,1)" });
   }
+
+  // ------------------------------------------------------------- mentality UI
+
+  function applyShape(s, idx, silent) {
+    const el = s.el;
+    if (!el.tacticBtns) return;
+    idx = idx >= 0 && idx < SHAPES.length ? idx : 1;
+    s.shape = idx;
+    for (let i = 0; i < el.tacticBtns.length; i++) {
+      const b = el.tacticBtns[i], sh = SHAPES[i], on = i === idx;
+      b.style.background = on ? sh.color + "26" : "rgba(255,255,255,.035)";
+      b.style.border = "1px solid " + (on ? sh.color : "rgba(255,255,255,.10)");
+      b.style.color = on ? sh.color : "#7E96B2";
+      b.style.boxShadow = on
+        ? "inset 0 0 0 1px " + sh.color + "55,0 4px 14px " + sh.color + "33"
+        : "none";
+    }
+    const cur = SHAPES[idx];
+    if (el.tacticName) {
+      el.tacticName.textContent = cur.name;
+      el.tacticName.style.color = cur.color;
+    }
+    if (!silent) {
+      anim(el.tacticBtns[idx], [{ transform: "scale(.9)" }, { transform: "scale(1)" }],
+        { duration: 240, easing: "cubic-bezier(.2,.9,.3,1)" });
+      if (el.tacticName) {
+        anim(el.tacticName, [{ opacity: 0.2 }, { opacity: 1 }], { duration: 260, easing: "ease-out" });
+      }
+    }
+  }
+
+  function applyOppShape(s, idx) {
+    const el = s.el;
+    if (!el.tacticOpp) return;
+    const sh = SHAPES[idx >= 0 && idx < SHAPES.length ? idx : 1];
+    el.tacticOpp.textContent = "THEM · " + sh.name;
+    // Only colour it when they have actually committed one way or the other --
+    // a permanently lit label stops meaning anything.
+    el.tacticOpp.style.color = (idx === 0 || idx === 3) ? sh.color : C.muted;
+  }
+
+  // idx is an index into SHAPES / MENTALITY -- the sim owns which one is live.
+  H.setMentality = function (a, idx) {
+    const s = a && a.el && a.el._hud;
+    if (!s) return;
+    applyShape(s, idx, false);
+  };
+
+  H.setOppMentality = function (a, idx) {
+    const s = a && a.el && a.el._hud;
+    if (!s) return;
+    applyOppShape(s, idx);
+  };
 
   H.setMode = function (a, mode) {
     const s = a && a.el && a.el._hud;
