@@ -176,8 +176,12 @@ function handleSignedIn(userId) {
     if (error || window.state.justBanned) { window.state.authReady = true; window.render(); return; }
     applyPendingSignupProfile()
       .then(() => Promise.all([
-        loadCatalogAndOwnership(userId),
-        loadSquad(userId),
+        // loadSquad MUST follow the catalog: it resolves the saved lineup's
+        // card ids against state.players, which loadCatalogAndOwnership fills.
+        // Run in parallel and the (much smaller) squads query usually wins the
+        // race, resolving every slot to null -- i.e. the saved squad is wiped
+        // and the player is dumped back to "0/11 positions filled".
+        loadCatalogAndOwnership(userId).then(() => loadSquad(userId)),
         loadRecentMatchesAndSeason(userId),
         // Resolves to null (and hides the cup) if migration 002 hasn't been
         // run, so it can't block sign-in on a database without the table.

@@ -269,27 +269,63 @@ function declineChallengeRow(challengeId) {
 // exposed by index.html's IIFE), aggregate via decideMatchFromZones
 // (game-data.js), and write the authoritative result back -- ALWAYS from
 // the CHALLENGER's perspective, per the schema's own convention.
+// playersById() is the ACCEPTOR's catalog, where `power` is already the
+// printed value plus the ACCEPTOR's own training level. Resolving the
+// CHALLENGER's lineup through it therefore stripped their training and
+// silently applied ours in its place -- a card the acceptor had levelled made
+// the opponent stronger, and the challenger's own levels counted for nothing.
+// Read their real levels and rebuild each of their cards from basePower.
+function fetchCardLevels(userId) {
+  return sb.from("user_cards").select("card_id, level").eq("user_id", userId)
+    .then(({ data, error }) => {
+      if (error) return null;                 // fall back to printed power
+      const levels = {};
+      (data || []).forEach(r => { levels[r.card_id] = r.level || 0; });
+      return levels;
+    });
+}
+
+// Like resolveLineupIds, but each card is a COPY scored with the level its
+// actual OWNER has trained it to. Copies matter: the catalog objects are the
+// acceptor's own cards everywhere else in the app and must not be mutated.
+// A null `levels` (unreadable) means printed power for everyone, which is at
+// least neutral rather than wrong.
+function resolveLineupIdsForOwner(lineupIds, byId, levels) {
+  const out = {};
+  Object.keys(lineupIds || {}).forEach(slotId => {
+    const id = lineupIds[slotId];
+    const card = (id != null && byId[id]) ? byId[id] : null;
+    if (!card) { out[slotId] = null; return; }
+    const base = card.basePower != null ? card.basePower : card.power;
+    const level = levels ? (levels[id] || 0) : 0;
+    out[slotId] = { ...card, level, power: base + level };
+  });
+  return out;
+}
+
 function resolveChallengeAccept(challengeId, myFormation, myLineupIds) {
   return fetchChallenge(challengeId).then(({ data: challenge, error }) => {
     if (error || !challenge) return { error: error || "Challenge not found." };
     if (challenge.status !== "pending") return { error: "This challenge is no longer pending." };
-    const byId = playersById();
-    const challengerLU = resolveLineupIds(challenge.challenger_lineup, byId);
-    const opponentLU = resolveLineupIds(myLineupIds, byId);
-    const zGK = window.computeZone("GK", challengerLU, opponentLU);
-    const zDEF = window.computeZone("DEF", challengerLU, opponentLU);
-    const zMID = window.computeZone("MID", challengerLU, opponentLU);
-    const zFWD = window.computeZone("FWD", challengerLU, opponentLU);
-    const outcome = decideMatchFromZones(zGK, zDEF, zMID, zFWD);
-    const result = outcome.result === "win" ? "challenger" : outcome.result === "loss" ? "opponent" : "draw";
-    const zoneResults = { GK: zGK.result, DEF: zDEF.result, MID: zMID.result, FWD: zFWD.result };
-    return sb.from("challenges").update({
-      opponent_formation: myFormation, opponent_lineup: myLineupIds,
-      zone_results: zoneResults, result, status: "completed", resolved_at: new Date().toISOString(),
-    }).eq("id", challengeId).then(({ error: updateError }) => ({
-      error: updateError ? updateError.message : null,
-      data: { challenge, challengerLU },
-    }));
+    return fetchCardLevels(challenge.challenger_id).then(challengerLevels => {
+      const byId = playersById();
+      const challengerLU = resolveLineupIdsForOwner(challenge.challenger_lineup, byId, challengerLevels);
+      const opponentLU = resolveLineupIds(myLineupIds, byId);
+      const zGK = window.computeZone("GK", challengerLU, opponentLU);
+      const zDEF = window.computeZone("DEF", challengerLU, opponentLU);
+      const zMID = window.computeZone("MID", challengerLU, opponentLU);
+      const zFWD = window.computeZone("FWD", challengerLU, opponentLU);
+      const outcome = decideMatchFromZones(zGK, zDEF, zMID, zFWD);
+      const result = outcome.result === "win" ? "challenger" : outcome.result === "loss" ? "opponent" : "draw";
+      const zoneResults = { GK: zGK.result, DEF: zDEF.result, MID: zMID.result, FWD: zFWD.result };
+      return sb.from("challenges").update({
+        opponent_formation: myFormation, opponent_lineup: myLineupIds,
+        zone_results: zoneResults, result, status: "completed", resolved_at: new Date().toISOString(),
+      }).eq("id", challengeId).then(({ error: updateError }) => ({
+        error: updateError ? updateError.message : null,
+        data: { challenge, challengerLU },
+      }));
+    });
   });
 }
 

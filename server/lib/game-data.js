@@ -377,7 +377,13 @@ function refreshGameState() {
   const session = window.state.session;
   const userId = session && session.user && session.user.id;
   if (!userId) return Promise.resolve();
-  return Promise.all([loadProfile(userId), loadCatalogAndOwnership(userId), loadSquad(userId)]).then(() => window.render());
+  // loadSquad is chained, not parallel -- it resolves lineup ids against
+  // state.players, so running it alongside the catalog load leaves the lineup
+  // holding pre-refresh card objects (including ones just traded away).
+  return Promise.all([
+    loadProfile(userId),
+    loadCatalogAndOwnership(userId).then(() => loadSquad(userId)),
+  ]).then(() => window.render());
 }
 
 function commitMatchResult(outcome, matchSeasonNumber, matchMatchday, opponentName, isChallengeMatch) {

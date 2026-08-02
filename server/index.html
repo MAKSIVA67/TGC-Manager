@@ -597,6 +597,16 @@ const NEWS_ITEMS = [
   {v:"v5",text:"Real formations, half-time substitutions, and a 6-matchday Season with ranks are live."},
 ];
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+function yesterdayStr(){ const d=new Date(); d.setUTCDate(d.getUTCDate()-1); return d.toISOString().slice(0,10); }
+// A daily streak survives only if the last claim was today (already counted)
+// or yesterday; anything older is a broken streak that restarts at day 1.
+// Without this the ladder never resets -- claiming once a month still walked
+// straight up 10/15/20/25/35/45/60 and then sat on the 60-gem day forever.
+// Used by BOTH the home display and the claim handler so they can't disagree.
+function activeDailyStreak(){
+  const last = state.home.dailyLastClaim;
+  return (last === todayStr() || last === yesterdayStr()) ? state.home.dailyStreak : 0;
+}
 
 // ---------- audio (native WebAudio, replaces Tone.js) ----------
 let actx=null;
@@ -977,7 +987,7 @@ function homeView(){
   const bestFive = [...owned].sort((a,b)=>b.power-a.power).slice(0,5);
   const teamRating = bestFive.length ? Math.round(bestFive.reduce((s,p)=>s+p.power,0)/bestFive.length) : 0;
   const dailyClaimed = state.home.dailyLastClaim === todayStr();
-  const currentDay = (state.home.dailyStreak % 7) + 1;
+  const currentDay = (activeDailyStreak() % 7) + 1;
 
   const newsModal = state.newsOpen ? `<div class="modalWrap" data-action="close-modal" data-modal="news">
     <div class="modalSheet" data-action="noop">
@@ -2998,9 +3008,10 @@ document.getElementById("stage").addEventListener("click", function(e){
       const dailyClaimed = state.home.dailyLastClaim === todayStr();
       if(dailyClaimed) break;
       playChime();
-      const reward = DAILY_REWARDS[state.home.dailyStreak % 7];
+      const streak = activeDailyStreak();
+      const reward = DAILY_REWARDS[streak % 7];
       state.gems += reward;
-      state.home = { ...state.home, dailyLastClaim: todayStr(), dailyStreak: state.home.dailyStreak+1 };
+      state.home = { ...state.home, dailyLastClaim: todayStr(), dailyStreak: streak+1 };
       render();
       updateProfile({ gems: state.gems, daily_last_claim: state.home.dailyLastClaim, daily_streak: state.home.dailyStreak });
       break;
