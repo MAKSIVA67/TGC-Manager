@@ -94,10 +94,27 @@ input,textarea{font-family:inherit;font-size:16px}
 @keyframes wanderD{0%{transform:translate(0,0)}35%{transform:translate(-3px,-4px)}65%{transform:translate(4px,3px)}100%{transform:translate(0,0)}}
 .confettiPiece{position:absolute;top:-20px;pointer-events:none}
 .chatComposer{position:fixed;bottom:calc(60px + env(safe-area-inset-bottom));left:50%;width:100%;max-width:480px;box-sizing:border-box;display:flex;gap:8px;padding:10px 16px;background:var(--panel);border-top:1px solid var(--panelLight);z-index:20;transform:translateX(-50%) translateY(0);transition:transform 240ms var(--ease-out-strong)}
+/* Tab-change entrance. The view slides and fades as one block, then its
+   direct children stagger in behind it -- a whole screen appearing at once
+   reads as a page load, whereas a short cascade reads as an app. Capped at
+   eight children so a long collection list doesn't take a second to appear. */
+@keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes itemIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.viewEnter{animation:viewIn 260ms var(--ease-out-strong) both}
+.viewEnter > .view > *{animation:itemIn 320ms var(--ease-out-strong) both}
+.viewEnter > .view > *:nth-child(1){animation-delay:20ms}
+.viewEnter > .view > *:nth-child(2){animation-delay:55ms}
+.viewEnter > .view > *:nth-child(3){animation-delay:90ms}
+.viewEnter > .view > *:nth-child(4){animation-delay:125ms}
+.viewEnter > .view > *:nth-child(5){animation-delay:155ms}
+.viewEnter > .view > *:nth-child(6){animation-delay:180ms}
+.viewEnter > .view > *:nth-child(7){animation-delay:200ms}
+.viewEnter > .view > *:nth-child(n+8){animation-delay:215ms}
 @media (prefers-reduced-motion: reduce){
   [style*="twinkle"],[style*="shineSweep"],[style*="floatBounce"],[style*="spinRays"],
   [style*="wanderA"],[style*="wanderB"],[style*="wanderC"],[style*="wanderD"]{animation:none !important}
   .confettiPiece{animation:none !important;opacity:0}
+  .viewEnter,.viewEnter > .view > *{animation:none !important}
 }
 </style>
 
@@ -627,6 +644,9 @@ function icon(name, size, color, extraStyle){
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;${extraStyle}">${body}</svg>`;
 }
 
+// Which tab the last render drew, so appHTML() can tell a genuine tab change
+// from one of the many incidental re-renders.
+let lastRenderedTab = null;
 function render(){ document.getElementById("stage").innerHTML = appHTML(); }
 // Exposed so the separate lib/*.js scripts (auth.js, game-data.js, ...) can
 // reach into this IIFE -- everything else declared in here stays private to
@@ -702,6 +722,39 @@ const POSITION_GLYPH = {GK:"GK",DEF:"DF",MID:"MF",FWD:"FW"};
 // matches that layout exactly so uploaded art is never stretched/cropped
 // oddly, instead of the previous roughly-square foil-design tile.
 const CARD_ART_RATIO = "842/1191";
+// Per-tier card treatment. Four bands rather than ten, because ten distinct
+// looks would read as noise -- the eye needs to sort cards into "ordinary /
+// good / rare / special" at a glance, not rank them precisely.
+function rarityFx(rarityName){
+  const t = tierRank(rarityName);
+  if(t >= tierRank("Icon")) return {          // Icon, GOAT
+    band: 3,
+    bg: c => `radial-gradient(circle at 30% 0%, ${c}66, transparent 60%), conic-gradient(from 210deg at 50% 40%, ${c}55, ${COLORS.bg} 25%, ${c}44 50%, ${COLORS.bg} 75%, ${c}55), ${COLORS.bg}`,
+    border: c => `2px solid ${c}`,
+    glow: c => `0 0 22px -4px ${c}cc, inset 0 0 24px -12px ${c}`,
+    sweep: 2.2, corners: true,
+  };
+  if(t >= tierRank("Legendary")) return {     // Legendary, Mythic
+    band: 2,
+    bg: c => `linear-gradient(160deg, ${COLORS.bg} 0%, ${c}33 42%, ${COLORS.panel} 62%, ${c}66 100%)`,
+    border: c => `2px solid ${c}bb`,
+    glow: c => `0 0 16px -6px ${c}aa`,
+    sweep: 2.8, corners: true,
+  };
+  if(t >= tierRank("Epic")) return {          // Epic, Elite, Ultra
+    band: 1,
+    bg: c => `linear-gradient(155deg, ${COLORS.bg} 0%, ${COLORS.panel} 38%, ${c}33 100%)`,
+    border: c => `1px solid ${c}88`,
+    glow: () => "none", sweep: 0, corners: false,
+  };
+  return {                                     // Common, Uncommon, Rare
+    band: 0,
+    bg: c => `linear-gradient(155deg, ${COLORS.panel} 0%, ${COLORS.bg} 70%, ${c}22 100%)`,
+    border: c => `1px solid ${c}44`,
+    glow: () => "none", sweep: 0, corners: false,
+  };
+}
+
 function playerCard(p, opts){
   opts = opts||{};
   const rarity = RARITY[p.rarity];
@@ -720,26 +773,42 @@ function playerCard(p, opts){
   // Level pip + "ready to train" dot, drawn over art and placeholder alike so
   // progress is visible without opening every card.
   const readyToTrain = opts.mode==="train" && p.level<MAX_CARD_LEVEL && p.shards>=trainShardCost(p.level);
+  // Bottom-right: the rarity badge already owns the top-left corner and the
+  // position label the top-right, so anchoring the level there collided with
+  // both.
   const trainBadges = opts.mode!=="train" ? "" : `
-    ${p.level>0 ? `<div style="position:absolute;top:6px;left:6px;z-index:3;padding:2px 7px;border-radius:999px;background:${COLORS.gold};color:${COLORS.bg};font-size:9px;font-weight:900;letter-spacing:.04em">LV ${p.level}</div>` : ""}
-    ${readyToTrain ? `<div style="position:absolute;top:6px;right:6px;z-index:3;width:12px;height:12px;border-radius:50%;background:${COLORS.turf};box-shadow:0 0 10px ${COLORS.turf};animation:pulseLive 1.4s ease-in-out infinite"></div>` : ""}`;
+    ${p.level>0 ? `<div style="position:absolute;bottom:7px;right:7px;z-index:3;padding:2px 7px;border-radius:999px;background:${COLORS.gold};color:${COLORS.bg};font-size:9px;font-weight:900;letter-spacing:.04em;box-shadow:0 2px 8px rgba(0,0,0,.5)">LV ${p.level}</div>` : ""}
+    ${readyToTrain ? `<div style="position:absolute;top:7px;right:7px;z-index:3;width:11px;height:11px;border-radius:50%;background:${COLORS.turf};box-shadow:0 0 10px ${COLORS.turf};animation:pulseLive 1.4s ease-in-out infinite"></div>` : ""}`;
   const disabled = opts.disabled ? "disabled" : "";
   const selectedOutline = opts.selected ? `;outline:3px solid ${COLORS.gold};outline-offset:-3px` : "";
+  // Most of the ~200 cards have no uploaded art, so without this every one of
+  // them was the same foil with a different letter on it -- which rather
+  // defeats the point of collecting. The treatment now steps up by tier so a
+  // Legendary is recognisable from across the room from a Common.
+  const tier = tierRank(p.rarity);
+  const fx = rarityFx(p.rarity);
   const foilBg = locked
     ? `linear-gradient(155deg, ${COLORS.panel}, ${COLORS.panelLight})`
-    : `linear-gradient(155deg, ${COLORS.bg} 0%, ${COLORS.panel} 32%, ${rarity.color}2e 68%, ${rarity.color}55 100%)`;
+    : fx.bg(rarity.color);
   if(hasImage){
-    return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;aspect-ratio:${CARD_ART_RATIO};border:1px solid ${rarity.color}77;background:${foilBg};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
+    return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;aspect-ratio:${CARD_ART_RATIO};border:${fx.border(rarity.color)};box-shadow:${fx.glow(rarity.color)};background:${foilBg};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
       <img src="${esc(p.imageThumbUrl||p.imageUrl)}" style="display:block;width:100%;height:100%;object-fit:cover" />
+      ${fx.sweep ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.34) 50%,transparent 58%);animation:shineSweep ${fx.sweep}s ease-in-out infinite"></div>` : ""}
       ${trainBadges}
     </button>`;
   }
-  return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;border:1px solid ${locked?"transparent":rarity.color+"77"};background:${foilBg};opacity:${locked?0.55:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
+  return `<button ${clickAttr} ${disabled} class="cardTile scrimtap" style="padding:0;overflow:hidden;border:${locked?"1px solid transparent":fx.border(rarity.color)};box-shadow:${locked?"none":fx.glow(rarity.color)};background:${foilBg};opacity:${locked?0.55:1};${opts.disabled?"pointer-events:none":""}${selectedOutline}">
     ${trainBadges}
     <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:hidden">
       <span class="display" style="font-size:64px;color:${locked?"transparent":rarity.color}14;transform:translateY(6px)">${POSITION_GLYPH[p.position]||""}</span>
     </div>
-    ${!locked && isTopTier(p.rarity) ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.4) 50%,transparent 60%);animation:shineSweep 2.6s ease-in-out infinite"></div>` : ""}
+    ${!locked && fx.corners ? `<div style="position:absolute;inset:5px;pointer-events:none;border-radius:11px;
+      border-top:2px solid ${rarity.color}aa;border-left:2px solid ${rarity.color}aa;
+      -webkit-mask:linear-gradient(135deg,#000 0 22%,transparent 22%);mask:linear-gradient(135deg,#000 0 22%,transparent 22%)"></div>
+    <div style="position:absolute;inset:5px;pointer-events:none;border-radius:11px;
+      border-bottom:2px solid ${rarity.color}aa;border-right:2px solid ${rarity.color}aa;
+      -webkit-mask:linear-gradient(315deg,#000 0 22%,transparent 22%);mask:linear-gradient(315deg,#000 0 22%,transparent 22%)"></div>` : ""}
+    ${!locked && fx.sweep ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.36) 50%,transparent 58%);animation:shineSweep ${fx.sweep}s ease-in-out infinite"></div>` : ""}
     <div style="position:relative;padding:10px 10px 8px">
       <div class="row between" style="margin-bottom:10px">
         <span class="badge" style="background:${rarity.color}33;color:${rarity.color};font-weight:900">${rarity.label}</span>
@@ -865,7 +934,7 @@ function homeView(){
           <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:6px;color:${COLORS.muted}">MY TEAM</div>
           <div class="row between">
             <div class="row" style="gap:8px">
-              <div class="avatarCircle" style="width:32px;height:32px;font-size:15px;background:linear-gradient(135deg, ${state.profile.color}, ${COLORS.purple})">${state.profile.avatar}</div>
+              ${crestHTML(state.profile.teamName||"My Team", state.profile.color, 34)}
               <div><div style="font-size:11px;font-weight:800;color:${COLORS.cream}">${esc(state.profile.teamName||"My Team")}</div><div style="font-size:9px;color:${COLORS.muted}">${owned.length} players owned</div></div>
             </div>
             <div style="text-align:center;padding:4px 8px;border-radius:12px;background:${COLORS.panelLight}"><div class="display" style="font-size:16px;color:${COLORS.gold};line-height:1">${teamRating}</div><div style="font-size:7px;font-weight:800;color:${COLORS.muted}">RATING</div></div>
@@ -958,6 +1027,65 @@ function indexView(){
     <div class="grid2">${visible.map(p=>playerCard(p,{mode:"index"})).join("")}</div>
   </div>`;
 }
+// ---------- Club crests ----------
+// Clubs used to be a colour swatch and a name, which made every side -- yours,
+// the AI's, your friends' -- look the same. A crest gives each one an
+// identity. Drawn as inline SVG from the name and colour rather than uploaded
+// art: no files to host, nothing to moderate, and it works for opponents that
+// only ever exist as a string.
+//
+// Everything is derived from a hash of the name, so a club's crest never
+// changes between screens or sessions.
+function hashString(str){
+  let h = 2166136261;
+  const s = String(str||"");
+  for(let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return Math.abs(h);
+}
+function clubInitials(name){
+  const words = String(name||"").toUpperCase().replace(/[^A-Z0-9 ]/g,"").split(/\s+/).filter(Boolean);
+  if(!words.length) return "FC";
+  if(words.length===1) return words[0].slice(0,2);
+  return (words[0][0]+words[1][0]);
+}
+// Four shield outlines. Kept as flat path data so a crest is one <path> plus
+// its decoration -- these render at 18px in lists, so detail would be wasted.
+const CREST_SHAPES = [
+  "M50 4 L92 20 V52 C92 76 72 92 50 98 C28 92 8 76 8 52 V20 Z",   // classic shield
+  "M50 3 L94 26 V62 L50 99 L6 62 V26 Z",                            // hexagon
+  "M50 4 C82 4 96 22 96 50 C96 78 76 96 50 98 C24 96 4 78 4 50 C4 22 18 4 50 4 Z", // round
+  "M12 8 H88 V60 C88 80 70 92 50 98 C30 92 12 80 12 60 Z",          // banner
+];
+function crestHTML(name, color, size, opts){
+  opts = opts||{};
+  const h = hashString(name);
+  const shape = CREST_SHAPES[h % CREST_SHAPES.length];
+  const deco = h % 3;            // 0 = bar, 1 = chevron, 2 = split
+  const c = color || COLORS.turf;
+  const initials = clubInitials(name);
+  const id = "cg"+(h%99999);
+  const fs = Math.round(size*0.34);
+  return `<svg viewBox="0 0 100 102" width="${size}" height="${size}" style="display:block;flex:0 0 auto;${opts.style||""}" aria-hidden="true">
+    <defs>
+      <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${c}"/>
+        <stop offset="100%" stop-color="${c}88"/>
+      </linearGradient>
+      <clipPath id="${id}c"><path d="${shape}"/></clipPath>
+    </defs>
+    <path d="${shape}" fill="url(#${id})" stroke="${COLORS.bg}" stroke-width="4"/>
+    <g clip-path="url(#${id}c)" opacity="0.28">
+      ${deco===0 ? `<rect x="0" y="40" width="100" height="16" fill="${COLORS.bg}"/>`
+        : deco===1 ? `<path d="M0 30 L50 62 L100 30 L100 48 L50 80 L0 48 Z" fill="${COLORS.bg}"/>`
+        : `<rect x="50" y="0" width="50" height="102" fill="${COLORS.bg}"/>`}
+    </g>
+    <path d="${shape}" fill="none" stroke="${COLORS.cream}" stroke-width="3" opacity="0.5"/>
+    <text x="50" y="58" text-anchor="middle" dominant-baseline="middle"
+      font-family="Teko, sans-serif" font-size="${fs*2.2}" font-weight="700"
+      fill="${COLORS.bg}" opacity="0.9">${esc(initials)}</text>
+  </svg>`;
+}
+
 // ---------- Knockout cup ----------
 // Eight teams, single elimination: quarter-final, semi-final, final. The
 // bracket is generated up front so the player can see who they might meet.
@@ -1030,7 +1158,11 @@ function cupView(){
         </div>`;
       }).join("")}
     </div>
-    <div style="font-size:12px;color:${COLORS.muted};margin-bottom:10px">Next up: <span style="color:${COLORS.cream};font-weight:800">${esc(opp||"TBD")}</span></div>
+    <div class="row" style="gap:9px;align-items:center;margin-bottom:10px">
+      ${crestHTML(opp||"TBD", COLORS.danger, 30)}
+      <div><div style="font-size:9px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">NEXT UP</div>
+      <div style="font-size:13px;font-weight:800;color:${COLORS.cream}">${esc(opp||"TBD")}</div></div>
+    </div>
     <button data-action="cup-play" class="btn scrimtap wfull" style="padding:12px 0;font-size:14px;font-weight:900;background:${COLORS.turf};color:${COLORS.bg}">PLAY ${cupRoundLabel(cup.round)}</button>
     <button data-action="cup-forfeit" class="btn scrimtap wfull" style="padding:8px 0;font-size:11px;margin-top:8px;background:transparent;color:${COLORS.danger}">Withdraw from cup</button>
   </div>`;
@@ -1146,11 +1278,20 @@ function shopView(){
     const card = s.revealed;
     const rarityColor = card ? RARITY[card.rarity].color : COLORS.gold;
     const isLegendary = card && isTopTier(card.rarity);
-    overlay = `<div class="overlayFull" style="background:radial-gradient(circle at 50% 38%, ${rarityColor}22, transparent 65%), rgba(3,7,14,0.97)">
+    // The reveal escalates with rarity -- this is the emotional peak of a
+    // collecting game and a Common should not land the same way a GOAT does.
+    const fx2 = rarityFx(card ? card.rarity : "Common");
+    const bigPull = card && fx2.band >= 2;
+    const rays = card && fx2.band >= 3;
+    overlay = `<div class="overlayFull" style="background:radial-gradient(circle at 50% 38%, ${rarityColor}${bigPull?"44":"22"}, transparent 65%), rgba(3,7,14,0.97)">
+      ${rays ? `<div style="position:absolute;left:50%;top:38%;width:150vmax;height:150vmax;transform:translate(-50%,-50%);pointer-events:none;
+        background:repeating-conic-gradient(from 0deg at 50% 50%, ${rarityColor}22 0deg 8deg, transparent 8deg 20deg);
+        animation:spinRays 14s linear infinite;opacity:.55"></div>` : ""}
       ${card ? `
-        ${isLegendary ? `<div class="display" style="font-size:22px;color:${rarityColor};margin-bottom:10px;text-align:center">⚡ ${RARITY[card.rarity].label} PULL ⚡</div>` : ""}
-        <div class="col center" style="align-items:center">
-          <div style="width:200px;padding:26px 18px;border-radius:16px;background:linear-gradient(165deg, ${COLORS.panelLight}, ${COLORS.panel});border:4px solid ${rarityColor};box-shadow:0 0 ${isLegendary?70:40}px ${rarityColor}aa;animation:riseIn .7s var(--ease-out-strong) both;text-align:center">
+        ${isLegendary ? `<div class="display" style="font-size:22px;color:${rarityColor};margin-bottom:10px;text-align:center;position:relative;animation:popIn .5s var(--ease-out-strong) .55s both">⚡ ${RARITY[card.rarity].label} PULL ⚡</div>` : ""}
+        <div class="col center" style="align-items:center;position:relative">
+          <div style="width:200px;padding:26px 18px;border-radius:16px;background:${fx2.bg(rarityColor)};border:4px solid ${rarityColor};box-shadow:0 0 ${bigPull?80:40}px ${rarityColor}aa;animation:riseIn .7s var(--ease-out-strong) both;text-align:center;overflow:hidden">
+            ${fx2.sweep ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.38) 50%,transparent 58%);animation:shineSweep ${fx2.sweep}s ease-in-out infinite ${bigPull?".7s":"0s"}"></div>` : ""}
             ${(isLegendary||isHighTier(card.rarity)) ? `<div style="margin-bottom:6px">${icon("Sparkles",20,rarityColor)}</div>` : ""}
             <div class="avatarCircle" style="width:80px;height:80px;font-weight:900;font-size:26px;background:${rarityColor};color:${COLORS.bg};margin:0 auto 10px">${card.power}</div>
             <div class="display" style="font-size:19px;color:${COLORS.cream}">${esc(card.name)}</div>
@@ -1312,9 +1453,31 @@ function pitchHTML(){
   const battling = pl.phase==="battling";
   const ballList = battling ? motionSlotList() : [];
   const ballSlot = ballList.find(m=>m.key===pl.ballOwnerKey);
-  return `<div style="position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;height:340px;background:repeating-linear-gradient(180deg, ${COLORS.pitch} 0px, ${COLORS.pitch} 34px, #14351f 34px, #14351f 68px);box-shadow:inset 0 0 60px rgba(0,0,0,.45)">
-    <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:${COLORS.pitchLine}"></div>
-    <div style="position:absolute;width:80px;height:80px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;border:1px solid ${COLORS.pitchLine}"></div>
+  // Redrawn to match the 3D arena. The old version was flat stripes, a
+  // halfway line and a centre circle, which looked like a different game
+  // sitting next to the stadium you actually play in. Same trick as the
+  // arena's ground texture: real markings, mow stripes and a vignette, only
+  // in CSS instead of a canvas.
+  const line = "rgba(255,255,255,.34)";
+  return `<div style="position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;height:340px;
+    background:
+      radial-gradient(120% 80% at 50% 50%, rgba(255,255,255,.07), transparent 70%),
+      repeating-linear-gradient(180deg, #1B6C3E 0px, #1B6C3E 34px, #1F7A46 34px, #1F7A46 68px);
+    box-shadow:inset 0 0 70px rgba(0,0,0,.55), 0 10px 30px -18px #000">
+    <!-- touchlines -->
+    <div style="position:absolute;inset:6px;border:2px solid ${line};border-radius:3px"></div>
+    <!-- halfway line + centre circle + spot -->
+    <div style="position:absolute;left:6px;right:6px;top:50%;height:2px;background:${line}"></div>
+    <div style="position:absolute;width:96px;height:96px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;border:2px solid ${line}"></div>
+    <div style="position:absolute;width:6px;height:6px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;background:${line}"></div>
+    <!-- penalty + six-yard boxes, both ends -->
+    <div style="position:absolute;left:50%;top:6px;transform:translateX(-50%);width:58%;height:52px;border:2px solid ${line};border-top:none"></div>
+    <div style="position:absolute;left:50%;top:6px;transform:translateX(-50%);width:27%;height:20px;border:2px solid ${line};border-top:none"></div>
+    <div style="position:absolute;left:50%;bottom:6px;transform:translateX(-50%);width:58%;height:52px;border:2px solid ${line};border-bottom:none"></div>
+    <div style="position:absolute;left:50%;bottom:6px;transform:translateX(-50%);width:27%;height:20px;border:2px solid ${line};border-bottom:none"></div>
+    <!-- goals -->
+    <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:19%;height:7px;border:2px solid ${line};border-top:none;background:rgba(255,255,255,.10)"></div>
+    <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:19%;height:7px;border:2px solid ${line};border-bottom:none;background:rgba(255,255,255,.10)"></div>
     ${zoneShade}
     ${showOpp ? oppSlots.map((slot,i)=>`<div style="position:absolute;left:${slot.x}%;top:${slot.y}%;transform:translate(-50%,-50%)">${chip((pl.oppLineup||{})[slot.id],false,"opp-"+slot.id,i)}</div>`).join("") : ""}
     ${mySlots.map((slot,i)=>`<button data-action="${pl.phase==="building"?"open-slot-picker":"noop"}" data-slot-id="${slot.id}" style="position:absolute;left:${slot.x}%;top:${slot.y}%;transform:translate(-50%,-50%);background:none;border:none;padding:0" class="scrimtap">${chip(pl.myLineup[slot.id],true,"my-"+slot.id,i)}</button>`).join("")}
@@ -1530,7 +1693,10 @@ function friendsListSection(){
     <div class="panel" style="padding:14px;margin-bottom:10px">
       <div class="row between" style="gap:10px;margin-bottom:8px">
         <div class="row" style="gap:10px">
-          <div class="avatarCircle" style="width:40px;height:40px;font-size:18px;background:${COLORS.panelLight}">${esc(f.avatar||"⚽")}</div>
+          <div style="position:relative;flex:0 0 auto">
+            ${crestHTML(f.team_name||f.display_name||"Player", COLORS.cyan, 40)}
+            <span style="position:absolute;right:-3px;bottom:-3px;font-size:13px;line-height:1;filter:drop-shadow(0 1px 2px #000)">${esc(f.avatar||"⚽")}</span>
+          </div>
           <div>
             <div style="font-weight:800;font-size:13px;color:${COLORS.cream}">${esc(f.display_name||"Player")}</div>
             <div style="font-size:11px;color:${COLORS.muted}">${esc(f.team_name||"")}</div>
@@ -2234,6 +2400,11 @@ function appHTML(){
     <img src="${esc(enlargedCard.imageUrl)}" data-action="noop" style="display:block;max-width:100%;max-height:100%;width:auto;height:auto;aspect-ratio:${CARD_ART_RATIO};object-fit:contain;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.6)" />
     <button data-action="close-modal" data-modal="enlarged-card" style="position:absolute;top:calc(16px + env(safe-area-inset-top));right:16px;background:rgba(3,7,14,.7);border:none;border-radius:999px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:${COLORS.cream}">${icon("X",18,COLORS.cream)}</button>
   </div>` : "";
+  // Entrance animation on TAB CHANGE ONLY. render() runs on every state change
+  // -- a timer tick, a keystroke in a text field -- so animating every pass
+  // would leave the screen permanently flickering.
+  const tabChanged = state.tab !== lastRenderedTab;
+  lastRenderedTab = state.tab;
   let view = "";
   if(state.tab==="home") view = homeView();
   else if(state.tab==="index") view = indexView();
@@ -2243,7 +2414,8 @@ function appHTML(){
   else if(state.tab==="friends") view = friendsView();
   else if(state.tab==="profile") view = profileView();
   else if(state.tab==="admin" && isAdmin()) view = adminView();
-  return `${rankUpBanner}${toastBanner}${railHeader()}${view}${tabBar()}${enlargedCardModal}`;
+  const shell = tabChanged ? `<div class="viewEnter">${view}</div>` : view;
+  return `${rankUpBanner}${toastBanner}${railHeader()}${shell}${tabBar()}${enlargedCardModal}`;
 }
 
 // ---------- actions ----------
