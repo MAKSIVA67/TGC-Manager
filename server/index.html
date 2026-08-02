@@ -28,18 +28,25 @@
   --turf:#2FD180;--pitch:#0F2A1C;--pitchLine:#2E6B47;--pitchLine2:#14351f;--gold:#FFB020;
   --pink:#E14F8A;--cyan:#2FB6D9;--purple:#8B7FE8;--cream:#F3F6FA;--muted:#6C84A3;--danger:#FB5A5A;
   --ease-out-strong:cubic-bezier(0.23,1,0.32,1);--ease-drawer:cubic-bezier(0.32,0.72,0,1);
-  /* 2026 World Cup (USA/Mexico/Canada) -- host-nation + regional accent tones:
-     torch red (Canada), grass green (Mexico), deep blue (USA), plus the
-     desert-orange/Great-Lakes-teal pairing reported as part of the
-     tournament's wider 12-tone identity, alongside its gold/black/white
-     core (gold already covered by --gold above). */
+  /* Accent tones used across the app's backdrops and highlights. */
   --wc-red:#E6394A;--wc-green:#2FA84F;--wc-blue:#2A4B9B;--wc-orange:#E8863A;--wc-teal:#1FA3A0;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overscroll-behavior-y:contain}
 body{background:var(--bg);color:var(--cream);font-family:'Outfit',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0}
-#stage{max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;background:var(--bg);position:relative;overflow-x:clip;
-  background-image:radial-gradient(circle at 12% 0%, #FFB0201f, transparent 38%), radial-gradient(circle at 88% 4%, #E6394A16, transparent 36%), radial-gradient(circle at 90% 60%, #2FA84F14, transparent 42%), radial-gradient(circle at 6% 70%, #1FA3A014, transparent 40%), radial-gradient(circle at 50% 100%, #2A4B9B18, transparent 46%);}
+/* The backdrop carried these washes at ~8% opacity, which on a phone screen
+   is indistinguishable from flat black -- the app read as monochrome. Pushed
+   to roughly three times that, and the base lifted off near-black onto a blue,
+   so the colour is actually visible while text contrast stays intact. */
+#stage{max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;background:var(--bg2);position:relative;overflow-x:clip;
+  background-attachment:fixed;
+  background-image:
+    radial-gradient(circle at 10% -4%, #FFB02055, transparent 42%),
+    radial-gradient(circle at 92% 2%, #E6394A44, transparent 40%),
+    radial-gradient(circle at 96% 44%, #8B7FE84a, transparent 44%),
+    radial-gradient(circle at 4% 52%, #1FA3A044, transparent 44%),
+    radial-gradient(circle at 74% 86%, #2FD18038, transparent 46%),
+    radial-gradient(circle at 20% 100%, #2A4B9B55, transparent 50%);}
 button{font-family:inherit;cursor:pointer;touch-action:manipulation;-webkit-user-select:none;user-select:none}
 input,textarea{font-family:inherit;font-size:16px}
 .display{font-family:'Teko',system-ui,sans-serif;font-weight:700;letter-spacing:0.02em}
@@ -53,7 +60,12 @@ input,textarea{font-family:inherit;font-size:16px}
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .wfull{width:100%}
 .muted{color:var(--muted)}
-.panel{background:var(--panel);border:1px solid var(--panelLight);border-radius:16px;box-shadow:0 10px 24px -14px #030B14cc}
+/* Panels were a flat slab. A slight vertical lift plus a translucent base lets
+   the coloured backdrop through, so every card picks up a tint from wherever
+   it sits on the page instead of every panel looking identical. */
+.panel{background:linear-gradient(168deg, #1B3049f2 0%, #132234ee 55%, #0F1D2Df2 100%);
+  border:1px solid #2A4664;border-radius:16px;
+  box-shadow:0 10px 24px -14px #030B14cc, inset 0 1px 0 #ffffff0f}
 .grainOverlay{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:.05;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");background-size:180px 180px}
 .tabbtn .tabPill{position:absolute;inset:2px 6px;border-radius:12px;background:var(--turf);opacity:0;transform:scale(.85);transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong);z-index:0}
 .tabbtn.tabActive .tabPill{opacity:.16;transform:scale(1)}
@@ -94,6 +106,33 @@ input,textarea{font-family:inherit;font-size:16px}
 @keyframes wanderD{0%{transform:translate(0,0)}35%{transform:translate(-3px,-4px)}65%{transform:translate(4px,3px)}100%{transform:translate(0,0)}}
 .confettiPiece{position:absolute;top:-20px;pointer-events:none}
 .chatComposer{position:fixed;bottom:calc(60px + env(safe-area-inset-bottom));left:50%;width:100%;max-width:480px;box-sizing:border-box;display:flex;gap:8px;padding:10px 16px;background:var(--panel);border-top:1px solid var(--panelLight);z-index:20;transform:translateX(-50%) translateY(0);transition:transform 240ms var(--ease-out-strong)}
+/* ---------- studio ident ---------- */
+/* Deliberately short. A splash the player cannot skip is charming once and
+   irritating every launch after, so the whole thing is ~2.4s and a tap ends
+   it immediately. */
+#intro{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(120% 90% at 50% 45%, #16305A 0%, #0A1730 45%, #04070E 100%);
+  animation:introOut .6s ease 2.4s both}
+#intro.skipped{animation:introOut .28s ease both}
+.introInner{position:relative;display:flex;flex-direction:column;align-items:center;gap:14px}
+.introMark{position:relative;width:112px;height:112px;display:flex;align-items:center;justify-content:center;
+  animation:introMarkIn 1s var(--ease-out-strong) both}
+.introMS{font-family:'Teko',sans-serif;font-size:62px;line-height:1;font-weight:700;letter-spacing:.02em;
+  background:linear-gradient(160deg,#7CF0B4,#2FD180 40%,#FFB020);-webkit-background-clip:text;background-clip:text;
+  color:transparent;filter:drop-shadow(0 4px 18px rgba(47,209,128,.45))}
+.introRing{position:absolute;inset:0;border-radius:50%;border:2px solid #2FD18055;
+  border-top-color:#FFB020;animation:introSpin 1.6s var(--ease-out-strong) both}
+.introName{font-family:'Teko',sans-serif;font-size:34px;line-height:1;letter-spacing:.16em;color:#F3F6FA;
+  opacity:0;animation:introFade .7s ease .55s both}
+.introTag{font-size:10px;font-weight:800;letter-spacing:.34em;color:#6C84A3;
+  opacity:0;animation:introFade .7s ease .95s both}
+.introSkip{position:absolute;bottom:calc(26px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;
+  font-size:10px;letter-spacing:.16em;color:#33456180;opacity:0;animation:introFade .5s ease 1.4s both}
+@keyframes introMarkIn{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.06);opacity:1}100%{transform:scale(1)}}
+@keyframes introSpin{0%{transform:rotate(-140deg) scale(.75);opacity:0}55%{opacity:1}100%{transform:rotate(180deg) scale(1);opacity:.9}}
+@keyframes introFade{to{opacity:1}}
+@keyframes introOut{to{opacity:0;visibility:hidden}}
+
 /* Tab-change entrance. The view slides and fades as one block, then its
    direct children stagger in behind it -- a whole screen appearing at once
    reads as a page load, whereas a short cascade reads as an app. Capped at
@@ -117,6 +156,21 @@ input,textarea{font-family:inherit;font-size:16px}
   .viewEnter,.viewEnter > .view > *{animation:none !important}
 }
 </style>
+
+<!-- Studio ident, shown once per app launch. Sits outside #stage because
+     render() replaces that element's contents constantly; it removes itself
+     when the animation finishes. Tapping skips it. -->
+<div id="intro">
+  <div class="introInner">
+    <div class="introMark">
+      <span class="introMS">MS</span>
+      <span class="introRing"></span>
+    </div>
+    <div class="introName">MS&nbsp;PRODUCTION</div>
+    <div class="introTag">IT'S IN THE CARDS</div>
+  </div>
+  <div class="introSkip">tap to skip</div>
+</div>
 
 <div id="stage"></div>
 <div class="grainOverlay"></div>
@@ -896,11 +950,6 @@ function homeView(){
 
   return `<div class="view">
     ${installBanner}
-    <div class="row" style="gap:8px;padding:8px 10px;border-radius:12px;margin-bottom:10px;position:relative;overflow:hidden;background:linear-gradient(100deg, ${COLORS.wcRed}, ${COLORS.gold} 28%, ${COLORS.wcGreen} 52%, ${COLORS.wcTeal} 76%, ${COLORS.wcBlue})">
-      <div style="position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(3,7,14,.35) 100%)"></div>
-      <span style="font-size:16px;position:relative">🏆</span>
-      <div style="position:relative"><div style="font-size:10px;font-weight:900;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.4)">2026 WORLD CUP YEAR</div><div style="font-size:9px;color:#fff;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.4)">Build your squad for the world's biggest tournament</div></div>
-    </div>
     <div class="row" style="gap:8px;padding:8px 10px;border-radius:12px;margin-bottom:12px;background:linear-gradient(90deg, ${COLORS.purple}33, ${COLORS.pink}33);border:1px solid ${COLORS.pink}55">
       <span style="font-size:16px">🔥</span>
       <div><div style="font-size:10px;font-weight:900;color:${COLORS.pink}">WEEKEND LEAGUE LIVE</div><div style="font-size:9px;color:${COLORS.muted}">Win streaks earn bonus gems all week</div></div>
@@ -3247,5 +3296,26 @@ document.getElementById("stage").addEventListener("change", handleFieldInput);
 render();
 initAuthListener();
 initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/iap.js
+
+// Studio ident teardown. The CSS runs the whole sequence on its own; this only
+// removes the node afterwards so it can never sit on top of the app, and wires
+// the tap-to-skip. Removal is driven by animationend rather than a matching
+// setTimeout so the two can't drift apart.
+(function(){
+  const intro = document.getElementById("intro");
+  if(!intro) return;
+  let gone = false;
+  const drop = ()=>{
+    if(gone) return;
+    gone = true;
+    if(intro.parentNode) intro.parentNode.removeChild(intro);
+  };
+  intro.addEventListener("animationend", (e)=>{ if(e.animationName==="introOut") drop(); });
+  intro.addEventListener("click", ()=>{ intro.classList.add("skipped"); });
+  intro.addEventListener("touchstart", ()=>{ intro.classList.add("skipped"); }, {passive:true});
+  // Belt and braces: if the animation never fires (reduced motion, a
+  // backgrounded tab at load), don't strand the player behind the splash.
+  setTimeout(drop, 4000);
+})();
 })();
 </script>
