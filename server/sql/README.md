@@ -136,11 +136,86 @@ Replace `your@email.here` with the email you sign into the game with.
 
 Any other error: copy the full red message and send it over.
 
-## Still open after 003
+---
 
-003 stops players becoming admins. It does **not** stop a determined player
-editing their own gems or card levels — the whole economy is still calculated
-in the browser and trusted by the database. Closing that properly means moving
-pack opening, training and match rewards into database functions, which is a
-bigger job. It only affects that player's own account, so it's a much smaller
-problem than someone gaining admin over everyone else.
+# Migration 004 — tighten the write rules
+
+**Run 003 first.** 004 assumes it.
+
+**What it fixes**, all confirmed by reading the app's own code:
+
+- **Balances can't go negative.** A bug in the cup entry fee can drive your
+  gems below zero and save it. This stops the database accepting that,
+  whatever the browser does.
+- **Trades can't offer negative gems.** Someone could otherwise send an
+  "offer" that drains gems out of the person receiving it.
+- **Only the person who RECEIVED a friend request can accept it.** Right now
+  the sender can likely accept their own request and force a friendship —
+  which is what unlocks chat, trading and seeing someone's cards.
+- **Finished challenges and trades can't be rewritten.** A completed challenge
+  could be flipped back to "declined", wiping the result for both players;
+  a completed trade could be flipped to "cancelled" after the cards moved.
+- **You can only create challenges and trades in your own name, and only
+  record your own match results.**
+- **Chat messages are capped at 500 characters** in the database, not just in
+  the browser.
+
+## How to run migration 004
+
+Same steps as before:
+
+1. **https://supabase.com/dashboard** → sign in → your **TCG Manager** project.
+2. Left sidebar → **SQL Editor** → green **+ New query**.
+3. Open `server/sql/004_tighten_write_rules.sql`, select all (**Ctrl+A**),
+   copy (**Ctrl+C**).
+4. Paste into the big box, click the green **Run** button.
+5. Expect **Success. No rows returned**.
+
+Safe to run more than once.
+
+**Watch for the `NOTICE` lines.** This migration replaces some existing
+security rules, and it prints the name of every rule it removed. If you see
+any notices, **copy them and send them over** — they tell me what your old
+rules were called, which is useful if anything needs adjusting later.
+
+### Checking it worked
+
+```sql
+select tablename, policyname, cmd, qual as using_clause, with_check
+from pg_policies
+where schemaname='public'
+  and tablename in ('friend_requests','challenges','trades','matches')
+order by tablename, cmd;
+```
+
+Each row should read sensibly out loud — e.g. the `friend_requests` UPDATE row
+should mention `addressee_id` and **not** `requester_id`.
+
+### Then test the game
+
+The things most likely to be affected, in order:
+
+1. Send a friend request from one account and accept it from the other.
+2. Challenge a friend and play the challenge out.
+3. Send a trade offer and accept it.
+4. Play a normal league match and check the result saves.
+
+If any of those now fail, send me the error and I'll adjust — nothing here is
+hard to reverse.
+
+## Still open after 004
+
+**The economy is still calculated in the browser and trusted by the database.**
+A player can still give themselves cards, max out card training, or set their
+own gem balance from the developer console. Fixing it means moving pack
+opening, training and match rewards into the database itself — a paired
+database + app change that has to ship together, because doing one without the
+other stops the game working. That's the next meaningful piece of security
+work, and it's bigger than these two migrations combined.
+
+Deliberately **not** done: requiring people to be friends before they can
+message or challenge each other. It would stop spam from strangers, but it
+also means you could never challenge someone you just found in search — that's
+a game design decision for you to make, not something to slip into a security
+fix.
+
