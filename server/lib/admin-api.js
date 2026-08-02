@@ -154,16 +154,44 @@ function resetPlayerProgress(targetId) {
 function setGems(targetId, newGems) {
   return sb.from("profiles").update({ gems: newGems }).eq("id", targetId).then(({ error }) => ({ error: error ? error.message : null }));
 }
-// Self-ban/self-demote guards below are UX niceties only, not real security
-// -- matches the mobile app's own documented caveat (a technically savvy
-// user could still hit the REST API directly; RLS is the real boundary).
+// `banned` and `is_admin` are written through SECURITY DEFINER RPCs, not a
+// direct table update. Supabase grants `authenticated` UPDATE on every column
+// by default and RLS can only restrict WHICH ROWS you write, never WHICH
+// COLUMNS -- so the policy letting a player edit their own profile also let
+// them set their own is_admin from the browser console. Migration 003 revokes
+// those two columns and adds these functions, which re-check admin rights
+// server-side where a client can't bypass them.
+//
+// The self-ban/self-demote guards are duplicated inside the SQL functions;
+// the copies here just produce a nicer message without a round trip.
+//
+// Missing-function errors fall back to the old direct update so the app keeps
+// working on a database where 003 hasn't been run yet (same graceful
+// degradation loadCupRun() uses for 002).
+function rpcMissing(error) {
+  return !!error && (error.code === "42883" || error.code === "PGRST202" ||
+                     /(function|schema cache).*(does not exist|not find)/i.test(error.message || ""));
+}
+
 function setBanned(targetId, banned, callerId) {
   if (banned && targetId === callerId) return Promise.resolve({ error: "You can't ban yourself." });
-  return sb.from("profiles").update({ banned }).eq("id", targetId).then(({ error }) => ({ error: error ? error.message : null }));
+  return sb.rpc("admin_set_banned", { target_id: targetId, new_banned: banned }).then(({ error }) => {
+    if (error && rpcMissing(error)) {
+      return sb.from("profiles").update({ banned }).eq("id", targetId)
+        .then(({ error: e2 }) => ({ error: e2 ? e2.message : null }));
+    }
+    return { error: error ? error.message : null };
+  });
 }
 function setAdmin(targetId, isAdminFlag, callerId) {
   if (!isAdminFlag && targetId === callerId) return Promise.resolve({ error: "You can't remove your own admin status." });
-  return sb.from("profiles").update({ is_admin: isAdminFlag }).eq("id", targetId).then(({ error }) => ({ error: error ? error.message : null }));
+  return sb.rpc("admin_set_admin", { target_id: targetId, new_is_admin: isAdminFlag }).then(({ error }) => {
+    if (error && rpcMissing(error)) {
+      return sb.from("profiles").update({ is_admin: isAdminFlag }).eq("id", targetId)
+        .then(({ error: e2 }) => ({ error: e2 ? e2.message : null }));
+    }
+    return { error: error ? error.message : null };
+  });
 }
 
 // ---- UI-facing wrappers ----
