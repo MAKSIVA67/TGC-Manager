@@ -219,3 +219,70 @@ also means you could never challenge someone you just found in search — that's
 a game design decision for you to make, not something to slip into a security
 fix.
 
+---
+
+# Migration 006 — cup ties and friendlies out of the league table
+
+**What it fixes:** your season record (the "3W - 1D - 0L this season" line, and
+the **Win 3 Matches** objective) is worked out from your match history. Every
+match you play is saved to the same list — league games, cup ties and friendly
+challenges — and nothing in the saved match said which was which, so cup and
+friendly results were being counted as league results.
+
+This migration adds a label to each saved match so the season table can leave
+the cup and friendlies out.
+
+**Do you have to run it?** No. The bigger half of this fix is in the app itself
+and works immediately without touching the database: the app used to look at
+only your last 20 matches and assume a six-game season always fit inside them,
+which stopped being true once cup runs and friendlies filled that space — wins
+you had genuinely earned dropped off the end and the "Win 3 Matches" objective
+un-completed itself. That is fixed in the app. Until you run 006, cup and
+friendly results just keep counting towards the season table the way they
+always have. Nothing breaks either way.
+
+## How to run migration 006
+
+1. Go to **https://supabase.com/dashboard** and sign in.
+2. Click your **TCG Manager** project.
+3. In the left sidebar, click the **SQL Editor** icon (database symbol with
+   `SQL` on it, roughly halfway down the list).
+4. Click the green **+ New query** button at the top.
+5. Open `server/sql/006_match_kind.sql` from this repo, select everything
+   (**Ctrl+A**) and copy it (**Ctrl+C**).
+6. Click into the big empty editor box on the Supabase page and paste
+   (**Ctrl+V**).
+7. Click the green **Run** button at the bottom right (or **Ctrl+Enter**).
+8. You should see **Success. No rows returned**.
+
+Safe to run more than once.
+
+### Checking it worked
+
+Paste this into the same editor and press Run:
+
+```sql
+select kind, count(*) from public.matches group by kind;
+```
+
+Straight after the migration you should see a single row with an empty `kind`
+and your existing match count. Then play one league match and look again —
+a `league` row appears with a count of 1.
+
+### About your existing matches
+
+Old matches keep an empty label and keep counting as league games. That is
+deliberate: nothing saved about an old match can prove it was a cup tie — the
+cup's eight teams include all six league clubs, so a cup tie against Storm City
+looks identical to a league game against Storm City. Guessing would delete wins
+you actually earned. Your numbers therefore stay exactly as they are now, and
+they become exact one season after you run this, once every match in the
+current season carries a real label.
+
+### If something goes wrong
+
+An error mentioning `relation "public.matches" does not exist` means you're on
+the wrong Supabase project — check the project name at the top left.
+
+Any other error: copy the full red message and send it over.
+
