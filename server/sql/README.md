@@ -221,6 +221,58 @@ fix.
 
 ---
 
+# Migration 005 — shards and training
+
+**What it fixes:** two problems with duplicate-card shards.
+
+- If saving your shards failed, the card still showed them on screen — and you
+  could then spend those imaginary shards on a real, permanent card level. The
+  same failure also handed your gems back, so the pack came out free.
+- With the game open in two tabs, or a pack opening while a training upgrade
+  was still saving, one of the two changes silently overwrote the other. Shards
+  just vanished, and nothing said so.
+
+**How:** the maths moves into the database. Adding shards is now "add 6 to
+whatever is stored" rather than "set it to what my browser thinks", so two
+changes can't overwrite each other. Training reads the level itself, works out
+the price from that, and takes the shards, the level and the gems together in
+one go — so you can't be charged for a level that didn't happen, or get one you
+didn't pay for.
+
+**Do you have to run it?** The app works either way — without it the browser
+falls back to a safer method that refuses a conflicting write instead of
+silently losing it. But the "spend shards you don't have" hole only fully
+closes once this is run.
+
+## How to run migration 005
+
+1. **https://supabase.com/dashboard** → sign in → your **TCG Manager** project.
+2. Left sidebar → **SQL Editor** → green **+ New query**.
+3. Open `server/sql/005_atomic_shards_and_training.sql`, select all
+   (**Ctrl+A**), copy (**Ctrl+C**).
+4. Paste into the big box, click the green **Run** button.
+5. Expect **Success. No rows returned**.
+
+Safe to run more than once. Run 002 first (this needs the columns it adds).
+
+### Checking it worked
+
+```sql
+select p.proname, p.prosecdef as security_definer
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname in ('grant_card_shards','train_card');
+```
+
+Two rows, both saying `true`. Then in the game: open a pack containing a card
+you already own and check the shard count went up by the amount the reveal
+showed, then train a card and check the level went up by one and your gems down
+by exactly the price quoted.
+
+This one was tested by running it against a real Postgres before it shipped —
+26 checks, including that neither function can touch another player's cards.
+
+---
+
 # Migration 006 — cup ties and friendlies out of the league table
 
 **What it fixes:** your season record (the "3W - 1D - 0L this season" line, and
@@ -286,3 +338,19 @@ the wrong Supabase project — check the project name at the top left.
 
 Any other error: copy the full red message and send it over.
 
+
+---
+
+# Migration 007 — do NOT run yet
+
+`server/sql/007_server_authoritative_economy.sql` is a **design**, not something
+to paste in. It is the plan for stopping a player giving themselves gems and
+cards from the browser console — the last big hole left.
+
+The database half is written. The app half is not: nothing in the game calls any
+of those new functions yet, and the file has never been run against a real
+database even once. Running it today would install functions nobody uses, and
+the lock-down step inside it would break the live game outright.
+
+`server/ECONOMY_DESIGN.md` explains the approach and lists the app changes still
+needed. Migration 005 already did the training slice of it.
