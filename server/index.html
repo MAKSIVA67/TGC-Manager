@@ -3296,7 +3296,15 @@ document.getElementById("stage").addEventListener("click", function(e){
       if(!pick){ state.gems += Math.round(pack.cost/3); playTap(); s.revealed=null; s.phase="revealed"; render(); commitPackRefund(); break; }
       const wasOwned = !!pick.owned;
       s.dupeShards = wasOwned ? shardsForDuplicate(pick.rarity) : 0;
-      if(wasOwned) grantShards(pick.id, s.dupeShards);
+      if(wasOwned) grantShards(pick.id, s.dupeShards).then(res=>{
+        // The shards are the entire payout of a duplicate pull, so if they
+        // didn't land the pack bought nothing -- hand the cost back rather
+        // than charging for a reward that only ever existed on screen.
+        if(!res || !res.error) return;
+        state.gems += pack.cost;
+        commitPackRefund();
+        alert("Couldn't save those shards — check your connection. Your gems have been refunded.");
+      });
       else commitPackOpen(pick.id);
       const spinPool = state.players.filter(p=>!p.exclusive && p.active!==false);
       const items = Array.from({length: SPIN_FILLER_COUNT}, ()=> spinPool[Math.floor(Math.random()*spinPool.length)]);

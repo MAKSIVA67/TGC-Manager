@@ -111,26 +111,96 @@ const MAX_CARD_LEVEL = 10;
 function shardsForLevel(level) { return 2 + level * 2; }        // 2,4,6,... 20
 function gemsForLevel(level) { return 40 + level * 30; }        // 40,70,...,310
 
+// Shards and levels used to be read-modify-written as ABSOLUTE values built
+// from whatever this browser happened to hold, so two writes racing -- a second
+// tab, or a duplicate pull landing while a training spend is in flight --
+// silently threw one of them away, and the loser still reported success.
+// Migration 005 moves the arithmetic into the database: relative (`shards =
+// shards + n`), inside one transaction, returning the row it actually
+// committed. Until it is run, the *Fallback() paths below compare-and-set
+// against the values the row really held, which still refuses a lost update
+// instead of reporting one as a success. Same graceful degradation as
+// setBanned() in admin-api.js, and rpcMissing() there is the detector.
+//
+// Nothing is applied optimistically any more. Only a value the server has
+// confirmed is ever copied into local state, because a card's shard count
+// being ahead of the stored row is precisely what let never-granted shards be
+// spent on a real, permanent +1 power level. Both callers already wait on the
+// promise before rendering, so the optimism bought no responsiveness anyway.
+function applyCardRow(card, row) {
+  if (!card || !row) return;
+  if (typeof row.shards === "number") card.shards = row.shards;
+  if (typeof row.level === "number") {
+    card.level = row.level;
+    card.power = card.basePower + row.level;
+  }
+}
+
+function readUserCard(userId, cardId) {
+  return sb.from("user_cards").select("level, shards")
+    .eq("user_id", userId).eq("card_id", cardId).maybeSingle()
+    .then(({ data, error }) => ({ row: data || null, error: error ? error.message : null }));
+}
+
+// The expected values go on as extra filters, so the UPDATE matches nothing at
+// all if anyone touched the row in between; .select() then reports how many
+// rows were really written, turning a lost update into a detectable conflict
+// rather than a write that quietly discarded someone else's.
+function casUserCard(userId, cardId, expected, fields) {
+  let q = sb.from("user_cards").update(fields).eq("user_id", userId).eq("card_id", cardId);
+  Object.keys(expected).forEach(k => { q = q.eq(k, expected[k]); });
+  return q.select("level, shards").then(({ data, error }) => ({
+    row: (data && data[0]) || null,
+    error: error ? error.message : null,
+  }));
+}
+
 // A duplicate pull. The client never stores a second user_cards row -- every
 // "do I own this?" check in the app is a set membership test and would break.
 // The duplicate becomes shards on the row that already exists.
+//
+// Resolves { error } because the pack's gem cost is deducted locally at click
+// time and only persisted here: swallowing a failure charged for shards that
+// don't exist, and skipping the write entirely refunded the pack on reload, so
+// packs became free once a collection was complete. The caller now decides.
+const SHARD_GRANT_ATTEMPTS = 3;
+
 function grantShards(cardId, n) {
   const session = window.state.session;
   const userId = session && session.user && session.user.id;
-  if (!userId) return Promise.resolve();
+  if (!userId) return Promise.resolve({ error: "Not signed in." });
   const card = window.state.players.find(p => p.id === cardId);
-  const next = ((card && card.shards) || 0) + n;
-  if (card) card.shards = next;
-  return sb.from("user_cards").update({ shards: next })
-    .eq("user_id", userId).eq("card_id", cardId)
-    .then(({ error }) => {
-      if (error) { console.error("grantShards failed:", error.message); return; }
-      // The pack's gem cost is only deducted locally by the open-pack handler.
-      // commitPackOpen() persists it on the new-card path; without the same
-      // call here a duplicate pull was refunded on reload, so packs became
-      // free once a collection was complete.
-      return updateProfile({ gems: window.state.gems });
+
+  return sb.rpc("grant_card_shards", { p_card_id: cardId, p_shards: n }).then(({ data, error }) => {
+    if (error && rpcMissing(error)) return grantShardsFallback(userId, cardId, n, SHARD_GRANT_ATTEMPTS);
+    if (error) return { error: error.message };
+    if (data && data.error) return { error: data.error };
+    return { row: data };
+  }).then(res => {
+    if (res.error) { console.error("grantShards failed:", res.error); return { error: res.error }; }
+    applyCardRow(card, res.row);
+    // The shards are stored at this point, so a failure to persist the gem
+    // cost must not be reported as a failed grant -- that would hand the cost
+    // back for a pack that really did pay out.
+    return updateProfile({ gems: window.state.gems }).then(() => ({ error: null }));
+  });
+}
+
+// Re-reading before each attempt is the point: the whole failure mode is a
+// stale base value, so retrying against the same one would lose the same
+// update again. A grant is safe to retry because it adds a fixed amount.
+function grantShardsFallback(userId, cardId, n, attemptsLeft) {
+  return readUserCard(userId, cardId).then(({ row, error }) => {
+    if (error) return { error: error };
+    if (!row) return { error: "You don't own that card." };
+    const have = row.shards || 0;
+    return casUserCard(userId, cardId, { shards: have }, { shards: have + n }).then(({ row: written, error: e2 }) => {
+      if (e2) return { error: e2 };
+      if (written) return { row: written };
+      if (attemptsLeft > 1) return grantShardsFallback(userId, cardId, n, attemptsLeft - 1);
+      return { error: "That card is being changed somewhere else." };
     });
+  });
 }
 
 function trainCard(cardId) {
@@ -139,38 +209,55 @@ function trainCard(cardId) {
   if (!userId) return Promise.resolve({ error: "Not signed in." });
   const card = window.state.players.find(p => p.id === cardId);
   if (!card || !card.owned) return Promise.resolve({ error: "You don't own that card." });
+  // Deliberately no local shard check: the shard count is the one number that
+  // can be ahead of the database, and gating on it is what let a failed grant
+  // buy a level. Affordability is decided against the stored row, below.
   if (card.level >= MAX_CARD_LEVEL) return Promise.resolve({ error: "Already at maximum level." });
-  const needShards = shardsForLevel(card.level);
-  const needGems = gemsForLevel(card.level);
-  if (card.shards < needShards) return Promise.resolve({ error: "Not enough shards." });
-  if (window.state.gems < needGems) return Promise.resolve({ error: "Not enough gems." });
+  if (window.state.gems < gemsForLevel(card.level)) return Promise.resolve({ error: "Not enough gems." });
 
-  const newLevel = card.level + 1;
-  const newShards = card.shards - needShards;
-  // Applied locally first so the card jumps immediately; the writes below are
-  // the same optimistic pattern the rest of the app uses.
-  card.level = newLevel;
-  card.shards = newShards;
-  card.power = card.basePower + newLevel;
-  window.state.gems -= needGems;
+  return sb.rpc("train_card", { p_card_id: cardId }).then(({ data, error }) => {
+    if (error && rpcMissing(error)) return trainCardFallback(userId, card);
+    if (error) return { error: error.message };
+    if (data && data.error) return { error: data.error };
+    // The RPC debits the gems in the same transaction as the level, so the
+    // balance it hands back IS the stored one. Declaring it to auth.js as our
+    // own write keeps knownServer level with reality; without that,
+    // applyProfileRow would add the local spend on top and charge twice.
+    window.state.gems = data.gems;
+    noteProfileWrite({ gems: data.gems });
+    return { row: data };
+  }).then(res => {
+    if (res.error) { console.error("trainCard failed:", res.error); return { error: res.error }; }
+    applyCardRow(card, res.row);
+    return { error: null, level: card.level };
+  });
+}
 
-  return sb.from("user_cards").update({ level: newLevel, shards: newShards })
-    .eq("user_id", userId).eq("card_id", cardId)
-    .then(({ error }) => {
-      if (error) {
-        // Roll the optimistic changes back. Charging gems for a level that
-        // never persisted means the player pays and gets nothing the moment
-        // they reload.
-        console.error("trainCard failed:", error.message);
-        card.level = newLevel - 1;
-        card.shards = newShards + needShards;
-        card.power = card.basePower + card.level;
-        window.state.gems += needGems;
-        return { error: "Couldn't save that — check your connection and try again." };
-      }
-      return updateProfile({ gems: window.state.gems })
-        .then(() => ({ error: null, level: newLevel }));
-    });
+function trainCardFallback(userId, card) {
+  return readUserCard(userId, card.id).then(({ row, error }) => {
+    if (error) return { error: error };
+    if (!row) return { error: "You don't own that card." };
+    const level = row.level || 0;
+    const shards = row.shards || 0;
+    if (level >= MAX_CARD_LEVEL) return { error: "Already at maximum level." };
+    const needShards = shardsForLevel(level);
+    const needGems = gemsForLevel(level);
+    if (shards < needShards) return { error: "Not enough shards." };
+    if (window.state.gems < needGems) return { error: "Not enough gems." };
+    return casUserCard(userId, card.id, { level: level, shards: shards },
+                       { level: level + 1, shards: shards - needShards })
+      .then(({ row: written, error: e2 }) => {
+        if (e2) return { error: e2 };
+        // Unlike a grant, a spend is never retried: the cost curve is keyed to
+        // the level, so the row having moved means the next attempt would
+        // charge a price the player was never shown. Nothing was written, so
+        // there is nothing to undo -- but reporting success here is exactly
+        // what took the gems for a level that does not exist.
+        if (!written) return { error: "That card changed while you were training it — try again." };
+        window.state.gems -= needGems;
+        return updateProfile({ gems: window.state.gems }).then(() => ({ row: written }));
+      });
+  });
 }
 
 function loadSquad(userId) {
