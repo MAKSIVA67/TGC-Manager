@@ -2955,9 +2955,11 @@ function finalizeMatch(res){
   state.confettiOn = won;
   checkRankUp();
   render();
-  // The last argument suppresses the season fields on the profile write; a cup
-  // tie needs that suppression for the same reason a friendly does.
-  commitMatchResult({result:outcome, myWins:res.myWins, myTotalPower:res.myTotalPower, oppTotalPower:res.oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, pl.isChallengeMatch || pl.isCupMatch);
+  // The kind goes onto the match row itself so the season table can leave cup
+  // ties and friendlies out of it forever after, rather than being a flag that
+  // only suppresses this one profile write and is then forgotten.
+  const matchKind = pl.isChallengeMatch ? MATCH_KIND_FRIENDLY : pl.isCupMatch ? MATCH_KIND_CUP : MATCH_KIND_LEAGUE;
+  commitMatchResult({result:outcome, myWins:res.myWins, myTotalPower:res.myTotalPower, oppTotalPower:res.oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, matchKind);
 }
 
 function continueSecondHalf(){

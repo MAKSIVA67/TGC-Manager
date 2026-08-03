@@ -193,22 +193,69 @@ function saveSquadRemote() {
     .then(({ error }) => { if (error) console.error("saveSquadRemote failed:", error.message); });
 }
 
+// ------------------------------------------------------- match history kind
+// Cup ties and friendly challenges are recorded in `matches` next to league
+// games and nothing on the row told them apart, so both counted towards the
+// league table. Migration 006 adds `kind` and every write below stamps it.
+const MATCH_KIND_LEAGUE = "league";
+const MATCH_KIND_CUP = "cup";
+const MATCH_KIND_FRIENDLY = "friendly";
+
+// An unstamped row counts as a league game. Rows written before 006 -- and
+// rows an older cached client writes after it -- have no `kind`, and a cup tie
+// is genuinely indistinguishable from a league game after the fact, because
+// the eight-team cup field is a superset of the six league clubs and
+// opponent_name therefore proves nothing. Counting them leaves every existing
+// player's record reading exactly as it does today; the alternative is
+// deleting history the column can't vouch for, which is the same silent
+// under-reporting this whole change exists to stop. The pollution ages out on
+// its own one season after the migration runs.
+function isLeagueMatchRow(row) {
+  return row.kind == null || row.kind === MATCH_KIND_LEAGUE;
+}
+
+// Unlike a missing FUNCTION (admin-api.js's rpcMissing(), where the call fails
+// and a different code path takes over), a missing COLUMN fails the write it
+// was attached to -- PostgREST rejects the insert against its schema cache as
+// PGRST204 before Postgres ever sees it, and Postgres itself reports 42703 --
+// so the only recovery is to send the row again without the field.
+function columnMissing(error) {
+  return !!error && (error.code === "PGRST204" || error.code === "42703" ||
+                     /could not find.*column|column .*does not exist/i.test(error.message || ""));
+}
+
 // Season W/L/D isn't a column on `profiles` (only season_number/matchday/
-// points are) -- derived here by filtering match history to the current
-// season_number, so it's always self-consistent with `matches` instead of
-// a second counter that could drift. A season is only 6 matchdays, so the
-// last-20 fetch always covers a full season.
+// points are) -- derived here from match history, so it's always
+// self-consistent with `matches` instead of a second counter that could drift.
+//
+// Two queries rather than one, because the two answers need different rows.
+// The record must see EVERY league game of the current season, so the season
+// is filtered server-side and left unbounded; the recent list wants the newest
+// handful whatever season or kind they are, so it keeps its limit. One
+// last-20 fetch used to serve both, on the assumption that a 6-matchday season
+// always fits -- but cup ties and friendlies land in the same table without
+// advancing a matchday, so a couple of cup runs push real league results out
+// of the window and the record silently shrinks, taking obj_win3's "Win 3
+// Matches" with it.
+//
+// `select("*")` rather than naming `kind`: naming a column that migration 006
+// hasn't added yet fails the whole query, the same reason
+// loadCatalogAndOwnership selects everything.
 function loadRecentMatchesAndSeason(userId) {
-  return sb.from("matches").select("*").eq("user_id", userId).order("played_at", { ascending: false }).limit(20)
-    .then(({ data }) => {
-      const matches = data || [];
-      window.state.recentMatches = matches;
-      const seasonNumber = window.state.season.number;
-      const seasonMatches = matches.filter(m => m.season_number === seasonNumber);
-      window.state.season.wins = seasonMatches.filter(m => m.result === "win").length;
-      window.state.season.losses = seasonMatches.filter(m => m.result === "loss").length;
-      window.state.season.draws = seasonMatches.filter(m => m.result === "draw").length;
-    });
+  const seasonNumber = window.state.season.number;
+  return Promise.all([
+    sb.from("matches").select("*").eq("user_id", userId).order("played_at", { ascending: false }).limit(20),
+    sb.from("matches").select("*").eq("user_id", userId).eq("season_number", seasonNumber),
+  ]).then(([recentRes, seasonRes]) => {
+    window.state.recentMatches = recentRes.data || [];
+    // A failed query is not a 0-0-0 season. Treating one as such would wipe a
+    // record that is already correct in state whenever the network blips.
+    if (seasonRes.error) { console.error("season record load failed:", seasonRes.error.message); return; }
+    const league = (seasonRes.data || []).filter(isLeagueMatchRow);
+    window.state.season.wins = league.filter(m => m.result === "win").length;
+    window.state.season.losses = league.filter(m => m.result === "loss").length;
+    window.state.season.draws = league.filter(m => m.result === "draw").length;
+  });
 }
 
 // New-account bootstrap. A local save on THIS browser wins over granting
@@ -386,7 +433,25 @@ function refreshGameState() {
   ]).then(() => window.render());
 }
 
-function commitMatchResult(outcome, matchSeasonNumber, matchMatchday, opponentName, isChallengeMatch) {
+// The row is written once with `kind` and, only if the database hasn't had
+// migration 006 run yet, once more without it -- losing the match entirely
+// would cost the player a result they have already been shown.
+function insertMatchRow(row) {
+  return sb.from("matches").insert(row).then(({ error }) => {
+    if (!columnMissing(error)) {
+      if (error) console.error("commitMatchResult insert failed:", error.message);
+      return { error: error || null };
+    }
+    const legacyRow = Object.assign({}, row);
+    delete legacyRow.kind;
+    return sb.from("matches").insert(legacyRow).then(({ error: retryError }) => {
+      if (retryError) console.error("commitMatchResult insert failed:", retryError.message);
+      return { error: retryError || null };
+    });
+  });
+}
+
+function commitMatchResult(outcome, matchSeasonNumber, matchMatchday, opponentName, matchKind) {
   const session = window.state.session;
   const userId = session && session.user && session.user.id;
   if (!userId) return Promise.resolve();
@@ -396,14 +461,21 @@ function commitMatchResult(outcome, matchSeasonNumber, matchMatchday, opponentNa
     opponent_name: opponentName, formation: s.play.formationKey,
     result: outcome.result, zones_won: outcome.myWins,
     my_power: outcome.myTotalPower, opp_power: outcome.oppTotalPower, gems_earned: outcome.gemsEarned,
+    kind: matchKind,
   };
-  return sb.from("matches").insert(matchRow).then(({ error }) => {
-    if (error) console.error("commitMatchResult insert failed:", error.message);
+  return insertMatchRow(matchRow).then(({ error }) => {
     const fields = {
       gems: s.gems, wins: s.stats.wins, losses: s.stats.losses, draws: s.stats.draws,
       win_streak: s.stats.streak, best_streak: s.stats.bestStreak,
     };
-    if (!isChallengeMatch) {
+    // Season points and matchday are a running total of the rows in `matches`,
+    // and W/L/D is read straight back out of the same rows -- so persisting
+    // them for a match the insert never recorded parks the profile permanently
+    // ahead of the table it is meant to summarise (12 pts against a 3W-1D
+    // record), with nothing left to reconcile the two from. Gems and the
+    // lifetime stats are their own counters and the player has already been
+    // paid them on screen, so those are still written.
+    if (matchKind === MATCH_KIND_LEAGUE && !error) {
       fields.season_number = s.season.number;
       fields.season_matchday = s.season.matchday;
       fields.season_points = s.season.points;
