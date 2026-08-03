@@ -508,9 +508,116 @@ function refreshTrades() {
   return listTrades(uid).then(({ data }) => {
     window.state.friendsUI.trades = data || [];
     window.state.friendsUI.tradesLoaded = true;
+    reconcileCompletedTrades(uid, window.state.friendsUI.trades);
     window.render();
   });
 }
+
+// A completed trade's card and gem swap happens entirely inside the
+// execute_trade RPC, so BOTH sides' local state is wrong the instant it lands
+// -- but only the side that pressed Accept ever knew to reload. The INITIATOR
+// kept showing the cards they had just given away: they could field them, put
+// them up in another trade, and a pack pulling one took the "duplicate"
+// branch, crediting shards against a user_cards row that no longer existed --
+// grantShards updated zero rows, so the pack was paid for and granted nothing.
+// (Gems already self-healed, via the separate profiles subscription below.)
+//
+// Reconciled from the TRADES LIST rather than from the realtime event itself,
+// because postgres_changes replays nothing that happened while the socket was
+// down: this way the realtime UPDATE, opening the Friends tab, and the refetch
+// on becoming visible below all recover equally, and no one path has to be the
+// reliable one. Trade ids already accounted for are remembered, so a duplicate
+// delivery, two overlapping fetches, or the acceptor's own reload still cost
+// exactly one refresh.
+let settledTrades = { userId: null, ids: new Set(), seeded: false };
+function settledTradesFor(userId) {
+  if (settledTrades.userId !== userId) settledTrades = { userId: userId, ids: new Set(), seeded: false };
+  return settledTrades;
+}
+function noteTradeSettled(userId, tradeId) { settledTradesFor(userId).ids.add(tradeId); }
+function reconcileCompletedTrades(userId, trades) {
+  const settled = settledTradesFor(userId);
+  // The first list of a session is a baseline, not news -- sign-in has just
+  // read the collection fresh, so nothing in trade history is outstanding and
+  // announcing it all would reload the whole game state on every sign-in.
+  const seeding = !settled.seeded;
+  settled.seeded = true;
+  let outstanding = false;
+  (trades || []).forEach(t => {
+    if (t.status !== "completed" || settled.ids.has(t.id)) return;
+    settled.ids.add(t.id);
+    outstanding = true;
+  });
+  if (outstanding && !seeding) requestCollectionRefresh();
+}
+
+// refreshGameState() re-reads the catalog AND the saved squad, then renders.
+// Landing that mid-match reverts state.play.myLineup to whatever was last
+// saved -- a half-time substitution would silently vanish and the second half
+// be scored against different cards than the first, the same class of bug the
+// matchInProgress() guard on accepting a challenge exists for. Landing it
+// mid-pack-spin replaces #stage and destroys the node the reveal's
+// transitionend is attached to, which locked the shop for a whole session
+// once. So the reload waits for a moment where nothing on screen depends on
+// the current DOM or lineup surviving. Waiting costs nothing: the spin, the
+// reveal and the match each cover the whole screen, so a stale collection
+// can't be acted on until they're over anyway.
+function refreshBlocked() {
+  const shop = window.state.shop;
+  if (shop && (shop.phase === "spinning" || shop.phase === "revealed")) return true;
+  return !!(window.matchInProgress && window.matchInProgress());
+}
+let idleWaiters = [];
+let idleTimer = null;
+function runWhenIdle(fn) {
+  if (!refreshBlocked()) { fn(); return; }
+  idleWaiters.push(fn);
+  if (idleTimer) return;
+  idleTimer = setInterval(() => {
+    if (refreshBlocked()) return;
+    clearInterval(idleTimer); idleTimer = null;
+    const waiters = idleWaiters;
+    idleWaiters = [];
+    waiters.forEach(f => f());
+  }, 1000);
+}
+
+let collectionRefreshPending = false;
+let collectionRefreshInFlight = false;
+function requestCollectionRefresh() {
+  if (collectionRefreshPending) return;      // already queued; one reload covers any number of trades
+  collectionRefreshPending = true;
+  runWhenIdle(flushCollectionRefresh);
+}
+function flushCollectionRefresh() {
+  if (!collectionRefreshPending) return;
+  // A second trade completing while the first reload is still in flight has to
+  // queue another pass -- that reload was already reading the database before
+  // the second swap committed.
+  if (collectionRefreshInFlight) return;
+  collectionRefreshPending = false;
+  collectionRefreshInFlight = true;
+  const done = () => {
+    collectionRefreshInFlight = false;
+    if (collectionRefreshPending) runWhenIdle(flushCollectionRefresh);
+  };
+  return Promise.resolve(refreshGameState()).then(done, done);
+}
+
+// postgres_changes has no backlog: a trade accepted while this tab was hidden
+// (or while a phone had the app suspended and the socket asleep) is simply
+// never delivered, and the realtime handler below can't be the only trigger.
+// Re-listing on becoming visible is the one thing guaranteed to run, and costs
+// a single query when nothing has changed.
+let resumeRefetchQueued = false;
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || resumeRefetchQueued) return;
+  const session = window.state && window.state.session;
+  if (!session || !session.user || !window.state.friendsUI.tradesLoaded) return;
+  resumeRefetchQueued = true;
+  runWhenIdle(() => { resumeRefetchQueued = false; refreshTrades(); });
+});
+
 function viewTrade(tradeId) {
   markTradeViewed(window.state.session.user.id, tradeId);
   window.state.friendsUI.viewingTradeId = tradeId;
@@ -526,10 +633,17 @@ function submitAcceptTrade(tradeId) {
   window.render();
   acceptTrade(tradeId).then(({ error }) => {
     if (error) { window.state.friendsUI.tradeActionStatus = error; window.render(); return; }
-    markTradeViewed(window.state.session.user.id, tradeId);
+    const uid = window.state.session.user.id;
+    markTradeViewed(uid, tradeId);
+    // Recorded as settled before the list comes back, or the reconcile above
+    // would count our own trade as news and reload a second time. Routed
+    // through the same queue rather than calling refreshGameState() directly:
+    // the Friends tab is reachable mid-match, so accepting a trade there could
+    // otherwise revert a live lineup to the last saved squad.
+    noteTradeSettled(uid, tradeId);
     closeTradeView();
     refreshTrades();
-    refreshGameState();
+    requestCollectionRefresh();
   });
 }
 function submitDeclineTrade(tradeId) {
