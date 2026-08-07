@@ -83,6 +83,58 @@ input,textarea{font-family:inherit;font-size:16px}
    layout instead: fixed nav rail down the left, currencies pinned top right,
    content filling everything between. Portrait is untouched, so a tablet or a
    desktop window that happens to be tall still works. */
+/* Landscape home. Built to the shape of a modern football-manager front end:
+   an icon rail down one side, the club front and centre, and the two things
+   you actually came to press (squad, kick off) sitting as big tiles beside a
+   rotating store promo. Everything in it is this game's own -- procedural
+   crests, our own pack names -- because copying another game's artwork or
+   wordmarks is not on the table, and the layout language is the part that
+   makes it feel like one anyway.
+   Portrait keeps the scrolling stack; this only exists above the same 820px
+   breakpoint the app shell uses. */
+.fcHome{display:grid;grid-template-columns:78px minmax(0,1fr) minmax(300px,.92fr);
+  gap:14px;height:calc(100vh - 132px);min-height:330px}
+.fcRail{display:flex;flex-direction:column;gap:8px;justify-content:center}
+.fcRailBtn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 4px;border:none;
+  border-radius:14px;cursor:pointer;background:linear-gradient(160deg,#ffffff14,#ffffff06);
+  border:1px solid #ffffff1a;transition:transform .16s ease,border-color .16s ease}
+.fcRailBtn:hover{transform:translateX(3px);border-color:var(--gold,#FFC94A)66}
+.fcRailBtn span{font-size:8px;font-weight:900;letter-spacing:.06em;line-height:1.1;text-align:center}
+/* The hero is the only place a crest gets to be big, so it carries the
+   backdrop wash rather than sitting on a flat panel. */
+.fcHero{position:relative;border-radius:20px;overflow:hidden;display:flex;flex-direction:column;
+  justify-content:flex-end;padding:18px;border:1px solid #ffffff14}
+.fcHeroGlow{position:absolute;inset:0;z-index:0}
+/* Sits behind the club name as texture, not as a subject. At full opacity and
+   bleeding off the edge it read as a coloured blob rather than a crest, so it
+   is pulled inside the panel and knocked back until the text on top of it
+   stays the thing you read first. */
+.fcHeroCrest{position:absolute;right:5%;top:42%;transform:translateY(-50%);opacity:.42;z-index:1;
+  filter:drop-shadow(0 18px 40px #000a)}
+.fcHeroText{position:relative;z-index:2}
+.fcRight{display:flex;flex-direction:column;gap:12px;min-height:0}
+.fcFeature{position:relative;flex:1;min-height:0;border-radius:18px;overflow:hidden;
+  border:1px solid #ffffff1a;padding:14px;display:flex;flex-direction:column}
+.fcPacks{display:flex;gap:10px;flex:1;align-items:center;justify-content:center;min-height:0}
+.fcPack{flex:1;max-width:104px;aspect-ratio:3/4;border-radius:12px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:4px;cursor:pointer;border:1px solid #ffffff33;
+  transition:transform .18s ease}
+.fcPack:hover{transform:translateY(-5px) scale(1.03)}
+.fcDots{display:flex;gap:5px;justify-content:center;margin-top:8px}
+.fcDot{width:5px;height:5px;border-radius:999px;background:#ffffff33}
+.fcDot.on{background:var(--gold,#FFC94A);width:14px}
+.fcTiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;height:104px;flex-shrink:0}
+.fcTile{position:relative;border-radius:18px;overflow:hidden;border:1px solid #ffffff1a;cursor:pointer;
+  display:flex;flex-direction:column;justify-content:space-between;padding:12px;
+  transition:transform .18s ease,border-color .18s ease}
+.fcTile:hover{transform:translateY(-3px)}
+.fcTileLabel{font-size:11px;font-weight:900;letter-spacing:.14em}
+@media (max-height:430px){
+  .fcHome{height:calc(100vh - 108px);gap:10px}
+  .fcTiles{height:82px}
+  .fcHero{padding:12px}
+}
+
 @media (min-width:820px){
   #stage{max-width:none;padding-left:88px}
   .hdr{position:fixed;top:0;left:88px;right:0;padding:10px 18px 10px;border-bottom:1px solid #ffffff12;
@@ -979,6 +1031,90 @@ window.addEventListener("beforeinstallprompt", (e) => {
   render();
 });
 
+// Landscape home. Same information as the portrait stack, arranged as a front
+// end rather than a feed: rail of shortcuts, the club itself, a store promo
+// that rotates, and the two buttons that actually start something.
+// `sel` is the promo index, advanced by the dots -- kept on state so a
+// re-render (which replaces #stage wholesale) doesn't snap it back to zero.
+function fcHomeHTML(o){
+  const club = state.profile.teamName || "My Team";
+  const col = state.profile.color || COLORS.turf;
+  const promos = [PACKS[5], PACKS[4], PACKS[3]].filter(Boolean);   // GOAT, Mythic, Legendary
+  const sel = Math.min(state.homePromo||0, promos.length-1);
+  const promo = promos[sel];
+  const rail = [
+    {tab:"shop",  icon:"ShoppingBag", label:"STORE",   c:COLORS.gold},
+    {tab:"play",  icon:"Trophy",      label:"CUP",     c:COLORS.cyan},
+    {tab:"cards", icon:"Sparkles",    label:"TRAIN",   c:COLORS.pink},
+    {tab:"shop",  icon:"Gem",         label:"GEMS",    c:COLORS.turf},
+  ];
+  return `<div class="view" style="padding-top:4px">
+    <div class="fcHome">
+
+      <div class="fcRail">
+        ${rail.map(r=>`<button class="fcRailBtn scrimtap" data-action="nav-tab" data-tab="${r.tab}">
+          ${icon(r.icon,19,r.c)}<span style="color:${r.c}">${r.label}</span>
+        </button>`).join("")}
+      </div>
+
+      <div class="fcHero" style="background:linear-gradient(115deg, ${COLORS.bg} 12%, ${col}22 55%, ${COLORS.purple}33 100%)">
+        <div class="fcHeroGlow" style="background:radial-gradient(circle at 78% 46%, ${col}44, transparent 62%)"></div>
+        <div class="fcHeroCrest">${crestHTML(club, col, 150)}</div>
+        <div class="fcHeroText">
+          <div style="font-size:9px;font-weight:900;letter-spacing:.22em;color:${COLORS.muted}">${esc(o.rank.name.toUpperCase())} · LEVEL ${o.level}</div>
+          <div class="display" style="font-size:30px;line-height:1.05;margin:4px 0 8px;color:${COLORS.cream};text-shadow:0 3px 18px #000c">${esc(club)}</div>
+          <div class="row" style="gap:14px;align-items:center">
+            <div><div style="font-size:8px;letter-spacing:.14em;color:${COLORS.muted}">SQUAD</div>
+              <div class="display" style="font-size:19px;color:${COLORS.gold}">${o.teamRating}</div></div>
+            <div><div style="font-size:8px;letter-spacing:.14em;color:${COLORS.muted}">CARDS</div>
+              <div class="display" style="font-size:19px;color:${COLORS.cream}">${o.owned.length}</div></div>
+            <div><div style="font-size:8px;letter-spacing:.14em;color:${COLORS.muted}">WINS</div>
+              <div class="display" style="font-size:19px;color:${COLORS.turf}">${state.stats.wins}</div></div>
+            ${o.dailyClaimed?"":`<button data-action="claim-daily" class="btn scrimtap" style="margin-left:auto;padding:8px 16px;font-size:11px;font-weight:900;background:${COLORS.gold};color:${COLORS.bg}">CLAIM DAY ${o.currentDay}</button>`}
+          </div>
+        </div>
+      </div>
+
+      <div class="fcRight">
+        <div class="fcFeature" style="background:linear-gradient(150deg, ${promo.grad[0]}2e, ${COLORS.panel} 62%)">
+          <div class="display" style="font-size:15px;letter-spacing:.06em;color:${COLORS.cream}">${esc(promo.name.toUpperCase())}</div>
+          <div style="font-size:9px;color:${COLORS.muted};margin-bottom:6px">${promo.cost.toLocaleString()} gems</div>
+          <div class="fcPacks">
+            ${[0,1,2].map(i=>`<div class="fcPack" data-action="nav-tab" data-tab="shop"
+              style="background:linear-gradient(160deg, ${promo.grad[0]}, ${promo.grad[1]});box-shadow:0 6px 20px ${promo.glow}55${i===1?";transform:scale(1.1)":""}">
+              <span style="font-size:${i===1?26:21}px">${promo.icon}</span>
+            </div>`).join("")}
+          </div>
+          <div class="fcDots">
+            ${promos.map((p,i)=>`<span class="fcDot${i===sel?" on":""}" data-action="home-promo" data-i="${i}"></span>`).join("")}
+          </div>
+        </div>
+
+        <div class="fcTiles">
+          <button class="fcTile scrimtap" data-action="nav-tab" data-tab="cards"
+            style="background:linear-gradient(150deg, ${col}3a, ${COLORS.panel})">
+            <div class="fcTileLabel" style="color:${COLORS.cream}">CLUB</div>
+            <div class="row" style="gap:8px;align-items:center">
+              ${crestHTML(club, col, 34)}
+              <div><div style="font-size:8px;color:${COLORS.muted}">OVR</div>
+                <div class="display" style="font-size:20px;color:${COLORS.gold}">${o.teamRating}</div></div>
+            </div>
+          </button>
+          <button class="fcTile scrimtap" data-action="nav-tab" data-tab="play"
+            style="background:linear-gradient(150deg, ${COLORS.turf}44, ${COLORS.panel})">
+            <div class="fcTileLabel" style="color:${COLORS.cream}">PLAY</div>
+            <div class="row between" style="align-items:flex-end">
+              <div style="font-size:9px;color:${COLORS.muted}">Matchday ${state.season.matchday}</div>
+              ${icon("PlayCircle",30,COLORS.turf)}
+            </div>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>`;
+}
+
 function homeView(){
   const owned = state.players.filter(p=>p.owned);
   const rank = rankForWins(state.stats.wins);
@@ -988,6 +1124,12 @@ function homeView(){
   const teamRating = bestFive.length ? Math.round(bestFive.reduce((s,p)=>s+p.power,0)/bestFive.length) : 0;
   const dailyClaimed = state.home.dailyLastClaim === todayStr();
   const currentDay = (activeDailyStreak() % 7) + 1;
+
+  // Landscape gets the front-end layout, portrait keeps the scrolling stack.
+  // Decided here rather than in CSS because the two are different markup, not
+  // the same markup restyled; the resize listener further down re-renders when
+  // the breakpoint is crossed so a rotation doesn't strand the wrong one.
+  if(window.innerWidth >= 820) return fcHomeHTML({rank, level, teamRating, owned, dailyClaimed, currentDay});
 
   const newsModal = state.newsOpen ? `<div class="modalWrap" data-action="close-modal" data-modal="news">
     <div class="modalSheet" data-action="noop">
@@ -3045,6 +3187,8 @@ document.getElementById("stage").addEventListener("click", function(e){
       state.enlargedCardId = Number(el.dataset.playerId); render(); break;
     case "open-news":
       state.newsOpen = true; render(); break;
+    case "home-promo":
+      state.homePromo = Number(el.dataset.i)||0; render(); break;
     case "claim-daily": {
       const dailyClaimed = state.home.dailyLastClaim === todayStr();
       if(dailyClaimed) break;
@@ -3541,6 +3685,18 @@ initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/ia
     }catch(e){}
   }
   document.addEventListener("pointerdown", goWide, {once:false});
+  // homeView() picks its layout from the viewport width, so crossing the
+  // breakpoint has to re-render or a rotation leaves the portrait stack
+  // stretched across a landscape screen (or vice versa). Only fires on an
+  // actual crossing -- render() replaces #stage wholesale and is far too
+  // expensive to run on every pixel of a resize drag.
+  let wasWide = window.innerWidth >= 820;
+  window.addEventListener("resize", ()=>{
+    const isWide = window.innerWidth >= 820;
+    if(isWide === wasWide) return;
+    wasWide = isWide;
+    if(state.tab === "home" && state.authReady) render();
+  });
 })();
 
 // Studio ident teardown. The CSS runs the whole sequence on its own; this only
