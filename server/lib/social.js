@@ -28,7 +28,14 @@ function attachOtherProfiles(rows, callerId, col1, col2) {
 }
 
 function searchPlayers(term, excludeId) {
-  const trimmed = (term || "").trim();
+  // The search term is spliced into a PostgREST .or() filter string, where a
+  // comma separates top-level terms and dots separate column.operator.value.
+  // So searching `zzz,is_admin.is.true,x` injected an extra OR branch and let
+  // anyone enumerate which accounts are admins -- useful targeting, even
+  // though it can't read past what the profiles SELECT policy already exposes.
+  // Stripping the filter syntax is enough; none of these characters are
+  // meaningful in a display name, team name or username.
+  const trimmed = (term || "").trim().replace(/[,.()"\\]/g, " ").trim().slice(0, 60);
   if (!trimmed) return Promise.resolve({ data: [], error: null });
   const pattern = `%${trimmed}%`;
   return sb.from("profiles").select("id, display_name, team_name, avatar, username")
@@ -290,6 +297,22 @@ function fetchCardLevels(userId) {
 // acceptor's own cards everywhere else in the app and must not be mutated.
 // A null `levels` (unreadable) means printed power for everyone, which is at
 // least neutral rather than wrong.
+// `challenger_lineup` is free-form jsonb an opponent's client wrote, so it is
+// attacker-controlled. computeZone() sums EVERY key whose trailing digits strip
+// to the zone name, so a hand-crafted {GK, GK2, GK3, GK4} stacks four cards
+// into a one-card zone and wins it outright. Only the slot ids the challenger's
+// declared formation actually has are allowed through; anything else is
+// dropped rather than trusted.
+function sanitizeLineupIds(lineupIds, formationKey, side) {
+  const allowed = {};
+  try {
+    (window.buildSlots(formationKey, side) || []).forEach(s => { allowed[s.id] = true; });
+  } catch (e) { return lineupIds || {}; }   // unknown formation: leave it to the caller's own guard
+  const out = {};
+  Object.keys(lineupIds || {}).forEach(k => { if (allowed[k]) out[k] = lineupIds[k]; });
+  return out;
+}
+
 function resolveLineupIdsForOwner(lineupIds, byId, levels) {
   const out = {};
   Object.keys(lineupIds || {}).forEach(slotId => {
@@ -309,7 +332,9 @@ function resolveChallengeAccept(challengeId, myFormation, myLineupIds) {
     if (challenge.status !== "pending") return { error: "This challenge is no longer pending." };
     return fetchCardLevels(challenge.challenger_id).then(challengerLevels => {
       const byId = playersById();
-      const challengerLU = resolveLineupIdsForOwner(challenge.challenger_lineup, byId, challengerLevels);
+      const challengerLineup = sanitizeLineupIds(
+        challenge.challenger_lineup, challenge.challenger_formation || "balanced", "opp");
+      const challengerLU = resolveLineupIdsForOwner(challengerLineup, byId, challengerLevels);
       const opponentLU = resolveLineupIds(myLineupIds, byId);
       const zGK = window.computeZone("GK", challengerLU, opponentLU);
       const zDEF = window.computeZone("DEF", challengerLU, opponentLU);

@@ -365,24 +365,37 @@ function initializeNewAccountIfNeeded(userId) {
     const validIds = new Set(window.state.players.map(c => c.id));
     const ownedIds = legacySave.players.filter(p => p.owned).map(p => p.id).filter(id => validIds.has(id));
     const rows = ownedIds.map(cardId => ({ user_id: userId, card_id: cardId }));
+    // Everything below comes out of localStorage, which anyone can edit before
+    // signing up for the first time. The card list was already validated
+    // against the real catalog; the numbers were not, so
+    // `localStorage.setItem("legendxi-preview-save-v1", '{"gems":1e9}')` then
+    // creating an account minted a balance. Clamped to what the old local-only
+    // build could actually have produced, so a genuine save still imports
+    // whole and a forged one lands somewhere unremarkable.
+    const clamp = (v, max) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), max) : 0;
+    };
     const profileFields = {};
-    if (typeof legacySave.gems === "number") profileFields.gems = legacySave.gems;
+    if (typeof legacySave.gems === "number") profileFields.gems = clamp(legacySave.gems, 50000);
     if (legacySave.stats) {
-      profileFields.wins = legacySave.stats.wins || 0;
-      profileFields.losses = legacySave.stats.losses || 0;
-      profileFields.draws = legacySave.stats.draws || 0;
-      profileFields.win_streak = legacySave.stats.streak || 0;
-      profileFields.best_streak = legacySave.stats.bestStreak || 0;
+      profileFields.wins = clamp(legacySave.stats.wins, 9999);
+      profileFields.losses = clamp(legacySave.stats.losses, 9999);
+      profileFields.draws = clamp(legacySave.stats.draws, 9999);
+      profileFields.win_streak = clamp(legacySave.stats.streak, 999);
+      profileFields.best_streak = clamp(legacySave.stats.bestStreak, 999);
     }
     if (legacySave.season) {
-      profileFields.season_number = legacySave.season.number || 1;
-      profileFields.season_matchday = legacySave.season.matchday || 1;
-      profileFields.season_points = legacySave.season.points || 0;
+      profileFields.season_number = clamp(legacySave.season.number, 999) || 1;
+      profileFields.season_matchday = clamp(legacySave.season.matchday, 6) || 1;
+      profileFields.season_points = clamp(legacySave.season.points, 999);
     }
     if (legacySave.home) {
       profileFields.daily_last_claim = legacySave.home.dailyLastClaim || null;
-      profileFields.daily_streak = legacySave.home.dailyStreak || 0;
-      profileFields.objectives_claimed = legacySave.home.objectivesClaimed || [];
+      profileFields.daily_streak = clamp(legacySave.home.dailyStreak, 999);
+      profileFields.objectives_claimed = Array.isArray(legacySave.home.objectivesClaimed)
+        ? legacySave.home.objectivesClaimed.filter(id => typeof id === "string").slice(0, 200)
+        : [];
     }
     return (rows.length ? sb.from("user_cards").insert(rows) : Promise.resolve())
       .then(() => Object.keys(profileFields).length ? updateProfile(profileFields) : Promise.resolve())
@@ -391,6 +404,12 @@ function initializeNewAccountIfNeeded(userId) {
         return loadCatalogAndOwnership(userId);
       });
   }
+
+  // Burn the marker on the starter path too. It used to be written only when a
+  // save was actually imported, so the FIRST account created on a browser that
+  // had no legacy save left it unclaimed -- and a second, later account on the
+  // same browser could then import a save belonging to whoever used it before.
+  try { localStorage.setItem(LEGACY_SAVE_IMPORTED_KEY, "1"); } catch (e) {}
 
   const starterIds = pickStarterCardIds(window.state.players);
   const rows = starterIds.map(cardId => ({ user_id: userId, card_id: cardId }));
