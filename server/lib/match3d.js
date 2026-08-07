@@ -2187,6 +2187,10 @@
       cancelAnimationFrame(a.raf); a.raf = 0;
       titleCard(a, "HALF TIME", a.score.my + " - " + a.score.opp);
       hide(a);
+      // Belt and braces: if anything did drop the lock on the way in here, the
+      // half-time menu is the one screen where losing landscape strands the
+      // player -- there is no way back to the match without its button.
+      lockOrientation();
       const cb = a.onHalfEnd;
       if (cb) cb(1, { my: a.score.my, opp: a.score.opp });
     } else {
@@ -2225,8 +2229,16 @@
   // not implement locking at all. So: ask for fullscreen, try to lock, and if
   // the device is still portrait afterwards, ask the player to turn the phone.
   // All three steps are best-effort -- none may throw into the match.
+  // Fullscreen is requested on the PAGE, not on the arena overlay. It used to
+  // be the overlay, and half time hides the overlay (display:none) to show the
+  // substitution menu -- hiding the fullscreen element drops the browser out of
+  // fullscreen, and because Android only honours an orientation lock while
+  // fullscreen, the phone rotated back to portrait the moment half time hit.
+  // The player was left with a portrait (or blank) half-time screen and no way
+  // to press KICK OFF 2ND HALF. Locking the page instead means hiding the
+  // overlay is just hiding a div, and the menu underneath is already landscape.
   function goLandscape(a) {
-    const root = a.root;
+    const root = document.documentElement;
     try {
       const req = root.requestFullscreen || root.webkitRequestFullscreen || root.webkitRequestFullScreen;
       if (req) {
