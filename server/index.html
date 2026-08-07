@@ -629,11 +629,18 @@ const COMMENTARY = {
 const GEM_PASSES = [{id:"gems_100",androidId:"gems100",gems:100,price:1},{id:"gems_500",androidId:"gems500",gems:500,price:4},{id:"gems_1000",gems:1000,price:8},{id:"gems_5000",gems:5000,price:30},{id:"gems_10000",gems:10000,price:55,bestValue:true}];
 const OBJECTIVES = [
   {id:"obj_win3",label:"Win 3 Matches",desc:"Win 3 matches this season",reward:25,target:3,progress:(s,p,season)=>season.wins},
-  {id:"obj_collect10",label:"Collect 10 Cards",desc:"Own 10 different players",reward:20,target:10,progress:(s,p)=>p.filter(x=>x.owned).length},
+  // 25, not 10: a new account is granted 18 starter cards, so a target of 10
+  // was already met before the player had done anything and paid out on sight.
+  {id:"obj_collect10",label:"Collect 25 Cards",desc:"Own 25 different players",reward:20,target:25,progress:(s,p)=>p.filter(x=>x.owned).length},
   {id:"obj_epic",label:"Pull a Big One",desc:"Own an Epic-tier card or better",reward:30,target:1,progress:(s,p)=>(p.some(x=>x.owned&&isHighTier(x.rarity))?1:0)},
   {id:"obj_streak3",label:"Win Streak",desc:"Reach a 3-match win streak",reward:35,target:3,progress:(s)=>s.bestStreak},
-  {id:"obj_win10",label:"Win 10 Matches",desc:"Win 10 matches this season",reward:60,target:10,progress:(s,p,season)=>season.wins},
-  {id:"obj_win25",label:"Win 25 Matches",desc:"Win 25 matches this season",reward:120,target:25,progress:(s,p,season)=>season.wins},
+  // Measured over a CAREER, not a season. A season is 6 matchdays, so "win 10
+  // this season" was arithmetically impossible and "win 25" more so -- they
+  // could only ever be reached through friendlies leaking into the season
+  // count, which migration 006 has now (correctly) stopped. Lifetime wins are
+  // the stat that actually grows, and s.wins is exactly that.
+  {id:"obj_win10",label:"Win 10 Matches",desc:"Win 10 matches in total",reward:60,target:10,progress:(s)=>s.wins},
+  {id:"obj_win25",label:"Win 25 Matches",desc:"Win 25 matches in total",reward:120,target:25,progress:(s)=>s.wins},
   {id:"obj_collect50",label:"Collect 50 Cards",desc:"Own 50 different players",reward:80,target:50,progress:(s,p)=>p.filter(x=>x.owned).length},
   {id:"obj_collect100",label:"Collect 100 Cards",desc:"Own 100 different players",reward:150,target:100,progress:(s,p)=>p.filter(x=>x.owned).length},
   {id:"obj_legendary",label:"Own a Legendary",desc:"Own a Legendary-tier card or better",reward:70,target:1,progress:(s,p)=>(p.some(x=>x.owned&&isTopTier(x.rarity))?1:0)},
@@ -1899,11 +1906,13 @@ function playView(){
         ${pl.cupSummary.saveFailed ? "🏆 Couldn't save your cup progress"
           : pl.cupSummary.champion ? "🏆 CUP CHAMPIONS!"
           : pl.cupSummary.won ? `🏆 Through to the ${cupRoundLabel(pl.cupSummary.round+1)}`
+          : pl.cupSummary.replay ? "🏆 Tie drawn — replay"
           : "🏆 Knocked out of the cup"}
       </div>
       <div style="font-size:12px;color:${(pl.cupSummary.won&&!pl.cupSummary.saveFailed)?"#ffffffdd":COLORS.muted}">
         ${pl.cupSummary.saveFailed ? "You won the tie, but it didn't reach the server. Check your connection — the round hasn't been counted."
           : pl.cupSummary.won ? `+${pl.cupSummary.reward} gems${pl.cupSummary.champion?" — you've won the whole thing.":""}`
+          : pl.cupSummary.replay ? "Nobody won it, so nobody goes out. Play the tie again from the Play tab — you're still in, and there's no second entry fee."
           : "Knockout football. Enter again from the Play tab."}
       </div>
     </div>` : ""}
@@ -2930,11 +2939,21 @@ function kickOffCup(){
   beginMatch(newOppSlots, opp, `vs ${esc(name)} — ${cupRoundLabel(cup.round)}`);
 }
 
-// Applies a finished cup tie. A draw counts as elimination: this is knockout
-// football and there is no shootout on this path yet.
-function resolveCupResult(won){
+// Applies a finished cup tie. A draw used to count as elimination, which meant
+// drawing knocked you out of a competition you had paid 150 gems to enter
+// while never actually losing a match. There is no shootout on this path yet
+// (that work sits unfinished on wip/match-features), so a draw is a REPLAY:
+// the round is left exactly as it was and the tie can be played again. That
+// is real cup convention, it costs nothing to implement, and it is honest
+// about the fact that nobody won.
+function resolveCupResult(won, isDraw){
   const cup = state.cup;
   if(!cup) return;
+  if(!won && isDraw){
+    state.play.cupSummary = { replay:true, round:cup.round,
+      label:`${cupRoundLabel(cup.round)} drawn — the tie will be replayed.` };
+    return;
+  }
   // Clamped: a stale or corrupted round would otherwise index past the reward
   // table and pay out `undefined` gems.
   const round = Math.max(0, Math.min(cup.round|0, CUP_ROUNDS.length-1));
@@ -3071,7 +3090,7 @@ function finalizeMatch(res){
 
   // Cup ties sit outside the league entirely -- they must not advance the
   // matchday or season points, same as a friendly.
-  if(pl.isCupMatch) resolveCupResult(won);
+  if(pl.isCupMatch) resolveCupResult(won, isDraw);
 
   if(!pl.isChallengeMatch && !pl.isCupMatch){
     const s = state.season;
