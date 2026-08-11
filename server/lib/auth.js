@@ -51,8 +51,8 @@ function authChangePassword(newPassword) {
 // for minutes/days), and profiles has no client-facing INSERT policy
 // anyway (only the SECURITY DEFINER trigger can insert the row). Stashed
 // here and applied the first time this account actually gets a session --
-// same "survive the gap until a real session shows up" idea as
-// LEGACY_SAVE_KEY in game-data.js, just for different data.
+// "survive the gap until a real session shows up", for data that is the
+// player's own identity rather than anything they could pay themselves with.
 const PENDING_SIGNUP_PROFILE_KEY = "tcg-pending-signup-profile-v1";
 function stashPendingSignupProfile(username, fullName) {
   try { localStorage.setItem(PENDING_SIGNUP_PROFILE_KEY, JSON.stringify({ username, fullName })); } catch (e) {}

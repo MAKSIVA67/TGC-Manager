@@ -1,8 +1,32 @@
 # Making the economy server-authoritative
 
 Design note for the change that migration `sql/007_server_authoritative_economy.sql`
-implements on the database side. Nothing in the client has been changed yet;
-section 4 is the instruction sheet for whoever does that.
+implements on the database side. Section 4 was the instruction sheet for the
+client half.
+
+**Status: both halves are now written.** Section 4 has been implemented, with
+two deliberate departures from what it says, both recorded here so the next
+reader is not surprised:
+
+1. **The fallback code section 4 says to delete is still there.** Section 4
+   tells you to delete `pickWeighted`, `shardsForDuplicate`, `PACKS[].weights`,
+   `commitPackOpen`, `grantShards` and the local match/cup/daily arithmetic.
+   Section 3 simultaneously requires that a new client works against a database
+   where 007 has not been run, via the `rpcMissing()` fallback. Those two cannot
+   both be true, and section 3 wins: a fallback that has had its implementation
+   deleted is not a fallback. Every one of those functions is still present,
+   marked `FALLBACK ONLY`, reached only when the RPC is missing, and safe to
+   delete once 007 is live everywhere — which is the point at which the drift
+   trap section 4 worries about stops mattering, because the client copy is no
+   longer reachable.
+2. **`resolveCupResult` returns a promise and is awaited before the match is
+   settled.** Both are economy RPCs against the same profile row; letting their
+   answers race means the balance on screen can briefly show the older of the
+   two. The database serialises them regardless, so this is cosmetic, but it is
+   free.
+
+Four defects in 007 were found by running it against a real Postgres and are
+fixed there — see the header of the migration for what they were.
 
 ---
 

@@ -205,6 +205,8 @@ hard to reverse.
 
 ## Still open after 004
 
+*(Since fixed — see migration 007 at the bottom of this file.)*
+
 **The economy is still calculated in the browser and trusted by the database.**
 A player can still give themselves cards, max out card training, or set their
 own gem balance from the developer console. Fixing it means moving pack
@@ -341,16 +343,153 @@ Any other error: copy the full red message and send it over.
 
 ---
 
-# Migration 007 — do NOT run yet
+# Migration 007 — the economy moves into the database
 
-`server/sql/007_server_authoritative_economy.sql` is a **design**, not something
-to paste in. It is the plan for stopping a player giving themselves gems and
-cards from the browser console — the last big hole left.
+**This one has two steps, days apart. Step 1 now, step 2 later. Read the
+warning before step 2 — it is the one thing in this file that can break the
+game for real players.**
 
-The database half is written. The app half is not: nothing in the game calls any
-of those new functions yet, and the file has never been run against a real
-database even once. Running it today would install functions nobody uses, and
-the lock-down step inside it would break the live game outright.
+**What it fixes:** right now every number in the game is worked out by the
+JavaScript running on the player's own computer, and the database simply
+believes it. Someone who opens the browser's developer console can type one
+line and give themselves any card in the game, a maxed-out card level, or a
+billion gems. Migrations 003 and 004 closed the holes *around* this. This one
+closes the economy itself.
 
-`server/ECONOMY_DESIGN.md` explains the approach and lists the app changes still
-needed. Migration 005 already did the training slice of it.
+After it, the database decides — and the browser only asks:
+
+- **which card a pack contains**, and what a pack costs;
+- **how many gems a match, a cup round, a daily reward or an objective pays**;
+- **what training costs**, and whether you can afford it;
+- **which cards a brand-new account starts with**.
+
+It also starts a **gem ledger**: every gem that moves is written down with a
+reason, so "how did this account get 400,000 gems" now has an answer, and a bad
+day can be undone.
+
+**What it cannot fix:** whether you actually won a match. The match is played in
+the browser, so a determined cheat can still claim wins they didn't earn — but
+they now get 20 gems a time, no faster than a real match takes, and every one
+is in the ledger. That is a different problem from "set your balance to a
+billion instantly."
+
+**Has it been tested?** Yes — the whole file was run against a real Postgres and
+every function exercised: 192 checks, run four times over for different possible
+shapes of your `profiles` table. That found and fixed four real bugs, including
+one that would have destroyed shards. The app changes were tested separately
+(162 checks) and the real page was driven through a pack opening in a browser.
+
+---
+
+## Step 1 — run the migration (safe to do any time)
+
+Nothing here breaks anything. It only adds. A player still running the old
+version of the game keeps playing exactly as before.
+
+1. Go to **https://supabase.com/dashboard** and sign in.
+2. Click your **TCG Manager** project.
+3. In the left sidebar, click the **SQL Editor** icon (database symbol with
+   `SQL` on it, roughly halfway down the list).
+4. Click the green **+ New query** button at the top.
+5. **Before pasting**, run this one line on its own to see whether any player
+   owns the same card twice:
+
+   ```sql
+   select user_id, card_id, count(*) from public.user_cards
+   group by 1,2 having count(*) > 1;
+   ```
+
+   You should get **no rows**. If you do get rows, send them over before
+   continuing — the migration merges those duplicates into one row (adding the
+   shards together, keeping the higher level) and deletes the extras, and it is
+   worth a look first. It is not dangerous, it just cannot be undone.
+6. Open `server/sql/007_server_authoritative_economy.sql` from this repo, select
+   everything (**Ctrl+A**) and copy it (**Ctrl+C**).
+7. Click into the big empty editor box and paste (**Ctrl+V**).
+8. Click the green **Run** button at the bottom right (or **Ctrl+Enter**).
+9. You should see **Success. No rows returned**.
+
+Safe to run more than once. Run 002, 003, 004 and 006 first — this builds on
+all of them.
+
+### Checking step 1 worked
+
+Paste these into the same editor and press Run:
+
+```sql
+select count(*) from public.pack_defs;        -- expect 6
+select count(*) from public.objective_defs;   -- expect 12
+select count(*) from public.gem_ledger;       -- expect 0 (the table is new)
+select public.shards_for_duplicate('GOAT');   -- expect 12
+```
+
+Then, **in the game itself, signed in as a real player**: open a pack, open one
+containing a card you already own (the shards should go up by the amount the
+reveal showed), train a card, play a league match, and claim the daily reward.
+Watch your gem balance — it should behave exactly as it always has. If it does,
+the database is now the one deciding all of those numbers.
+
+To see the ledger filling up:
+
+```sql
+select created_at, reason, delta, balance_after
+from public.gem_ledger order by id desc limit 20;
+```
+
+---
+
+## Step 2 — the lock-down (⚠️ NOT yet — read this)
+
+Step 1 gives the database the ability to decide the numbers. Step 2 is what
+takes the ability away from the browser. It is one line:
+
+```sql
+select public.economy_lock_down();
+```
+
+**Do not run it until all three of these are true:**
+
+1. **The new version of the site is deployed and live**, and you have played it
+   yourself. The old version cannot open packs, train, record a match, or —
+   worst of all — give a brand-new account its starter squad once this runs.
+   A new player would sign up and land in an empty game with no way out.
+2. **A day or two has passed** since the deploy, so anyone with the old page
+   still open in a tab has reloaded it.
+3. **You know whether an Android app (APK) is in anyone's hands.** The Android
+   build has the game's JavaScript baked inside it and does not update itself.
+   If someone has an old build installed, this step breaks it permanently and
+   there is no way to push them a fix. If you are not sure, ask before running
+   this.
+
+If anything goes wrong afterwards, this puts it all back immediately, and
+nothing is lost:
+
+```sql
+select public.economy_unlock();
+```
+
+### Checking step 2 worked
+
+Both commands print the list of profile columns the game is still allowed to
+change. After the lock-down, `gems`, `wins` and the season columns should have
+disappeared from it, while `team_name`, `avatar` and the rest remain.
+
+Then the proof: open the game, press **F12**, click the **Console** tab, and
+paste this line:
+
+```js
+sb.from("profiles").update({ gems: 999999999 }).eq("id", (await sb.auth.getUser()).data.user.id)
+```
+
+Before the lock-down that line worked. After it, it should come back with a
+**permission denied** error and your balance should not move. That is the whole
+point of this migration.
+
+### If something goes wrong
+
+If players report that packs, training or matches have stopped working after
+step 2, run `select public.economy_unlock();` straight away — that returns the
+game to exactly how it works today, and no data is lost. Then send over what
+they saw.
+
+Any other error: copy the full red message and send it over.

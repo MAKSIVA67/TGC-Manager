@@ -151,8 +151,17 @@ function resetPlayerProgress(targetId) {
   return sb.rpc("admin_reset_player_progress", { target_id: targetId, starter_card_ids: starterIds })
     .then(({ error }) => ({ error: error ? error.message : null }));
 }
+// Gems join `banned`/`is_admin` behind an admin-checked function in migration
+// 007: once its lock-down runs, `authenticated` loses UPDATE on the column
+// entirely and this direct write stops working for everyone, admin or not.
 function setGems(targetId, newGems) {
-  return sb.from("profiles").update({ gems: newGems }).eq("id", targetId).then(({ error }) => ({ error: error ? error.message : null }));
+  return sb.rpc("admin_set_gems", { target_id: targetId, new_gems: newGems }).then(({ error }) => {
+    if (error && rpcMissing(error)) {
+      return sb.from("profiles").update({ gems: newGems }).eq("id", targetId)
+        .then(({ error: e2 }) => ({ error: e2 ? e2.message : null }));
+    }
+    return { error: error ? error.message : null };
+  });
 }
 // `banned` and `is_admin` are written through SECURITY DEFINER RPCs, not a
 // direct table update. Supabase grants `authenticated` UPDATE on every column
@@ -167,12 +176,8 @@ function setGems(targetId, newGems) {
 //
 // Missing-function errors fall back to the old direct update so the app keeps
 // working on a database where 003 hasn't been run yet (same graceful
-// degradation loadCupRun() uses for 002).
-function rpcMissing(error) {
-  return !!error && (error.code === "42883" || error.code === "PGRST202" ||
-                     /(function|schema cache).*(does not exist|not find)/i.test(error.message || ""));
-}
-
+// degradation loadCupRun() uses for 002). rpcMissing() is the detector and now
+// lives in supabase-client.js, since every file needs it.
 function setBanned(targetId, banned, callerId) {
   if (banned && targetId === callerId) return Promise.resolve({ error: "You can't ban yourself." });
   return sb.rpc("admin_set_banned", { target_id: targetId, new_banned: banned }).then(({ error }) => {
