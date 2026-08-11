@@ -4,8 +4,17 @@
 // a bare `state`/`render`.
 "use strict";
 
-const LEGACY_SAVE_KEY = "legendxi-preview-save-v1";
-const LEGACY_SAVE_IMPORTED_KEY = "legendxi-save-imported-v1";
+// Migration 007 moves every value-creating decision into the database. Each of
+// the calls below asks for the outcome instead of announcing it, and each one
+// falls back to the old direct write when the function is not there, because
+// the migration is pasted into Supabase by hand at a different moment from
+// when the site is deployed and either order has to work. rpcMissing() in
+// supabase-client.js is the detector, and setBanned() in admin-api.js is the
+// shape all of this follows.
+//
+// The fallbacks are not dead code waiting to be tidied: until 007 has been run
+// they ARE the game. They can go once it has, and not before.
+
 // The web version's own hardcoded roster (STARTER_PLAYERS in index.html)
 // used to grant 10 fixed ids (GK1/DEF3/MID4/FWD2) out of the box -- but
 // `cards` is now sourced from Supabase, seeded with the MOBILE app's roster
@@ -74,7 +83,18 @@ function loadCatalogAndOwnership(userId) {
     // working against a database where that migration hasn't been run yet --
     // the fields simply come back undefined and everything defaults.
     sb.from("user_cards").select("*").eq("user_id", userId),
-  ]).then(([cardsRes, ownedRes]) => {
+    // The price open_pack() will actually charge. Read so the shop's
+    // affordability check and the number on the button can never advertise a
+    // cost the server disagrees with. Absent until 007 is run, in which case
+    // the client's own PACKS costs stand -- same tolerance loadCupRun() has
+    // for 002 not being run.
+    sb.from("pack_defs").select("id,cost,active").then(r => r, () => ({ data: null, error: true })),
+  ]).then(([cardsRes, ownedRes, packRes]) => {
+    const costs = {};
+    if (packRes && !packRes.error) {
+      (packRes.data || []).forEach(p => { if (p.active !== false) costs[p.id] = p.cost; });
+    }
+    window.state.packCosts = costs;
     const ownedRows = ownedRes.data || [];
     const owned = {};
     ownedRows.forEach(r => { owned[r.card_id] = r; });
@@ -104,9 +124,41 @@ function loadCatalogAndOwnership(userId) {
   });
 }
 
+// ------------------------------------------------------- server-decided numbers
+// The balances an economy RPC hands back are the STORED ones -- it debited and
+// credited in the same transaction it did the work in. applyProfileRow() in
+// auth.js merges rather than overwrites (`server + (local - baseline)`), so
+// setting state without moving the baseline makes the next profile load add the
+// difference a second time. That is exactly how the free-packs bug in 5ab7f72
+// happened, in reverse. Set the value AND move the baseline, always together.
+//
+// Its opposite is equally deliberate: an optimistic spend at tap time (the pack
+// cost) moves state.gems and does NOT call noteProfileWrite, so during the
+// in-flight window the merge evaluates to the optimistic figure -- which is
+// what keeps the shop feeling instant.
+function applyServerEconomy(d) {
+  if (!d) return;
+  const s = window.state, fields = {};
+  const num = (v) => typeof v === "number";
+  if (num(d.gems))            { s.gems = d.gems;                     fields.gems = d.gems; }
+  if (num(d.wins))            { s.stats.wins = d.wins;               fields.wins = d.wins; }
+  if (num(d.losses))          { s.stats.losses = d.losses;           fields.losses = d.losses; }
+  if (num(d.draws))           { s.stats.draws = d.draws;             fields.draws = d.draws; }
+  if (num(d.win_streak))      { s.stats.streak = d.win_streak;       fields.win_streak = d.win_streak; }
+  if (num(d.best_streak))     { s.stats.bestStreak = d.best_streak;  fields.best_streak = d.best_streak; }
+  if (num(d.season_number))   { s.season.number = d.season_number;   fields.season_number = d.season_number; }
+  if (num(d.season_matchday)) { s.season.matchday = d.season_matchday; fields.season_matchday = d.season_matchday; }
+  if (num(d.season_points))   { s.season.points = d.season_points;   fields.season_points = d.season_points; }
+  noteProfileWrite(fields);
+}
+
 // ---------------------------------------------------------------- training
 // Levels are +1 power each, capped at 10. Cost curve is deliberately steep at
 // the top so a maxed card is a real achievement rather than a formality.
+//
+// These two now only PRICE a level for the training panel; train_card() in 007
+// charges it, and 007 carries its own copy of the same curve. If either one
+// moves, move both, or the panel quotes a price the server will not honour.
 const MAX_CARD_LEVEL = 10;
 function shardsForLevel(level) { return 2 + level * 2; }        // 2,4,6,... 20
 function gemsForLevel(level) { return 40 + level * 30; }        // 40,70,...,310
@@ -223,8 +275,7 @@ function trainCard(cardId) {
     // balance it hands back IS the stored one. Declaring it to auth.js as our
     // own write keeps knownServer level with reality; without that,
     // applyProfileRow would add the local spend on top and charge twice.
-    window.state.gems = data.gems;
-    noteProfileWrite({ gems: data.gems });
+    applyServerEconomy(data);
     return { row: data };
   }).then(res => {
     if (res.error) { console.error("trainCard failed:", res.error); return { error: res.error }; }
@@ -345,97 +396,92 @@ function loadRecentMatchesAndSeason(userId) {
   });
 }
 
-// New-account bootstrap. A local save on THIS browser wins over granting
-// the fixed starter set (it already contains the starters plus anything
-// unlocked since) -- and either path runs at most once per (browser,
-// account), guarded by a separate localStorage marker key so a second
-// account signing in later on the same browser never re-imports someone
-// else's old save.
+// New-account bootstrap. claim_starter_squad() picks the same GK2/DEF5/MID6/
+// FWD5 split of lowest-id active Commons that pickStarterCardIds() does, and
+// does nothing if the account already owns anything, so it is safe on every
+// sign-in.
+//
+// The import of a pre-Supabase `localStorage` save is GONE, not moved. It read
+// a JSON blob out of the browser and inserted whatever card ids and gem
+// balance it named: `localStorage.setItem("legendxi-preview-save-v1",
+// '{"gems":1e9}')` before signing up for the first time minted a balance
+// without needing a developer console at all. Clamping the numbers (5ab7f72)
+// narrowed it; nothing short of deleting it closes it. Anyone still holding
+// such a save on the browser they play on loses the import path -- the blob
+// itself is untouched, only the code that read it is gone.
 function initializeNewAccountIfNeeded(userId) {
   if (window.state.players.some(p => p.owned)) return Promise.resolve(); // already has cards, nothing to do
 
-  let legacySave = null;
-  try {
-    const alreadyImported = localStorage.getItem(LEGACY_SAVE_IMPORTED_KEY);
-    const raw = alreadyImported ? null : localStorage.getItem(LEGACY_SAVE_KEY);
-    legacySave = raw ? JSON.parse(raw) : null;
-  } catch (e) { legacySave = null; }
+  return sb.rpc("claim_starter_squad").then(({ error }) => {
+    if (error && rpcMissing(error)) return grantStarterSquadFallback(userId);
+    if (error) { console.error("starter squad grant failed:", error.message); return null; }
+    return null;
+  }).then(() => loadCatalogAndOwnership(userId));
+}
 
-  if (legacySave && Array.isArray(legacySave.players)) {
-    const validIds = new Set(window.state.players.map(c => c.id));
-    const ownedIds = legacySave.players.filter(p => p.owned).map(p => p.id).filter(id => validIds.has(id));
-    const rows = ownedIds.map(cardId => ({ user_id: userId, card_id: cardId }));
-    // Everything below comes out of localStorage, which anyone can edit before
-    // signing up for the first time. The card list was already validated
-    // against the real catalog; the numbers were not, so
-    // `localStorage.setItem("legendxi-preview-save-v1", '{"gems":1e9}')` then
-    // creating an account minted a balance. Clamped to what the old local-only
-    // build could actually have produced, so a genuine save still imports
-    // whole and a forged one lands somewhere unremarkable.
-    const clamp = (v, max) => {
-      const n = Number(v);
-      return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), max) : 0;
-    };
-    const profileFields = {};
-    if (typeof legacySave.gems === "number") profileFields.gems = clamp(legacySave.gems, 50000);
-    if (legacySave.stats) {
-      profileFields.wins = clamp(legacySave.stats.wins, 9999);
-      profileFields.losses = clamp(legacySave.stats.losses, 9999);
-      profileFields.draws = clamp(legacySave.stats.draws, 9999);
-      profileFields.win_streak = clamp(legacySave.stats.streak, 999);
-      profileFields.best_streak = clamp(legacySave.stats.bestStreak, 999);
-    }
-    if (legacySave.season) {
-      profileFields.season_number = clamp(legacySave.season.number, 999) || 1;
-      profileFields.season_matchday = clamp(legacySave.season.matchday, 6) || 1;
-      profileFields.season_points = clamp(legacySave.season.points, 999);
-    }
-    if (legacySave.home) {
-      profileFields.daily_last_claim = legacySave.home.dailyLastClaim || null;
-      profileFields.daily_streak = clamp(legacySave.home.dailyStreak, 999);
-      profileFields.objectives_claimed = Array.isArray(legacySave.home.objectivesClaimed)
-        ? legacySave.home.objectivesClaimed.filter(id => typeof id === "string").slice(0, 200)
-        : [];
-    }
-    return (rows.length ? sb.from("user_cards").insert(rows) : Promise.resolve())
-      .then(() => Object.keys(profileFields).length ? updateProfile(profileFields) : Promise.resolve())
-      .then(() => {
-        try { localStorage.setItem(LEGACY_SAVE_IMPORTED_KEY, "1"); } catch (e) {}
-        return loadCatalogAndOwnership(userId);
-      });
-  }
-
-  // Burn the marker on the starter path too. It used to be written only when a
-  // save was actually imported, so the FIRST account created on a browser that
-  // had no legacy save left it unclaimed -- and a second, later account on the
-  // same browser could then import a save belonging to whoever used it before.
-  try { localStorage.setItem(LEGACY_SAVE_IMPORTED_KEY, "1"); } catch (e) {}
-
+function grantStarterSquadFallback(userId) {
   const starterIds = pickStarterCardIds(window.state.players);
   const rows = starterIds.map(cardId => ({ user_id: userId, card_id: cardId }));
-  if (!rows.length) return Promise.resolve();
+  if (!rows.length) return Promise.resolve(null);
   return sb.from("user_cards").insert(rows).then(({ error }) => {
     if (error) console.error("starter card grant failed:", error.message);
-    return loadCatalogAndOwnership(userId);
+    return null;
   });
 }
 
-// Pack pick + gem cost are both already decided synchronously at click time
-// (before the ~2.9s spin animation even starts) -- fired here immediately
-// so the write happens in the background while the animation plays, adding
-// no perceived latency. `landPack()` still flips the local owned flag once
-// the animation completes, unchanged.
-function commitPackOpen(cardId) {
+// ------------------------------------------------------------------- packs
+// The roll happens in the database. The browser never sees the pool weighting,
+// never sees a seed, and cannot retry an outcome it dislikes -- which is the
+// entire reason the published odds are now the real odds.
+//
+// Resolves the shape the shop reveal needs:
+//   { card, duplicate, shards_gained, level, shards, gems, cost, error }
+// `card.power` is the PRINTED power. The level is added here, on the client,
+// because basePower (printed) vs power (printed + level) is an invariant every
+// power comparison in the game depends on and the server has no business
+// setting the second one.
+//
+// `{ rpcMissing: true }` rather than an error when 007 is absent: the caller
+// owns the local-roll fallback, because the pool and the weights live in
+// index.html next to the reel that draws them.
+function openPackRemote(packId) {
+  const session = window.state.session;
+  if (!session || !session.user) return Promise.resolve({ error: "Not signed in." });
+  return sb.rpc("open_pack", { p_pack_id: packId }).then(({ data, error }) => {
+    if (error && rpcMissing(error)) return { rpcMissing: true };
+    if (error) return { error: error.message };
+    if (!data || !data.card) return { error: "That pack couldn't be opened." };
+    applyServerEconomy(data);
+    applyPackResult(data);
+    return data;
+  });
+}
+
+// FALLBACK ONLY -- the insert open_pack() replaces. The gem cost was deducted
+// from local state at tap time and is persisted here, in the same round trip,
+// because a card granted without the cost persisting is a free pack.
+function commitPackOpenFallback(cardId) {
   const session = window.state.session;
   const userId = session && session.user && session.user.id;
-  if (!userId) return Promise.resolve();
+  if (!userId) return Promise.resolve({ error: "Not signed in." });
   return sb.from("user_cards").insert({ user_id: userId, card_id: cardId }).then(({ error }) => {
-    if (error) { console.error("commitPackOpen insert failed:", error.message); return; }
+    if (error) { console.error("pack insert failed:", error.message); return { error: error.message }; }
     return updateProfile({ gems: window.state.gems });
   });
 }
-function commitPackRefund() {
-  return updateProfile({ gems: window.state.gems }).then(() => window.render());
+
+// Folds an opened pack into state.players. A duplicate must NOT create a
+// second entry -- 007 backs that with a unique index rather than trusting this
+// to branch correctly, but the local collection is still a set and is still
+// updated in place.
+function applyPackResult(data) {
+  const card = data && data.card;
+  if (!card) return;
+  const p = window.state.players.find(x => x.id === card.id);
+  if (!p) return;
+  p.owned = true;
+  if (typeof data.level === "number") { p.level = data.level; p.power = p.basePower + data.level; }
+  if (typeof data.shards === "number") p.shards = data.shards;
 }
 
 // -------------------------------------------------------------------- cup
@@ -464,18 +510,81 @@ function loadCupRun() {
     .catch(() => { window.state.cupAvailable = false; return null; });
 }
 
+// cup_enter() charges the fee and creates the run in one transaction, which
+// deletes an entire class of bug the handler in index.html used to guard by
+// hand: there is no longer a window in which the gems have gone and the run
+// has not appeared, or the reverse.
+//
+// Resolves { run, gems, error, charged }. `charged` says whether the fee has
+// already been taken -- true on the RPC path (the transaction did it), false on
+// the fallback, where the caller still has to pay it the old way.
 function createCupRun(bracket) {
   const session = window.state.session;
   const userId = session && session.user && session.user.id;
-  if (!userId) return Promise.resolve(null);
+  if (!userId) return Promise.resolve({ error: "Not signed in." });
+  return sb.rpc("cup_enter", { p_bracket: bracket }).then(({ data, error }) => {
+    if (error && rpcMissing(error)) return createCupRunFallback(userId, bracket);
+    if (error) return { error: error.message };
+    applyServerEconomy(data);
+    window.state.cup = data.run;
+    return { run: data.run, gems: data.gems, charged: true };
+  });
+}
+
+function createCupRunFallback(userId, bracket) {
   return sb.from("cup_runs")
     .insert({ user_id: userId, status: "active", round: 0, bracket: bracket, gems_won: 0 })
     .select().maybeSingle()
     .then(({ data, error }) => {
-      if (error) { console.error("createCupRun failed:", error.message); return null; }
+      if (error) { console.error("createCupRun failed:", error.message); return { error: error.message }; }
       window.state.cup = data;
-      return data;
+      return { run: data, charged: false };
     });
+}
+
+// Winning a tie pays its reward and advances the round in one transaction, so
+// the "credit only after the save succeeded" dance the caller used to do --
+// and the reload-replays-the-same-tie-for-the-same-gems bug behind it -- has
+// nothing left to guard. Resolves { won, champion, reward, round, gems, error }.
+function cupAdvanceRemote(won) {
+  const cup = window.state.cup;
+  if (!cup) return Promise.resolve({ error: "No active cup run." });
+  return sb.rpc("cup_advance", { p_won: won }).then(({ data, error }) => {
+    if (error && rpcMissing(error)) return cupAdvanceFallback(won, cup);
+    if (error) return { error: error.message };
+    applyServerEconomy(data);
+    return data;
+  });
+}
+
+function cupAdvanceFallback(won, cup) {
+  const round = Math.max(0, Math.min(cup.round | 0, CUP_ROUND_REWARD.length - 1));
+  if (!won) {
+    return saveCupRun({ status: "eliminated" })
+      .then(res => res.error ? { error: res.error } : { won: false, champion: false, reward: 0, round: round });
+  }
+  const reward = CUP_ROUND_REWARD[round] || 0;
+  const champion = round >= CUP_ROUND_REWARD.length - 1;
+  const results = ((cup.bracket && cup.bracket.results) || []).concat(["win"]);
+  const fields = { round: round + 1, bracket: Object.assign({}, cup.bracket || {}, { results: results }),
+                   gems_won: (cup.gems_won || 0) + reward };
+  if (champion) fields.status = "won";
+  return saveCupRun(fields).then(res => {
+    if (res.error) return { error: res.error };
+    // Only once the run has actually advanced, for the same reason as before:
+    // paying first meant a failed save left the round unchanged and reloading
+    // replayed the tie for the reward again.
+    window.state.gems += reward;
+    return updateProfile({ gems: window.state.gems })
+      .then(() => ({ won: true, champion: champion, reward: reward, round: round, gems: window.state.gems }));
+  });
+}
+
+function cupForfeitRemote() {
+  return sb.rpc("cup_forfeit").then(({ error }) => {
+    if (error && rpcMissing(error)) return saveCupRun({ status: "eliminated" });
+    return { error: error ? error.message : null };
+  });
 }
 
 // Resolves { error } so callers can tell a failed save from a successful one.
@@ -519,6 +628,63 @@ function redeemPromoCode(code) {
   });
 }
 
+// ------------------------------------------------- daily and objective claims
+// Both are fully checkable server-side, unlike a match result: the daily's only
+// input is the date, and objective progress is re-measured from the same rows
+// the client derives it from. The button can therefore no longer pay out an
+// objective that is not actually complete, or a daily twice on the same day.
+//
+// `local` carries what the client would have paid on its own (the ladder, the
+// streak, today's date) -- used only when 007 is absent.
+function claimDailyRemote(local) {
+  return sb.rpc("claim_daily").then(({ data, error }) => {
+    if (error && rpcMissing(error)) return claimDailyFallback(local);
+    if (error) return { error: error.message };
+    applyServerEconomy(data);
+    window.state.home = Object.assign({}, window.state.home,
+      { dailyLastClaim: data.last_claim, dailyStreak: data.streak });
+    noteProfileWrite({ daily_last_claim: data.last_claim, daily_streak: data.streak });
+    return { reward: data.reward, streak: data.streak };
+  });
+}
+
+function claimDailyFallback(local) {
+  window.state.gems += local.reward;
+  window.state.home = Object.assign({}, window.state.home,
+    { dailyLastClaim: local.today, dailyStreak: local.streak + 1 });
+  return updateProfile({
+    gems: window.state.gems,
+    daily_last_claim: window.state.home.dailyLastClaim,
+    daily_streak: window.state.home.dailyStreak,
+  }).then(({ error }) => error ? { error: error } : { reward: local.reward, streak: local.streak + 1 });
+}
+
+function claimObjectiveRemote(objectiveId, localReward) {
+  return sb.rpc("claim_objective", { p_objective_id: objectiveId }).then(({ data, error }) => {
+    if (error && rpcMissing(error)) return claimObjectiveFallback(objectiveId, localReward);
+    if (error) return { error: error.message };
+    applyServerEconomy(data);
+    markObjectiveClaimed(objectiveId);
+    return { reward: data.reward };
+  });
+}
+
+function claimObjectiveFallback(objectiveId, localReward) {
+  window.state.gems += localReward;
+  markObjectiveClaimed(objectiveId);
+  return updateProfile({ gems: window.state.gems, objectives_claimed: window.state.home.objectivesClaimed })
+    .then(({ error }) => error ? { error: error } : { reward: localReward });
+}
+
+// Objectives are append-only, which is what lets applyProfileRow() union a
+// claim that is still in flight instead of re-arming the button.
+function markObjectiveClaimed(objectiveId) {
+  const have = window.state.home.objectivesClaimed || [];
+  const claimed = have.includes(objectiveId) ? have : have.concat([objectiveId]);
+  window.state.home = Object.assign({}, window.state.home, { objectivesClaimed: claimed });
+  noteProfileWrite({ objectives_claimed: claimed });
+}
+
 // matchSeasonNumber/matchMatchday are passed explicitly (captured by the
 // caller BEFORE any season-rollover reassignment) since a match must be
 // recorded under the season/matchday it was actually played in, not
@@ -554,6 +720,44 @@ function insertMatchRow(row) {
       if (retryError) console.error("commitMatchResult insert failed:", retryError.message);
       return { error: retryError || null };
     });
+  });
+}
+
+// The one economy call that cannot verify what it is told: the match is played
+// in the browser, and short of simulating it server-side there is no way to
+// prove a claimed win happened. settle_match does the two things that ARE
+// available -- it decides the reward, the streak, the season bookkeeping and
+// the history row itself instead of accepting the client's figures, and it
+// refuses to record results faster than a match can be played. Nothing here
+// sends a gem amount or a stat any more.
+//
+// Resolves { gems_earned, season_bonus, season_rollover, gems, wins, ...,
+// error }, or { fellBack: true } when 007 is absent -- in which case
+// applyLocalRewards() has run and the old client-side arithmetic is what the
+// player got. It is passed in rather than run up front precisely so that the
+// numbers are only ever computed locally when nothing else will compute them.
+function settleMatchRemote(ctx, applyLocalRewards) {
+  const session = window.state.session;
+  if (!session || !session.user) return Promise.resolve({ error: "Not signed in." });
+  const outcome = ctx.outcome;
+  return sb.rpc("settle_match", {
+    p_result: outcome.result,
+    p_kind: ctx.kind,
+    p_zones_won: outcome.myWins || 0,
+    p_my_power: Math.round(outcome.myTotalPower || 0),
+    p_opp_power: Math.round(outcome.oppTotalPower || 0),
+    p_opponent_name: ctx.opponentName,
+    p_formation: ctx.formation,
+  }).then(({ data, error }) => {
+    if (error && rpcMissing(error)) {
+      const local = applyLocalRewards();
+      return commitMatchResult(Object.assign({}, outcome, { gemsEarned: local.gemsEarned }),
+                               local.seasonNumber, local.matchday, ctx.opponentName, ctx.kind)
+        .then(() => ({ fellBack: true }));
+    }
+    if (error) { console.error("settle_match failed:", error.message); return { error: error.message }; }
+    applyServerEconomy(data);
+    return data;
   });
 }
 

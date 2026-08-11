@@ -299,18 +299,23 @@ input,textarea{font-family:inherit;font-size:16px}
      index.html falls back to the legacy timed zone match if it isn't there,
      so a blocked CDN or an old device degrades instead of breaking. -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
-<script src="lib/supabase-client.js"></script>
-<script src="lib/auth.js"></script>
-<script src="lib/game-data.js"></script>
-<script src="lib/social.js"></script>
-<script src="lib/admin-api.js"></script>
-<script src="lib/iap.js"></script>
+<!-- ?v= on every lib script, bumped whenever they change together. Without it,
+     the ordinary HTTP cache can hand out a fresh index.html paired with a
+     cached lib/game-data.js -- a mixed pair that is broken in ways neither file
+     is on its own, and exactly the hazard a paired client + migration change
+     like 007 creates. -->
+<script src="lib/supabase-client.js?v=8"></script>
+<script src="lib/auth.js?v=8"></script>
+<script src="lib/game-data.js?v=8"></script>
+<script src="lib/social.js?v=8"></script>
+<script src="lib/admin-api.js?v=8"></script>
+<script src="lib/iap.js?v=8"></script>
 <!-- Match engine, split by concern: visuals (stadium/models/animation), HUD
      (overlay DOM + controls), then the core sim which uses both. Order
      matters -- match3d.js binds the other two at kickoff. -->
-<script src="lib/match3d-visuals.js"></script>
-<script src="lib/match3d-hud.js"></script>
-<script src="lib/match3d.js"></script>
+<script src="lib/match3d-visuals.js?v=8"></script>
+<script src="lib/match3d-hud.js?v=8"></script>
+<script src="lib/match3d.js?v=8"></script>
 
 <script>
 (function(){
@@ -552,6 +557,18 @@ const PACKS = [
   {id:"mythic",name:"Mythic Pack",cost:4000,icon:"🔮",blurb:"Guaranteed Ultra tier or better!",weights:{Ultra:55,Legendary:32,Mythic:10,Icon:2.5,GOAT:0.5},grad:["#4CC9F0","#7B2FF7"],glow:"#4CC9F0"},
   {id:"goat",name:"GOAT Pack",cost:7500,icon:"🐐",blurb:"Guaranteed Legendary tier or better — chase the GOAT!",weights:{Legendary:60,Mythic:30,Icon:8,GOAT:2},grad:["#FFD700","#FF3CAC"],glow:"#FFD700"},
 ];
+// The price the shop shows and checks against your balance. pack_defs is the
+// price open_pack() will actually charge; the cost baked into PACKS above is
+// what stands until migration 007 has been run.
+function packCost(pack){
+  const c = state.packCosts && state.packCosts[pack.id];
+  return typeof c === "number" ? c : pack.cost;
+}
+// FALLBACK ONLY. The roll lives in open_pack() now -- this function running in
+// the browser, on a pool and a weighting the browser owns, is the reason pack
+// odds were forgeable. It stays solely so a client that meets a database
+// without 007 can still open a pack, and should be deleted (along with the
+// `weights` key above and shardsForDuplicate below) once 007 is everywhere.
 function pickWeighted(lockedPool, weights){
   const buckets = RARITY_ORDER.map(r=>({r,pool:lockedPool.filter(p=>p.rarity===r),w:weights[r]||0})).filter(b=>b.pool.length>0 && b.w>0);
   if(!buckets.length){ return lockedPool.length ? lockedPool[Math.floor(Math.random()*lockedPool.length)] : null; }
@@ -729,7 +746,16 @@ const state = {
     zoneResultsLive:{}, seasonSummary:null, minuteInterval:null,
     opponentMeta:null, isChallengeMatch:false, ballOwnerKey:null, ballInterval:null,
   },
-  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, dupeShards:0, purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
+  // landPending: the reel finished before the server said what was pulled.
+  // packError: why a pull failed, shown above the pack grid.
+  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, dupeShards:0, landPending:false, packError:"", purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
+  // Pack prices as the database holds them ({id: cost}), loaded with the
+  // catalog. Empty until migration 007 is run, in which case PACKS' own costs
+  // stand -- see packCost().
+  packCosts: {},
+  // A claim (daily or objective) waiting on the server, so its button can't be
+  // pressed twice. The id of the objective, "daily", or null.
+  claimPending: null,
   trainCardId: null,   // card open in the training sheet, null when closed
   // Knockout cup (lib/game-data.js). `cup` is the active cup_runs row or null;
   // cupAvailable goes false if the table isn't there yet (migration 002 not
@@ -1244,7 +1270,7 @@ function homeView(){
             ${icon("Gem",13,isPast?COLORS.muted:COLORS.gold)}<span style="font-size:9px;font-weight:900;margin-top:2px;color:${isPast?COLORS.muted:COLORS.cream}">${amt}</span>
           </div>`; }).join("")}
       </div>
-      <button data-action="claim-daily" ${dailyClaimed?"disabled":""} class="btn scrimtap wfull" style="padding:8px 0;font-size:12px;background:${COLORS.gold};color:${COLORS.bg};opacity:${dailyClaimed?0.4:1}">${dailyClaimed?"COME BACK TOMORROW":`CLAIM +${DAILY_REWARDS[currentDay-1]} GEMS`}</button>
+      <button data-action="claim-daily" ${(dailyClaimed||state.claimPending)?"disabled":""} class="btn scrimtap wfull" style="padding:8px 0;font-size:12px;background:${COLORS.gold};color:${COLORS.bg};opacity:${(dailyClaimed||state.claimPending)?0.4:1}">${state.claimPending==="daily"?"CLAIMING…":dailyClaimed?"COME BACK TOMORROW":`CLAIM +${DAILY_REWARDS[currentDay-1]} GEMS`}</button>
     </div>
 
     <div class="panel" style="padding:12px;margin-top:12px">
@@ -1259,7 +1285,7 @@ function homeView(){
             <div style="height:6px;border-radius:999px;overflow:hidden;margin-bottom:4px;background:${COLORS.bg}"><div style="height:100%;border-radius:999px;width:${pct}%;background:${done?COLORS.turf:COLORS.cyan}"></div></div>
             <div class="row between">
               <span style="font-size:9px;color:${COLORS.muted}">${o.desc} (${val}/${o.target})</span>
-              ${claimed ? `<span style="font-size:9px;font-weight:900;color:${COLORS.turf}">CLAIMED</span>` : `<button data-action="claim-objective" data-obj-id="${o.id}" data-reward="${o.reward}" ${!done?"disabled":""} class="btn scrimtap" style="font-size:9px;font-weight:900;padding:2px 8px;border-radius:999px;background:${done?COLORS.turf:COLORS.panel};color:${done?COLORS.bg:COLORS.muted}">CLAIM</button>`}
+              ${claimed ? `<span style="font-size:9px;font-weight:900;color:${COLORS.turf}">CLAIMED</span>` : `<button data-action="claim-objective" data-obj-id="${o.id}" data-reward="${o.reward}" ${(!done||state.claimPending)?"disabled":""} class="btn scrimtap" style="font-size:9px;font-weight:900;padding:2px 8px;border-radius:999px;background:${done?COLORS.turf:COLORS.panel};color:${done?COLORS.bg:COLORS.muted}">${state.claimPending===o.id?"…":"CLAIM"}</button>`}
             </div>
           </div>`;
         }).join("")}
@@ -1551,20 +1577,19 @@ function shopView(){
   const s = state.shop;
   const lockedCount = state.players.filter(p=>!p.owned && !p.exclusive && p.active!==false).length;
   let overlay = "";
-  if(s.phase==="revealed" && s.selectedPack){
+  if(s.phase==="revealed" && s.selectedPack && s.revealed){
     const card = s.revealed;
-    const rarityColor = card ? RARITY[card.rarity].color : COLORS.gold;
-    const isLegendary = card && isTopTier(card.rarity);
+    const rarityColor = RARITY[card.rarity].color;
+    const isLegendary = isTopTier(card.rarity);
     // The reveal escalates with rarity -- this is the emotional peak of a
     // collecting game and a Common should not land the same way a GOAT does.
-    const fx2 = rarityFx(card ? card.rarity : "Common");
-    const bigPull = card && fx2.band >= 2;
-    const rays = card && fx2.band >= 3;
+    const fx2 = rarityFx(card.rarity);
+    const bigPull = fx2.band >= 2;
+    const rays = fx2.band >= 3;
     overlay = `<div class="overlayFull" style="background:radial-gradient(circle at 50% 38%, ${rarityColor}${bigPull?"44":"22"}, transparent 65%), rgba(3,7,14,0.97)">
       ${rays ? `<div style="position:absolute;left:50%;top:38%;width:150vmax;height:150vmax;transform:translate(-50%,-50%);pointer-events:none;
         background:repeating-conic-gradient(from 0deg at 50% 50%, ${rarityColor}22 0deg 8deg, transparent 8deg 20deg);
         animation:spinRays 14s linear infinite;opacity:.55"></div>` : ""}
-      ${card ? `
         <!-- Beam first, then the card rises out of it, then the name lands.
              The order is what gives the pull a moment; a card that just
              appears has none. -->
@@ -1586,8 +1611,7 @@ function shopView(){
             <div class="display" style="font-size:24px;color:${COLORS.cyan};margin-top:2px">+${s.dupeShards} SHARDS</div>
             <div style="font-size:11px;color:${COLORS.muted};margin-top:2px">Train ${esc(card.name)} in My Cards to raise their power</div>
           </div>` : ""}
-        </div>`
-      : `<div style="text-align:center"><div class="display" style="font-size:22px;color:${COLORS.gold};margin-bottom:6px">Collection complete!</div><div style="font-size:13px;color:${COLORS.muted}">Here's a partial refund instead.</div></div>`}
+        </div>
       <button data-action="close-reveal" class="display btn scrimtap" style="margin-top:26px;padding:12px 30px;font-size:16px;background:${rarityColor};color:${COLORS.bg};box-shadow:0 4px 0 rgba(0,0,0,.35)">CONTINUE</button>
     </div>`;
   } else if(s.phase==="spinning" && s.selectedPack){
@@ -1605,10 +1629,7 @@ function shopView(){
           </div>
           <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:${COLORS.gold};transform:translateX(-1px);opacity:.6;z-index:10"></div>
           <div id="spinTrack" style="display:flex;align-items:center;position:absolute;top:8px;left:0;gap:${SPIN_GAP}px;transform:translateX(0px)">
-            ${s.spinItems.map(p=>{ const rc=RARITY[p.rarity].color; return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:12px;flex-shrink:0;width:${SPIN_ITEM_W}px;height:88px;background:${COLORS.panelLight};border:2px solid ${rc}55">
-              <div class="avatarCircle" style="width:36px;height:36px;font-weight:900;font-size:13px;background:${rc};color:${COLORS.bg}">${p.power}</div>
-              <div style="font-size:8px;color:${COLORS.muted};margin-top:4px;max-width:${SPIN_ITEM_W-8}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name.split(" ").slice(-1)[0])}</div>
-            </div>`; }).join("")}
+            ${s.spinItems.map(spinItemHTML).join("")}
           </div>
         </div>
       </div>
@@ -1621,14 +1642,15 @@ function shopView(){
       <div style="text-align:right"><div style="font-size:11px;color:${COLORS.muted}">Cards left to find</div><div style="font-size:18px;font-weight:900;color:${COLORS.cream}">${lockedCount}</div></div>
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">PLAYER PACKS</div>
+    ${s.packError ? `<div style="font-size:11px;font-weight:700;margin-bottom:10px;color:${COLORS.danger}">${esc(s.packError)}</div>` : ""}
     <div class="grid2" style="margin-bottom:22px">
-      ${PACKS.map(pack=>`
+      ${PACKS.map(pack=>{ const cost = packCost(pack); return `
         <div class="panel" style="position:relative;padding:16px;text-align:center;overflow:hidden;background:linear-gradient(160deg, ${pack.grad[0]}, ${pack.grad[1]});box-shadow:0 4px 18px ${pack.glow}44;border:none">
           <div style="font-size:34px;margin-bottom:4px;animation:floatBounce 2.4s ease-in-out infinite">${pack.icon}</div>
           <div style="font-weight:900;font-size:12px;color:#fff;margin-bottom:4px">${pack.name}</div>
           <div style="font-size:9px;color:#ffffffcc;margin-bottom:10px;min-height:22px">${pack.blurb}</div>
-          <button data-action="open-pack" data-pack-id="${pack.id}" ${state.gems<pack.cost||s.phase!=="list"?"disabled":""} class="btn scrimtap wfull row center" style="gap:3px;padding:8px 0;font-size:11px;background:#fff;color:${pack.grad[0]};opacity:${state.gems<pack.cost?0.4:1}">${icon("Gem",12,pack.grad[0])} ${pack.cost}</button>
-        </div>`).join("")}
+          <button data-action="open-pack" data-pack-id="${pack.id}" ${state.gems<cost||s.phase!=="list"?"disabled":""} class="btn scrimtap wfull row center" style="gap:3px;padding:8px 0;font-size:11px;background:#fff;color:${pack.grad[0]};opacity:${state.gems<cost?0.4:1}">${icon("Gem",12,pack.grad[0])} ${cost}</button>
+        </div>`; }).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">GEM PASSES</div>
     <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">${isNativeApp() ? "Real purchases via Google Play." : "Real purchases via Stripe -- you'll be taken to a secure checkout page."}</div>
@@ -1659,6 +1681,35 @@ function shopView(){
     </div>
     ${overlay}
   </div>`;
+}
+
+// One cell of the reel. Shared by shopView() and the in-place swap below, so
+// the card that drops into the landing slot is byte-identical to the one a
+// re-render would draw there. `null` is the landing slot before the server has
+// said what was pulled -- the reel is already moving by then, and a face-down
+// card is what it is honestly showing.
+function spinItemHTML(p){
+  const rc = p ? RARITY[p.rarity].color : COLORS.gold;
+  const body = p
+    ? `<div class="avatarCircle" style="width:36px;height:36px;font-weight:900;font-size:13px;background:${rc};color:${COLORS.bg}">${p.power}</div>
+       <div style="font-size:8px;color:${COLORS.muted};margin-top:4px;max-width:${SPIN_ITEM_W-8}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name.split(" ").slice(-1)[0])}</div>`
+    : `<div class="avatarCircle" style="width:36px;height:36px;font-weight:900;font-size:17px;background:${rc};color:${COLORS.bg}">?</div>
+       <div style="font-size:8px;color:${COLORS.muted};margin-top:4px">&nbsp;</div>`;
+  return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:12px;flex-shrink:0;width:${SPIN_ITEM_W}px;height:88px;background:${COLORS.panelLight};border:2px solid ${rc}55">${body}</div>`;
+}
+
+// Drops the real card into the slot the reel is going to stop on, WITHOUT
+// re-rendering. render() does stage.innerHTML = appHTML(), which would destroy
+// the node mid-transition and strand the shop in "spinning" -- the same failure
+// the transitionend comment below describes. s.spinItems is updated too, so a
+// re-render triggered by anything else (a realtime notification, the rank-up
+// timer) draws the real card rather than putting the placeholder back.
+function fillSpinLandingSlot(card){
+  const s = state.shop;
+  s.spinItems = s.spinItems.map((p,i)=> i===s.spinFinalIndex ? card : p);
+  const track = document.getElementById("spinTrack");
+  const cell = track && track.children[s.spinFinalIndex];
+  if(cell) cell.outerHTML = spinItemHTML(card);
 }
 
 function startSpinAnimation(){
@@ -1696,7 +1747,9 @@ function startSpinAnimation(){
   setTimeout(land, 3400);
 }
 // Shards a duplicate is worth. Scaled by rarity so pulling a GOAT you already
-// have still feels like a result rather than a let-down.
+// have still feels like a result rather than a let-down. FALLBACK ONLY --
+// open_pack() returns shards_gained, and shards_for_duplicate() in 007 is this
+// same ladder. Only reached when 007 has not been run.
 function shardsForDuplicate(rarity){
   const r = tierRank(rarity);
   if(r >= tierRank("Icon")) return 12;
@@ -1710,13 +1763,59 @@ function shardsForDuplicate(rarity){
 function landPack(){
   const s = state.shop;
   const pick = s.pendingPick;
-  if(!pick){ return; }
-  // A duplicate was already credited as shards when the pack was opened; only
-  // a genuinely new card flips the owned flag.
-  if(!s.dupeShards) state.players = state.players.map(p=> p.id===pick.id ? {...p, owned:true} : p);
+  // The reel can finish before the server has said what was pulled -- a slow
+  // connection, not an error. Remember that the reel is done and let the pull's
+  // own resolve call this again; nothing is revealed until there is something
+  // real to reveal, and the ceiling timer in "open-pack" bounds the wait.
+  if(!pick){ if(s.phase==="spinning") s.landPending = true; return; }
+  s.landPending = false;
+  // Ownership, level and shards were applied by openPackRemote() the moment
+  // the server answered -- this is presentation only.
   if(isTopTier(pick.rarity)){ playFanfare(); playImpact(); } else if(isHighTier(pick.rarity)) playSparkle(); else playChime();
   s.revealed = pick; s.phase="revealed"; s.pendingPick=null;
   render();
+}
+
+// Bumped on every tap. A pull that resolves after its reveal was dismissed, or
+// after a second pack was started, belongs to a shop state that no longer
+// exists and must not write into it.
+let packOpenSeq = 0;
+
+// Asks the database to open the pack, and only if that function isn't there
+// falls back to rolling it here. Both branches resolve the same shape:
+// { card, duplicate, shards_gained } or { error }.
+function requestPackPull(pack){
+  return openPackRemote(pack.id).then(res=>{
+    if(!res || !res.rpcMissing) return res;
+    return openPackLocalFallback(pack);
+  });
+}
+
+// FALLBACK ONLY -- 007 has not been run on this database, so the browser rolls
+// the card and writes the row itself, exactly as it did before. Forgeable, and
+// that is the whole point of replacing it.
+function openPackLocalFallback(pack){
+  // Packs roll the whole active pool, not just cards you don't own: a card you
+  // already have comes back as shards, so a pull is never wasted and there is
+  // still a reason to open packs once the collection is complete.
+  const pool = state.players.filter(p=>!p.exclusive && p.active!==false);
+  const pick = pickWeighted(pool, pack.weights);
+  if(!pick) return Promise.resolve({error:"No cards are available in that pack right now."});
+  const wasOwned = !!pick.owned;
+  const gained = wasOwned ? shardsForDuplicate(pick.rarity) : 0;
+  const landed = { card: pick, duplicate: wasOwned, shards_gained: gained };
+  if(wasOwned){
+    // The shards are the entire payout of a duplicate, so if they didn't land
+    // the pack bought nothing -- report it and let the caller hand the cost
+    // back rather than charging for a reward that only existed on screen.
+    return grantShards(pick.id, gained).then(res=>
+      (res && res.error) ? {error:"Couldn't save those shards — check your connection. Nothing was charged."} : landed);
+  }
+  return commitPackOpenFallback(pick.id).then(res=>{
+    if(res && res.error) return {error:"Couldn't save that card — check your connection. Nothing was charged."};
+    pick.owned = true;
+    return landed;
+  });
 }
 
 // ---------- Play view ----------
@@ -2946,46 +3045,42 @@ function kickOffCup(){
 // the round is left exactly as it was and the tie can be played again. That
 // is real cup convention, it costs nothing to implement, and it is honest
 // about the fact that nobody won.
+// Returns a promise so finalizeMatch can settle the match AFTER the cup tie
+// has been paid: both are economy RPCs against the same profile row, and
+// letting their answers race means the balance on screen can briefly be the
+// older of the two. The database serialises them either way; this just stops
+// the display flickering backwards.
 function resolveCupResult(won, isDraw){
   const cup = state.cup;
-  if(!cup) return;
+  if(!cup) return Promise.resolve();
   if(!won && isDraw){
     state.play.cupSummary = { replay:true, round:cup.round,
       label:`${cupRoundLabel(cup.round)} drawn — the tie will be replayed.` };
-    return;
+    return Promise.resolve();
   }
   // Clamped: a stale or corrupted round would otherwise index past the reward
   // table and pay out `undefined` gems.
   const round = Math.max(0, Math.min(cup.round|0, CUP_ROUNDS.length-1));
-  if(won){
-    const reward = CUP_REWARDS[round] || 0;
-    const champion = round >= CUP_ROUNDS.length-1;
-    const results = ((cup.bracket && cup.bracket.results)||[]).concat(["win"]);
-    const bracket = {...(cup.bracket||{}), results};
-    const fields = champion
-      ? { status:"won", round: round+1, bracket, gems_won:(cup.gems_won||0)+reward }
-      : { round: round+1, bracket, gems_won:(cup.gems_won||0)+reward };
-    state.play.cupSummary = { won:true, champion, reward, round };
-    // Gems are credited only once the run has actually advanced. Paying first
-    // meant a failed save left the stored round unchanged, so reloading
-    // replayed the same tie for the same reward, over and over.
-    saveCupRun(fields).then(res=>{
-      if(res && res.error){
-        state.play.cupSummary = { won:true, champion:false, reward:0, round, saveFailed:true };
-        render();
-        return;
-      }
-      state.gems += reward;
-      if(champion) state.cup = null;
-      updateProfile({gems:state.gems}).then(()=>render());
-    });
-  } else {
-    state.play.cupSummary = { won:false, champion:false, reward:0, round };
-    saveCupRun({ status:"eliminated" }).then(res=>{
-      if(!res || !res.error) state.cup = null;
+  // Shown straight away from the client's own copy of the reward table; the
+  // figure the server actually paid replaces it a round trip later.
+  state.play.cupSummary = won
+    ? { won:true, champion: round >= CUP_ROUNDS.length-1, reward: CUP_REWARDS[round] || 0, round }
+    : { won:false, champion:false, reward:0, round };
+  // cup_advance pays the reward and advances the round in one transaction, so
+  // the old "credit only after the save succeeded" dance -- and the reload
+  // that replayed a tie for its reward again -- has nothing left to guard.
+  return cupAdvanceRemote(won).then(res=>{
+    if(res && res.error){
+      state.play.cupSummary = won
+        ? { won:true, champion:false, reward:0, round, saveFailed:true }
+        : { won:false, champion:false, reward:0, round };
       render();
-    });
-  }
+      return;
+    }
+    if(res && res.won) state.play.cupSummary = { won:true, champion:!!res.champion, reward:res.reward||0, round };
+    if(!won || (res && res.champion)) state.cup = null;
+    return loadCupRun().then(()=>render());
+  });
 }
 
 // Phase D: real challenge acceptance. Called from lib/social.js once
@@ -3078,31 +3173,49 @@ function finalizeMatch(res){
   const outcome = res.outcome;
   const won = outcome==="win";
   const isDraw = outcome==="draw";
+  // WIN_GEMS/DRAW_GEMS/LOSS_GEMS are what the full-time panel SAYS you earned.
+  // settle_match decides what you actually get and 007 carries the same three
+  // numbers; if either moves, move both or the panel lies.
   const gemsEarned = won ? WIN_GEMS : isDraw ? DRAW_GEMS : LOSS_GEMS;
   // Captured before any season-rollover reassignment below -- a match must
   // be recorded under the season/matchday it was actually played in.
   const matchSeasonNumber = state.season.number, matchMatchday = state.season.matchday;
   const opponentName = pl.opponentMeta ? pl.opponentMeta.teamName : currentClub();
+  const isLeague = !pl.isChallengeMatch && !pl.isCupMatch;
 
-  const ns = won ? state.stats.streak+1 : 0;
-  state.stats = { wins: state.stats.wins+(won?1:0), losses: state.stats.losses+(!won&&!isDraw?1:0), draws: (state.stats.draws||0)+(isDraw?1:0), streak: ns, bestStreak: Math.max(state.stats.bestStreak, ns) };
-  state.gems += gemsEarned;
-
-  // Cup ties sit outside the league entirely -- they must not advance the
-  // matchday or season points, same as a friendly.
-  if(pl.isCupMatch) resolveCupResult(won, isDraw);
-
-  if(!pl.isChallengeMatch && !pl.isCupMatch){
+  // The season W/D/L line is DERIVED from the matches table on the next load
+  // (loadRecentMatchesAndSeason), not stored -- so it is kept up to date here
+  // purely so the panel reads right straight after the whistle. Everything the
+  // server owns (gems, lifetime stats, streaks, the season number/matchday/
+  // points) is applied from settle_match's answer instead.
+  if(isLeague){
     const s = state.season;
-    const pts = s.points+(won?3:isDraw?1:0), w = s.wins+(won?1:0), l = s.losses+(!won&&!isDraw?1:0), d = (s.draws||0)+(isDraw?1:0);
-    if(s.matchday>=6){
-      const bonus = pts*2; state.gems += bonus;
-      pl.seasonSummary = {number:s.number, points:pts, wins:w, losses:l, draws:d, bonus};
-      state.season = {number:s.number+1, matchday:1, points:0, wins:0, losses:0, draws:0};
-    } else {
-      state.season = {...s, matchday:s.matchday+1, points:pts, wins:w, losses:l, draws:d};
-    }
+    state.season = {...s, wins: s.wins+(won?1:0), losses: s.losses+(!won&&!isDraw?1:0), draws: (s.draws||0)+(isDraw?1:0)};
   }
+
+  // The old client-side reward arithmetic, kept whole but now only reached
+  // when 007 is absent -- see settleMatchRemote(). Nothing here runs when the
+  // database is deciding the numbers.
+  const applyLocalRewards = ()=>{
+    const ns = won ? state.stats.streak+1 : 0;
+    state.stats = { wins: state.stats.wins+(won?1:0), losses: state.stats.losses+(!won&&!isDraw?1:0), draws: (state.stats.draws||0)+(isDraw?1:0), streak: ns, bestStreak: Math.max(state.stats.bestStreak, ns) };
+    let earned = gemsEarned;
+    state.gems += gemsEarned;
+    if(isLeague){
+      const s = state.season;
+      const pts = s.points+(won?3:isDraw?1:0);
+      if(s.matchday>=6){
+        const bonus = pts*2; state.gems += bonus; earned += bonus;
+        pl.seasonSummary = {number:s.number, points:pts, wins:s.wins, losses:s.losses, draws:s.draws||0, bonus};
+        state.season = {number:s.number+1, matchday:1, points:0, wins:0, losses:0, draws:0};
+      } else {
+        state.season = {...s, matchday:s.matchday+1, points:pts};
+      }
+    }
+    render();
+    return { gemsEarned: earned, seasonNumber: matchSeasonNumber, matchday: matchMatchday };
+  };
+
   won ? playWin() : isDraw ? playChime() : playLose();
   pl.commentary = won ? "FULL TIME — What a performance! 🏆" : isDraw ? "FULL TIME — honours even." : "FULL TIME — tough result today.";
   pl.matchMinute = 90;
@@ -3120,7 +3233,31 @@ function finalizeMatch(res){
   // ties and friendlies out of it forever after, rather than being a flag that
   // only suppresses this one profile write and is then forgotten.
   const matchKind = pl.isChallengeMatch ? MATCH_KIND_FRIENDLY : pl.isCupMatch ? MATCH_KIND_CUP : MATCH_KIND_LEAGUE;
-  commitMatchResult({result:outcome, myWins:res.myWins, myTotalPower:res.myTotalPower, oppTotalPower:res.oppTotalPower, gemsEarned}, matchSeasonNumber, matchMatchday, opponentName, matchKind);
+  const ctx = {
+    outcome: {result:outcome, myWins:res.myWins, myTotalPower:res.myTotalPower, oppTotalPower:res.oppTotalPower},
+    kind: matchKind, opponentName: opponentName, formation: pl.formationKey,
+  };
+  // Cup ties sit outside the league entirely -- they must not advance the
+  // matchday or season points, same as a friendly. The tie is settled first so
+  // its reward and the match reward don't land out of order.
+  const cupDone = pl.isCupMatch ? resolveCupResult(won, isDraw) : Promise.resolve();
+  cupDone.then(()=> settleMatchRemote(ctx, applyLocalRewards)).then(d=>{
+    if(!d || d.error || d.fellBack) { render(); return; }
+    // The season summary is built from what the server actually did, not from
+    // what this browser predicted it would do.
+    if(d.season_rollover){
+      // The bonus IS twice the season's points (007's `v_bonus := v_points * 2`),
+      // which is the only place the finished season's total survives -- the
+      // returned season_points has already been reset to zero for the new one.
+      pl.seasonSummary = {number: matchSeasonNumber, points: Math.round((d.season_bonus||0)/2),
+                          wins: state.season.wins, losses: state.season.losses, draws: state.season.draws||0,
+                          bonus: d.season_bonus||0};
+      state.season = {...state.season, wins:0, losses:0, draws:0};
+    }
+    if(pl.finalResult) pl.finalResult.gemsEarned = (d.gems_earned||0) + (d.season_bonus||0);
+    checkRankUp();
+    render();
+  });
 }
 
 function continueSecondHalf(){
@@ -3208,26 +3345,34 @@ document.getElementById("stage").addEventListener("click", function(e){
       state.newsOpen = true; render(); break;
     case "home-promo":
       state.homePromo = Number(el.dataset.i)||0; render(); break;
+    // Both claims wait on the server rather than paying out first and
+    // persisting later. The reward is the database's to decide -- it re-checks
+    // the date and re-measures the progress -- so there is nothing to show
+    // until it answers, and the in-flight guard is what stops a double tap
+    // being two claims. This is a button press, not the pack reveal; a round
+    // trip here costs nothing worth protecting.
     case "claim-daily": {
-      const dailyClaimed = state.home.dailyLastClaim === todayStr();
-      if(dailyClaimed) break;
+      if(state.home.dailyLastClaim === todayStr() || state.claimPending) break;
       playChime();
       const streak = activeDailyStreak();
-      const reward = DAILY_REWARDS[streak % 7];
-      state.gems += reward;
-      state.home = { ...state.home, dailyLastClaim: todayStr(), dailyStreak: streak+1 };
-      render();
-      updateProfile({ gems: state.gems, daily_last_claim: state.home.dailyLastClaim, daily_streak: state.home.dailyStreak });
+      state.claimPending = "daily"; render();
+      claimDailyRemote({ today: todayStr(), streak: streak, reward: DAILY_REWARDS[streak % 7] }).then(res=>{
+        state.claimPending = null;
+        if(res && res.error) alert(res.error);
+        render();
+      });
       break;
     }
     case "claim-objective": {
       const id = el.dataset.objId, reward = Number(el.dataset.reward);
-      if(state.home.objectivesClaimed.includes(id)) break;
+      if(state.home.objectivesClaimed.includes(id) || state.claimPending) break;
       playSparkle();
-      state.gems += reward;
-      state.home = { ...state.home, objectivesClaimed: [...state.home.objectivesClaimed, id] };
-      render();
-      updateProfile({ gems: state.gems, objectives_claimed: state.home.objectivesClaimed });
+      state.claimPending = id; render();
+      claimObjectiveRemote(id, reward).then(res=>{
+        state.claimPending = null;
+        if(res && res.error) alert(res.error);
+        render();
+      });
       break;
     }
     case "assign-player": {
@@ -3270,29 +3415,32 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "close-season-summary":
       pl.seasonSummary = null; render(); break;
     case "cup-enter": {
-      // The fee is charged only once the run actually exists. Deducting first
-      // meant a failed insert took 150 gems and gave nothing -- and because
-      // render() ran before the insert resolved, the button stayed live long
-      // enough for a second tap to charge twice for one cup.
+      // cup_enter() charges the fee and creates the run in one transaction, so
+      // the window this used to guard by hand -- gems gone and no run, or a run
+      // and no charge, or a second tap paying twice -- does not exist any more.
+      // The double-tap guard stays because it is about the button, not the fee.
       if(state.gems < CUP_ENTRY_COST || state.cupEntering) break;
       playTap();
       state.cupEntering = true;
       render();
-      createCupRun(newCupBracket()).then(run=>{
+      createCupRun(newCupBracket()).then(res=>{
         state.cupEntering = false;
-        if(!run){ alert("Couldn't start the cup — check your connection and try again."); render(); return; }
-        // Re-checked here, not just at click time. The insert costs a round
-        // trip and nothing stops the player leaving the Play tab and spending
-        // in the shop meanwhile -- the balance then went negative and was
-        // persisted, and every price in the game read "NOT ENOUGH GEMS" until
-        // the debt was earned back. Withdraw the run rather than charge it.
-        if(state.gems < CUP_ENTRY_COST){
-          saveCupRun({ status:"eliminated" }).then(()=>{ state.cup = null; render(); });
-          alert("You spent those gems elsewhere before the cup could start, so it wasn't entered. Nothing was charged.");
+        if(!res || res.error || !res.run){
+          alert((res && res.error) || "Couldn't start the cup — check your connection and try again.");
           render(); return;
         }
-        state.gems -= CUP_ENTRY_COST;
-        updateProfile({ gems: state.gems });
+        // Only the fallback path leaves the fee unpaid: without 007 the insert
+        // and the charge are still two writes, and the re-check below is still
+        // the thing standing between a slow round trip and a negative balance.
+        if(!res.charged){
+          if(state.gems < CUP_ENTRY_COST){
+            saveCupRun({ status:"eliminated" }).then(()=>{ state.cup = null; render(); });
+            alert("You spent those gems elsewhere before the cup could start, so it wasn't entered. Nothing was charged.");
+            render(); return;
+          }
+          state.gems -= CUP_ENTRY_COST;
+          updateProfile({ gems: state.gems });
+        }
         render();
       });
       break;
@@ -3310,7 +3458,7 @@ document.getElementById("stage").addEventListener("click", function(e){
       // regardless left the row still `active` in the database, and the
       // one-active-run index then rejected every future entry -- the cup was
       // permanently unstartable until a reload.
-      saveCupRun({ status:"eliminated" }).then(({error})=>{
+      cupForfeitRemote().then(({error})=>{
         if(error){ alert("Couldn't withdraw — check your connection and try again."); render(); return; }
         state.cup=null; render();
       });
@@ -3446,29 +3594,25 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "open-pack": {
       const pack = PACKS.find(p=>p.id===el.dataset.packId);
       const s = state.shop;
-      if(state.gems<pack.cost || s.phase!=="list") break;
-      playWhoosh(); state.gems -= pack.cost;
-      // Packs used to draw only from cards you DIDN'T own, which meant a
-      // completed collection turned every pack into a partial gem refund.
-      // Now they roll the whole active pool: a card you already have comes
-      // back as shards for that card, so a pull is never wasted and there is
-      // still a reason to open packs once you own everything.
-      const pool = state.players.filter(p=>!p.exclusive && p.active!==false);
-      const pick = pickWeighted(pool, pack.weights);
+      const cost = packCost(pack);
+      if(state.gems<cost || s.phase!=="list") break;
+      playWhoosh();
+      // Optimistic, and deliberately NOT declared to auth.js with
+      // noteProfileWrite: during the in-flight window applyProfileRow's merge
+      // evaluates to this figure, which is what keeps the balance on screen
+      // instant. The server's real balance replaces it when the pull lands.
+      state.gems -= cost;
       s.selectedPack = pack;
-      if(!pick){ state.gems += Math.round(pack.cost/3); playTap(); s.revealed=null; s.phase="revealed"; render(); commitPackRefund(); break; }
-      const wasOwned = !!pick.owned;
-      s.dupeShards = wasOwned ? shardsForDuplicate(pick.rarity) : 0;
-      if(wasOwned) grantShards(pick.id, s.dupeShards).then(res=>{
-        // The shards are the entire payout of a duplicate pull, so if they
-        // didn't land the pack bought nothing -- hand the cost back rather
-        // than charging for a reward that only ever existed on screen.
-        if(!res || !res.error) return;
-        state.gems += pack.cost;
-        commitPackRefund();
-        alert("Couldn't save those shards — check your connection. Your gems have been refunded.");
-      });
-      else commitPackOpen(pick.id);
+      s.packError = "";
+      s.dupeShards = 0;
+      s.pendingPick = null;
+      s.landPending = false;
+
+      // Everything from here to startSpinAnimation() is synchronous, so the
+      // reel starts moving on the same frame as the tap -- exactly as it did
+      // when the browser rolled the card itself. The pull is in flight
+      // alongside it and only has to beat the 2.9s spin, which one PostgREST
+      // call does many times over.
       const spinPool = state.players.filter(p=>!p.exclusive && p.active!==false);
       const items = Array.from({length: SPIN_FILLER_COUNT}, ()=> spinPool[Math.floor(Math.random()*spinPool.length)]);
       // Land on the real pick at a randomized position in the strip (not always
@@ -3476,17 +3620,48 @@ document.getElementById("stage").addEventListener("click", function(e){
       // every time -- keep at least 10 cards of spin distance so it never feels
       // like it barely moved.
       const insertAt = Math.floor(Math.random() * (SPIN_FILLER_COUNT - 10 + 1)) + 10;
-      items.splice(insertAt, 0, pick);
+      items.splice(insertAt, 0, null);   // the landing slot, filled when the server answers
       s.spinItems = items;
       s.spinFinalIndex = insertAt;
-      s.pendingPick = pick;
       s.phase = "spinning";
+      const opening = ++packOpenSeq;
       render();
       startSpinAnimation();
+
+      requestPackPull(pack).then(res=>{
+        // A reveal the player already dismissed, or a second pack started
+        // since: this result is stale and must not overwrite the shop.
+        if(opening !== packOpenSeq) return;
+        if(res.error){
+          state.gems += cost;
+          s.phase="list"; s.selectedPack=null; s.spinItems=[]; s.pendingPick=null;
+          s.packError = res.error;
+          render();
+          // open_pack is atomic -- it either charged and granted or did
+          // neither -- so re-reading is always safe and never double-counts.
+          refreshGameState();
+          return;
+        }
+        s.dupeShards = res.duplicate ? (res.shards_gained||0) : 0;
+        s.pendingPick = state.players.find(p=>p.id===res.card.id) || res.card;
+        fillSpinLandingSlot(s.pendingPick);
+        if(s.landPending) landPack();
+      });
+      // Belt and braces for a pull that never comes back at all. The reel has
+      // long since stopped by now, so this is the difference between an
+      // apology and a shop that sits spinning for the rest of the session.
+      setTimeout(()=>{
+        if(opening !== packOpenSeq || s.phase!=="spinning" || s.pendingPick) return;
+        state.gems += cost;
+        s.phase="list"; s.selectedPack=null; s.spinItems=[];
+        s.packError = "Couldn't reach the server — nothing was charged. Try again.";
+        render();
+        refreshGameState();
+      }, 12000);
       break;
     }
     case "close-reveal": {
-      const s = state.shop; s.phase="list"; s.revealed=null; s.pendingPick=null; s.selectedPack=null; s.dupeShards=0; render(); break;
+      const s = state.shop; s.phase="list"; s.revealed=null; s.pendingPick=null; s.selectedPack=null; s.dupeShards=0; s.packError=""; s.spinItems=[]; render(); break;
     }
     case "buy-gem-pass": {
       const pass = GEM_PASSES.find(p=>p.id===el.dataset.passId);
@@ -3617,8 +3792,16 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "admin-self-gems": {
       if(!isAdmin()) break;
       const amount = Number(el.dataset.amount)||0;
-      state.gems += amount; playChime(); render();
-      updateProfile({ gems: state.gems });
+      const me = state.session && state.session.user && state.session.user.id;
+      if(!me) break;
+      playChime();
+      // Through admin_set_gems() like every other admin write, because `gems`
+      // stops being a column the client may update at all once 007's lock-down
+      // runs -- admin or not.
+      setGems(me, state.gems + amount).then(({error})=>{
+        if(error){ alert(error); return; }
+        refreshGameState();
+      });
       break;
     }
     case "acknowledge-ban":

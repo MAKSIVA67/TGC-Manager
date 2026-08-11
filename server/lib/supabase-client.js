@@ -19,3 +19,19 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: true,
   },
 });
+
+// "This database has not had that migration run yet." Migrations land by hand,
+// separately from deploying the site, so every RPC the client learns to call
+// has to survive the window in which the function does not exist -- and a
+// cached copy of the JavaScript can outlive a rollback too. Postgres reports
+// 42883 (no such function) and PostgREST reports PGRST202 (not in its schema
+// cache); the message test catches wordings neither code covers.
+//
+// Lives here, in the first script loaded, because game-data.js, admin-api.js
+// and the game IIFE in index.html all need it. It used to be declared in
+// admin-api.js, which loads AFTER game-data.js -- that worked only because
+// nothing called it during load, which is not a property worth relying on.
+function rpcMissing(error) {
+  return !!error && (error.code === "42883" || error.code === "PGRST202" ||
+                     /(function|schema cache).*(does not exist|not find)/i.test(error.message || ""));
+}

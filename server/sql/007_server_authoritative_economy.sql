@@ -1,29 +1,49 @@
 -- 007_server_authoritative_economy.sql
 --
 --   ####################################################################
---   #  NOT READY TO RUN. THIS IS A DESIGN, NOT A SHIPPABLE MIGRATION.  #
+--   #  PHASE 1 IS READY TO RUN. PHASE 2 IS NOT, YET -- SEE BELOW.      #
 --   ####################################################################
 --
---   The client half does not exist yet. Nothing in server/index.html or
---   server/lib/*.js calls open_pack(), settle_match(), claim_daily(),
---   claim_objective(), cup_enter(), cup_advance(), cup_forfeit() or
---   claim_starter_squad() -- those rewrites are specified in
---   server/ECONOMY_DESIGN.md and have not been written.
+--   The client half now exists. server/index.html and server/lib/*.js call
+--   open_pack(), train_card(), settle_match(), cup_enter(), cup_advance(),
+--   cup_forfeit(), claim_daily(), claim_objective(), claim_starter_squad()
+--   and admin_set_gems(), each wrapped in the rpcMissing() fallback that
+--   admin-api.js established for 003 -- so the new site works against a
+--   database with or without this file, and this file is harmless against a
+--   client with or without those changes. Paste it whenever you like.
 --
---   Running phase 1 today would install a set of functions nobody calls.
---   That is inert rather than harmful, but it has not been executed against
---   a real Postgres even once, so it is not known to apply cleanly -- and
---   `select public.economy_lock_down()` WOULD break the live game outright,
---   because it revokes the writes the current client depends on.
+--   It has been executed against a real Postgres (pglite) and every function
+--   exercised: 192 checks, run four times over -- once for each combination
+--   of profiles.daily_last_claim being date or text and objectives_claimed
+--   being text[] or jsonb, because the live types were not known. That found
+--   four real defects, all fixed here:
 --
---   Before any of this runs: write the client changes, apply phase 1 to a
---   throwaway Postgres and exercise every function (migration 005 was
---   verified this way with pglite -- 26 checks, and it caught nothing wrong,
---   but the point is that it was checked), deploy the site, confirm players
---   have picked it up, and only then run the lock-down.
+--     * The duplicate-row merge in section 1 kept the WRONG row. An UPDATE
+--       moves a row's ctid, so re-numbering by ctid afterwards deleted the
+--       merged row and kept an original -- losing shards on exactly the
+--       accounts it exists to repair. It now deletes first and merges after.
+--     * claim_daily() could not write a `date` column at all. Postgres casts
+--       a date into a text column on assignment but refuses text into a date
+--       one, so the single to_char() write failed outright on half the
+--       possible schemas. It now branches on the column's real type.
+--     * settle_match() never wrote `kind`, so every server-settled cup tie
+--       and friendly would have counted as a league result again -- the
+--       precise bug migration 006 exists to fix.
+--     * Three objective_defs rows disagreed with the client's OBJECTIVES
+--       array (commit 6ee65c7): obj_collect10's target, and obj_win10 and
+--       obj_win25 measuring a season rather than a career. A player would
+--       have seen a full progress bar and a button that refused to pay.
+--
+--   `select public.economy_lock_down()` STILL MUST WAIT. It revokes the
+--   writes an OLD cached client depends on -- worst of all the starter squad
+--   a brand-new account is granted on signup. Run it only once the new site
+--   is deployed, players have picked it up, and the Android question in
+--   server/ECONOMY_DESIGN.md section 5 has been answered. Reversing it is
+--   one statement, but a new player landing in an empty game is not
+--   something you find out about quickly.
 --
 --   Migration 005 already made TRAINING server-authoritative, which is the
---   slice of this design that has actually shipped. train_card() below is
+--   slice of this design that shipped first. train_card() below is
 --   deliberately declared with the same bigint signature so it replaces that
 --   one rather than colliding with it.
 --
@@ -42,11 +62,17 @@
 -- THIS FILE RUNS IN TWO PHASES. READ THIS BEFORE PASTING.
 --
 --   PHASE 1 -- everything below runs the moment you paste the file.
---     It only ADDS: one unique index, three small tables, and a set of
---     SECURITY DEFINER functions. It revokes nothing and changes no existing
---     policy, so a player still running the OLD cached JavaScript keeps
---     playing exactly as before while the new client starts using the
---     functions. Safe to run before or after the site is deployed.
+--     It only ADDS: one unique index, three small tables, one nullable
+--     column that 006 has already added, and a set of SECURITY DEFINER
+--     functions. It revokes nothing and changes no existing policy, so a
+--     player still running the OLD cached JavaScript keeps playing exactly
+--     as before while the new client starts using the functions. Safe to run
+--     before or after the site is deployed.
+--
+--     The one thing it does rewrite is duplicate user_cards rows, which are
+--     a corrupt state rather than data (every ownership check in the app is
+--     a set-membership test). Run the count query in section 15 first if you
+--     want to see them before they are merged.
 --
 --   PHASE 2 -- the lock-down. Does NOT run on paste. It lives inside
 --   economy_lock_down(), which you invoke deliberately:
@@ -105,33 +131,43 @@
 
 do $$
 begin
-  -- Merging keeps the earliest row, sums the shards and takes the highest
-  -- level, which is the reading most generous to the player and the one that
-  -- matches what the app believed it had stored.
-  with dupes as (
-    select ctid,
-           row_number() over (partition by user_id, card_id order by ctid) as rn,
-           sum(shards)  over (partition by user_id, card_id) as total_shards,
-           max(level)   over (partition by user_id, card_id) as top_level
+  -- Merging keeps one row per (player, card), sums the shards and takes the
+  -- highest level, which is the reading most generous to the player and the
+  -- one that matches what the app believed it had stored.
+  --
+  -- The aggregate is parked in a temp table and the DELETE runs BEFORE the
+  -- UPDATE, in that order, for a reason that is easy to get wrong: an UPDATE
+  -- rewrites the row somewhere else in the page, so it CHANGES that row's
+  -- ctid. Merging first and then deleting `rn > 1` by ctid therefore
+  -- re-numbers against the post-update ctids, and the row it keeps is one of
+  -- the originals while the merged row is the one thrown away -- silently
+  -- losing shards on exactly the accounts this is meant to repair. A pure
+  -- DELETE moves nothing, so doing it first leaves the survivor's ctid alone,
+  -- and the UPDATE afterwards is keyed on (user_id, card_id) rather than a
+  -- ctid at all.
+  drop table if exists _uc_dupe_merge;
+  create temp table _uc_dupe_merge on commit drop as
+    select user_id, card_id, sum(shards)::integer as total_shards, max(level) as top_level
       from public.user_cards
-  )
-  update public.user_cards uc
-     set shards = d.total_shards,
-         level  = d.top_level
-    from dupes d
-   where uc.ctid = d.ctid
-     and d.rn = 1
-     -- Without this the statement rewrites every row in the table on a clean
-     -- database, which is a lot of churn for no change.
-     and (uc.shards is distinct from d.total_shards or uc.level is distinct from d.top_level);
+     group by user_id, card_id
+    having count(*) > 1;
 
-  with dupes as (
-    select ctid, row_number() over (partition by user_id, card_id order by ctid) as rn
-      from public.user_cards
-  )
   delete from public.user_cards uc
-   using dupes d
+   using (
+     select ctid, row_number() over (partition by user_id, card_id order by ctid) as rn
+       from public.user_cards
+   ) d
    where uc.ctid = d.ctid and d.rn > 1;
+
+  update public.user_cards uc
+     set shards = m.total_shards,
+         level  = m.top_level
+    from _uc_dupe_merge m
+   where uc.user_id = m.user_id and uc.card_id = m.card_id;
+
+  if exists (select 1 from _uc_dupe_merge) then
+    raise notice 'merged % duplicated user_cards group(s)', (select count(*) from _uc_dupe_merge);
+  end if;
 end $$;
 
 do $$
@@ -256,20 +292,33 @@ create policy objective_defs_readable on public.objective_defs for select using 
 revoke insert, update, delete on public.objective_defs from authenticated, anon;
 grant select on public.objective_defs to authenticated, anon;
 
+-- Unlike pack_defs, this one OVERWRITES on a re-run. The client's OBJECTIVES
+-- array is what draws the label, the target and the progress bar, so a row
+-- here that disagrees with it makes the panel advertise a goal the server will
+-- not honour -- the objectives panel is the one place where drifting apart is
+-- visible to the player as a broken button rather than as slightly different
+-- odds. Pack odds are deliberately tunable in the database; these are not.
 insert into public.objective_defs (id, reward, target, metric) values
   ('obj_win3',       25,   3, 'season_wins'),
-  ('obj_collect10',  20,  10, 'cards_owned'),
+  -- 25, not 10: a new account is granted 18 starter cards, so a target of 10
+  -- was met before the player had done anything. The client's label already
+  -- reads "Collect 25 Cards" (commit 6ee65c7).
+  ('obj_collect10',  20,  25, 'cards_owned'),
   ('obj_epic',       30,   1, 'owns_epic_or_better'),
   ('obj_streak3',    35,   3, 'best_streak'),
-  ('obj_win10',      60,  10, 'season_wins'),
-  ('obj_win25',     120,  25, 'season_wins'),
+  -- Career, not season. A season is six matchdays, so "win 10 this season" is
+  -- arithmetically impossible; the client measures both of these against
+  -- lifetime wins and the server has to agree or the button never pays.
+  ('obj_win10',      60,  10, 'career_wins'),
+  ('obj_win25',     120,  25, 'career_wins'),
   ('obj_collect50',  80,  50, 'cards_owned'),
   ('obj_collect100',150, 100, 'cards_owned'),
   ('obj_legendary',  70,   1, 'owns_legendary_or_better'),
   ('obj_streak5',    90,   5, 'best_streak'),
   ('obj_streak10',  200,  10, 'best_streak'),
   ('obj_trades3',    50,   3, 'trades_completed')
-on conflict (id) do nothing;
+on conflict (id) do update
+  set reward = excluded.reward, target = excluded.target, metric = excluded.metric;
 
 
 -- ---------------------------------------------------------------------------
@@ -549,6 +598,17 @@ end $$;
 -- p_kind: 'league' advances the season; 'cup', 'challenge' and 'friendly'
 -- deliberately do not, matching finalizeMatch()'s isCupMatch/isChallengeMatch
 -- suppression.
+--
+-- It is also written onto the matches row as `kind`, which migration 006 added
+-- and which the season table is derived from. Skipping that would have made
+-- every server-settled cup tie and friendly count as a league result again --
+-- the precise bug 006 exists to fix. 'challenge' is stored as 'friendly'
+-- because that is the value 006's check constraint and the client's
+-- MATCH_KIND_FRIENDLY both use.
+
+-- 006 is already live, but a database that skipped it would fail every insert
+-- below rather than just losing the label, so make sure the column is there.
+alter table public.matches add column if not exists kind text;
 
 create or replace function public.settle_match(
   p_result        text,
@@ -578,6 +638,7 @@ declare
   v_season   integer;
   v_matchday integer;
   v_gems     integer;
+  v_kind     text;
 begin
   if p_result not in ('win', 'draw', 'loss') then
     raise exception 'Unknown match result.' using errcode = '22023';
@@ -585,6 +646,7 @@ begin
   if coalesce(p_kind, 'league') not in ('league', 'cup', 'challenge', 'friendly') then
     raise exception 'Unknown match kind.' using errcode = '22023';
   end if;
+  v_kind := case when coalesce(p_kind, 'league') = 'challenge' then 'friendly' else coalesce(p_kind, 'league') end;
 
   v_profile := public.economy_begin();
 
@@ -630,13 +692,13 @@ begin
 
   insert into public.matches (
     user_id, season_number, matchday, opponent_name, formation,
-    result, zones_won, my_power, opp_power, gems_earned)
+    result, zones_won, my_power, opp_power, gems_earned, kind)
   values (
     v_profile.id, v_profile.season_number, v_profile.season_matchday,
     p_opponent_name, p_formation,
     p_result, greatest(coalesce(p_zones_won, 0), 0),
     greatest(coalesce(p_my_power, 0), 0), greatest(coalesce(p_opp_power, 0), 0),
-    v_earned + v_bonus);
+    v_earned + v_bonus, v_kind);
 
   update public.profiles
      set wins            = coalesce(wins, 0)   + case when v_won then 1 else 0 end,
@@ -815,6 +877,7 @@ declare
   v_streak  integer;
   v_reward  integer;
   v_gems    integer;
+  v_is_date boolean;
 begin
   v_profile := public.economy_begin();
 
@@ -832,10 +895,27 @@ begin
   -- DAILY_REWARDS ladder.
   v_reward := (array[10, 15, 20, 25, 35, 45, 60])[(v_streak % 7) + 1];
 
-  update public.profiles
-     set daily_last_claim = to_char(v_today, 'YYYY-MM-DD'),
-         daily_streak     = v_streak + 1
-   where id = v_profile.id;
+  -- Reading the column tolerates either type, but WRITING it does not:
+  -- Postgres will cast a date into a text column on assignment and refuses
+  -- text into a date column, so one statement cannot serve both. Same trick as
+  -- claim_objective below -- plpgsql only parses a statement the first time it
+  -- is reached, so the branch that does not apply is never compiled.
+  select data_type = 'date' into v_is_date
+    from information_schema.columns
+   where table_schema = 'public' and table_name = 'profiles'
+     and column_name = 'daily_last_claim';
+
+  if v_is_date then
+    update public.profiles
+       set daily_last_claim = v_today,
+           daily_streak     = v_streak + 1
+     where id = v_profile.id;
+  else
+    update public.profiles
+       set daily_last_claim = to_char(v_today, 'YYYY-MM-DD'),
+           daily_streak     = v_streak + 1
+     where id = v_profile.id;
+  end if;
 
   v_gems := public.economy_apply_gems(
     v_profile.id, v_reward, 'daily_reward', jsonb_build_object('streak', v_streak + 1));
@@ -862,9 +942,17 @@ declare
   v_n integer := 0;
 begin
   if p_metric = 'season_wins' then
+    -- Cup ties and friendlies carry a `kind` and are excluded, exactly as
+    -- isLeagueMatchRow() excludes them client-side. A null kind counts, for
+    -- the reason 006 gives: nothing on an old row can prove it was a cup tie.
     select count(*) into v_n from public.matches m
       join public.profiles p on p.id = m.user_id
-     where m.user_id = p_user and m.result = 'win' and m.season_number = p.season_number;
+     where m.user_id = p_user and m.result = 'win' and m.season_number = p.season_number
+       and (m.kind is null or m.kind = 'league');
+  elsif p_metric = 'career_wins' then
+    -- profiles.wins is the lifetime counter settle_match increments, and is
+    -- what the client's `s.wins` reads.
+    select coalesce(wins, 0) into v_n from public.profiles where id = p_user;
   elsif p_metric = 'cards_owned' then
     select count(*) into v_n from public.user_cards where user_id = p_user;
   elsif p_metric = 'best_streak' then
@@ -1171,6 +1259,11 @@ revoke all on function public.economy_unlock()    from public, anon, authenticat
 --   select count(*) from public.objective_defs;    -- 12
 --   select count(*) from public.gem_ledger;        -- 0, but the table exists
 --   select public.shards_for_duplicate('GOAT');    -- 12
+--
+--   -- the objectives the app draws and the ones the server pays must agree:
+--   select id, reward, target, metric from public.objective_defs order by id;
+--   -- obj_collect10 must read 25, and obj_win10/obj_win25 must read
+--   -- career_wins -- see the OBJECTIVES array in index.html.
 --
 --   -- no player should own the same card twice any more:
 --   select user_id, card_id, count(*) from public.user_cards
