@@ -797,7 +797,12 @@ function subscribeToNotifications(userId) {
     })
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `recipient_id=eq.${userId}` }, (payload) => {
       const fUI = window.state.friendsUI;
-      if (payload.new.sender_id === fUI.chat.friendId) return; // conversation is already open, not a "notification"
+      // "The conversation is already open" has to mean the player can actually
+      // SEE it. chat.friendId survives leaving the Friends tab, so this used to
+      // swallow every message from that friend -- no toast, no unread count and
+      // no badge -- while the player was somewhere else entirely in the app.
+      const chatVisible = window.state.tab === "friends" && fUI.chat.friendId === payload.new.sender_id;
+      if (chatVisible) return;
       const senderId = payload.new.sender_id;
       const prevCount = fUI.chatUnreadCounts[senderId] || 0;
       fUI.chatUnreadCounts = { ...fUI.chatUnreadCounts, [senderId]: prevCount + 1 };

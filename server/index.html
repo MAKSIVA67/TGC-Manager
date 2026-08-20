@@ -2071,11 +2071,39 @@ function friendsView(){
     ${sub==="friends" ? friendsListSection() : sub==="requests" ? friendsRequestsSection() : sub==="trades" ? friendsTradesSection() : friendsFindSection()}
   </div>`;
 }
+// A pending challenge from somebody who is not on your friends list used to be
+// counted by notifBadges() but rendered nowhere: accept/decline only exist
+// inside the friends loop below, so the unread badge could never be cleared and
+// the challenger waited forever for an answer that had no button. Anyone can
+// challenge anyone (there is no friends-only rule yet), so these need a home.
+function strangerChallengesSection(){
+  const ui = state.friendsUI;
+  const myId = state.session.user.id;
+  const friendIds = new Set((ui.friends||[]).map(f=>f.id));
+  const strays = (ui.challenges||[]).filter(c =>
+    c.status==="pending" && c.opponent_id===myId && !friendIds.has(c.challenger_id));
+  if(!strays.length) return "";
+  return `<div class="panel" style="padding:12px;margin-bottom:12px;border:1px solid ${COLORS.pink}55">
+    <div style="font-size:10px;font-weight:900;letter-spacing:.1em;color:${COLORS.pink};margin-bottom:8px">CHALLENGES FROM PLAYERS YOU HAVEN&#39;T ADDED</div>
+    ${strays.map(c=>{
+      const name = (c.otherProfile && c.otherProfile.display_name) || "Player";
+      return `<div class="row between" style="align-items:center;padding:6px 0">
+        <div style="font-size:12px;font-weight:800;color:${COLORS.cream}">${esc(name)}</div>
+        <div class="row" style="gap:6px">
+          <button data-action="challenge-accept" data-challenge-id="${c.id}" class="btn scrimtap" style="padding:6px 10px;font-size:10px;background:${COLORS.turf};color:${COLORS.bg}">Accept</button>
+          <button data-action="challenge-decline" data-challenge-id="${c.id}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;color:${COLORS.danger}">Decline</button>
+        </div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
 function friendsListSection(){
   const ui = state.friendsUI;
   if(!ui.friendsLoaded) return `<div style="font-size:12px;color:${COLORS.muted}">Loading…</div>`;
-  if(!ui.friends.length) return `<div class="panel" style="padding:20px;text-align:center;font-size:13px;color:${COLORS.muted}">No friends yet — head to the Find tab to search for players.</div>`;
-  return (ui.challengeStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(ui.challengeStatus)}</div>` : "")
+  const strangers = strangerChallengesSection();
+  if(!ui.friends.length) return strangers + `<div class="panel" style="padding:20px;text-align:center;font-size:13px;color:${COLORS.muted}">No friends yet — head to the Find tab to search for players.</div>`;
+  return strangers + (ui.challengeStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.muted}">${esc(ui.challengeStatus)}</div>` : "")
     + ui.friends.map(f=>{
     const myId = state.session.user.id;
     const relevant = (ui.challenges||[]).filter(c=> (c.challenger_id===f.id && c.opponent_id===myId) || (c.challenger_id===myId && c.opponent_id===f.id));
@@ -3328,7 +3356,12 @@ document.getElementById("stage").addEventListener("click", function(e){
   const pl = state.play;
   switch(action){
     case "nav-tab":
+      // Leaving the Friends tab with a chat still open left its realtime
+      // channel subscribed and chat.friendId set, which the notification
+      // handler reads to decide a message is already on screen.
+      const leavingFriends = state.tab === "friends" && el.dataset.tab !== "friends";
       state.tab = el.dataset.tab; playTap();
+      if(leavingFriends && state.friendsUI.chat.friendId) closeChat();
       if(state.tab==="friends"){ refreshFriendsList(); refreshFriendRequests(); refreshChallenges(); refreshTrades(); }
       if(state.tab==="admin" && isAdmin() && !state.adminUI.cardsLoaded){ refreshAdminCards(); }
       render(); break;
