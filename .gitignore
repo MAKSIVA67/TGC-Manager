@@ -16,3 +16,6 @@ node_modules/
 .env.local
 android-sdk/
 server/downloads/
+
+server/tools/card-art/out/
+server/tools/card-art/node_modules/
