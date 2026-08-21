@@ -83,6 +83,23 @@ input,textarea{font-family:inherit;font-size:16px}
    layout instead: fixed nav rail down the left, currencies pinned top right,
    content filling everything between. Portrait is untouched, so a tablet or a
    desktop window that happens to be tall still works. */
+/* Rotating card showcase. Three cards at a time, swapped on a timer.
+   render() replaces #stage wholesale, so the timer must never hold a
+   reference to a node -- it looks the carousel up fresh on every tick and
+   simply does nothing if the player has navigated away. The index lives on
+   state for the same reason: a local would reset to the first three cards
+   every time a notification arrived. */
+@keyframes carIn  { from{opacity:0;transform:translateX(54px) scale(.88) rotateY(-14deg)} to{opacity:1;transform:none} }
+@keyframes carOut { from{opacity:1;transform:none} to{opacity:0;transform:translateX(-54px) scale(.88) rotateY(14deg)} }
+.carousel{position:relative;border-radius:16px;padding:12px;overflow:hidden;
+  background:linear-gradient(150deg,#ffffff10,#ffffff04);border:1px solid #ffffff14}
+.carRow{display:flex;gap:10px;perspective:900px}
+.carCell{flex:1;min-width:0;animation:carIn .44s cubic-bezier(.2,.75,.3,1) both}
+.carCell.leaving{animation:carOut .3s ease both}
+.carDots{display:flex;gap:4px;justify-content:center;margin-top:10px}
+.carDot{width:5px;height:5px;border-radius:999px;background:#ffffff2e;transition:width .25s ease,background .25s ease}
+.carDot.on{width:16px;background:var(--carAccent,#FFB020)}
+
 /* Landscape home. Built to the shape of a modern football-manager front end:
    an icon rail down one side, the club front and centre, and the two things
    you actually came to press (squad, kick off) sitting as big tiles beside a
@@ -643,7 +660,15 @@ const COMMENTARY = {
 // the game's own id (that tier's original Play Console product was deleted --
 // Google permanently blocks reusing a deleted product id, so Android uses a
 // no-underscore variant for those tiers while Stripe/web keep the original).
-const GEM_PASSES = [{id:"gems_100",androidId:"gems100",gems:100,price:1},{id:"gems_500",androidId:"gems500",gems:500,price:4},{id:"gems_1000",gems:1000,price:8},{id:"gems_5000",gems:5000,price:30},{id:"gems_10000",gems:10000,price:55,bestValue:true}];
+// Six tiers. The 2500 step exists because the jump from 1000 to 5000 was the
+// whole middle of the range missing -- anyone wanting two or three packs had
+// to either underbuy or spend 30 dollars.
+// NOTE: gems_2500 needs a matching product created on the payment side (a
+// Stripe price, and an entry in the verify-purchase Edge Function PRODUCTS
+// map) before it can actually be bought. The reward is decided server-side
+// from that map, so until it exists this tier will refuse the purchase rather
+// than hand out gems for free.
+const GEM_PASSES = [{id:"gems_100",androidId:"gems100",gems:100,price:1},{id:"gems_500",androidId:"gems500",gems:500,price:4},{id:"gems_1000",gems:1000,price:8},{id:"gems_2500",gems:2500,price:15},{id:"gems_5000",gems:5000,price:30},{id:"gems_10000",gems:10000,price:55,bestValue:true}];
 const OBJECTIVES = [
   {id:"obj_win3",label:"Win 3 Matches",desc:"Win 3 matches this season",reward:25,target:3,progress:(s,p,season)=>season.wins},
   // 25, not 10: a new account is granted 18 starter cards, so a target of 10
@@ -912,7 +937,7 @@ function railHeader(){
 function tabBar(){
   const badges = state.session ? notifBadges() : {total:0};
   const tabs = [
-    {key:"home",label:"Home",icon:"Home"},{key:"index",label:"Index",icon:"List"},{key:"cards",label:"My Cards",icon:"Layers"},
+    {key:"home",label:"Home",icon:"Home"},{key:"index",label:"All Cards",icon:"List"},{key:"cards",label:"My Cards",icon:"Layers"},
     {key:"shop",label:"Shop",icon:"ShoppingBag"},{key:"play",label:"Play",icon:"PlayCircle"},
     {key:"friends",label:"Friends",icon:"Users",badge:badges.total},
     {key:"profile",label:"Profile",icon:"User"},
@@ -1148,6 +1173,91 @@ function fcHomeHTML(o){
   </div>`;
 }
 
+
+// ---------------------------------------------------------- card showcase
+// A box of three cards that swaps its contents every few seconds, so the Home
+// and Shop pages lead with the thing the game is actually about rather than
+// with a column of numbers.
+//
+// Two pools, because the two pages are answering different questions:
+//   "owned" -- Home. What have I got? Best cards first, so it reads as a
+//              trophy cabinet rather than a random sample.
+//   "all"   -- Shop. What could I get? Weighted towards the rare end, since
+//              nobody is tempted by a wall of Commons.
+const CAROUSEL_EVERY_MS = 3000;
+const CAROUSEL_SIZE = 3;
+
+function carouselPool(kind){
+  const players = state.players || [];
+  if(kind === "owned"){
+    const owned = players.filter(p=>p.owned);
+    // Newest and best first; falls back to the full catalog for a brand-new
+    // account so the box is never empty on the screen they see first.
+    return (owned.length >= CAROUSEL_SIZE ? owned : players)
+      .slice().sort((a,b)=>b.power-a.power);
+  }
+  return players.filter(p=>!p.exclusive && p.active!==false)
+    .slice().sort((a,b)=>tierRank(b.rarity)-tierRank(a.rarity));
+}
+
+function carouselCells(kind, index){
+  const pool = carouselPool(kind);
+  if(!pool.length) return "";
+  let out = "";
+  for(let i=0;i<CAROUSEL_SIZE;i++){
+    const card = pool[(index*CAROUSEL_SIZE + i) % pool.length];
+    out += `<div class="carCell" style="animation-delay:${i*70}ms">${playerCard(card,{mode:"showcase"})}</div>`;
+  }
+  return out;
+}
+
+function cardCarousel(kind, title, accent){
+  const pool = carouselPool(kind);
+  if(pool.length < 1) return "";
+  const index = (state.carousel && state.carousel[kind]) || 0;
+  const pages = Math.max(1, Math.min(6, Math.ceil(pool.length / CAROUSEL_SIZE)));
+  return `<div class="carousel" data-carousel="${kind}" style="--carAccent:${accent}">
+    <div class="row between" style="margin-bottom:10px;align-items:center">
+      <div style="font-size:10px;font-weight:900;letter-spacing:.12em;color:${accent}">${title}</div>
+      <div style="font-size:9px;color:${COLORS.muted}">${pool.length} cards</div>
+    </div>
+    <div class="carRow" data-carousel-row>${carouselCells(kind,index)}</div>
+    <div class="carDots">${Array.from({length:pages},(_,i)=>
+      `<span class="carDot${i===index%pages?" on":""}"></span>`).join("")}</div>
+  </div>`;
+}
+
+// One timer for every carousel on the page. It never keeps hold of an element:
+// #stage is rebuilt on every state change, so it re-finds them each tick and
+// quietly does nothing when none are on screen.
+function startCarousels(){
+  setInterval(()=>{
+    const boxes = document.querySelectorAll("[data-carousel]");
+    if(!boxes.length) return;
+    if(document.hidden) return;                 // no point animating unseen
+    if(state.shop && (state.shop.phase==="spinning"||state.shop.phase==="revealed")) return;
+    boxes.forEach(box=>{
+      const kind = box.getAttribute("data-carousel");
+      const row = box.querySelector("[data-carousel-row]");
+      if(!row) return;
+      state.carousel = state.carousel || {};
+      const next = ((state.carousel[kind]||0) + 1);
+      row.querySelectorAll(".carCell").forEach((c,i)=>{
+        c.classList.add("leaving");
+        c.style.animationDelay = (i*50)+"ms";
+      });
+      setTimeout(()=>{
+        const liveRow = box.querySelector("[data-carousel-row]");
+        if(!liveRow) return;                    // navigated away mid-swap
+        state.carousel[kind] = next;
+        liveRow.innerHTML = carouselCells(kind, next);
+        const pages = box.querySelectorAll(".carDot");
+        pages.forEach((d,i)=>d.classList.toggle("on", i === next % pages.length));
+      }, 300);
+    });
+  }, CAROUSEL_EVERY_MS);
+}
+
 function homeView(){
   const owned = state.players.filter(p=>p.owned);
   const rank = rankForWins(state.stats.wins);
@@ -1204,10 +1314,6 @@ function homeView(){
 
   return `<div class="view">
     ${installBanner}
-    <div class="row" style="gap:8px;padding:8px 10px;border-radius:12px;margin-bottom:12px;background:linear-gradient(90deg, ${COLORS.purple}33, ${COLORS.pink}33);border:1px solid ${COLORS.pink}55">
-      <span style="font-size:16px">🔥</span>
-      <div><div style="font-size:10px;font-weight:900;color:${COLORS.pink}">WEEKEND LEAGUE LIVE</div><div style="font-size:9px;color:${COLORS.muted}">Win streaks earn bonus gems all week</div></div>
-    </div>
 
     <div class="row" style="gap:12px;margin-bottom:16px">
       <div class="avatarCircle" style="width:52px;height:52px;font-size:24px;position:relative;flex-shrink:0;background:linear-gradient(135deg, ${state.profile.color}, ${COLORS.purple})">
@@ -1259,6 +1365,10 @@ function homeView(){
       </button>
     </div>
 
+    <div style="margin-top:12px">
+      ${cardCarousel("owned", "YOUR SQUAD", COLORS.gold)}
+    </div>
+
     <div class="panel" style="padding:12px;margin-top:12px">
       <div class="row between" style="margin-bottom:8px">
         <div style="font-size:10px;font-weight:900;letter-spacing:.1em;color:${COLORS.muted}">DAILY REWARD</div>
@@ -1274,9 +1384,16 @@ function homeView(){
     </div>
 
     <div class="panel" style="padding:12px;margin-top:12px">
-      <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:8px;color:${COLORS.muted}">OBJECTIVES</div>
+      ${(()=>{
+        const shownCount = state.objectivesExpanded ? OBJECTIVES.length : 5;
+        const doneCount = OBJECTIVES.filter(o=>state.home.objectivesClaimed.includes(o.id)).length;
+        return `<div class="row between" style="align-items:center;margin-bottom:8px">
+          <div style="font-size:10px;font-weight:900;letter-spacing:.1em;color:${COLORS.muted}">OBJECTIVES <span style="color:${COLORS.turf}">${doneCount}/${OBJECTIVES.length}</span></div>
+          ${OBJECTIVES.length>5 ? `<button data-action="toggle-objectives" class="btn scrimtap" style="padding:4px 10px;font-size:9px;font-weight:900;border-radius:999px;background:${COLORS.panelLight};color:${COLORS.cyan}">${state.objectivesExpanded?"SHOW LESS":`SHOW ALL (${OBJECTIVES.length})`}</button>` : ""}
+        </div>`;
+      })()}
       <div class="col" style="gap:8px">
-        ${OBJECTIVES.map(o=>{
+        ${OBJECTIVES.slice(0, state.objectivesExpanded ? OBJECTIVES.length : 5).map(o=>{
           const claimed = state.home.objectivesClaimed.includes(o.id);
           const val = Math.min(o.target, o.progress(state.stats, state.players, state.season, state.friendsUI));
           const done = val>=o.target; const pct = Math.round((val/o.target)*100);
@@ -1323,8 +1440,9 @@ function indexView(){
   const owned = visible.filter(p=>p.owned).length;
   return `<div class="view">
     <div class="panel row between" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight})">
-      <div><div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">COLLECTION</div>
+      <div><div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">INDEX — EVERY CARD IN THE GAME</div>
         <div style="font-size:26px;font-weight:900;color:${COLORS.cream}">${owned} <span style="color:${COLORS.muted};font-weight:700">/ ${visible.length}</span></div></div>
+        <div style="font-size:10px;color:${COLORS.muted};margin-top:4px">Everything you can collect. Locked cards are ones you have not found yet.</div>
       <div>${icon("Layers",28,COLORS.gold)}</div>
     </div>
     <div class="grid2">${visible.map(p=>playerCard(p,{mode:"index"})).join("")}</div>
@@ -1557,7 +1675,7 @@ function myCardsView(){
   return `<div class="view">
     ${trainSheetHTML()}
     <div class="panel" style="padding:16px;margin-bottom:16px;background:linear-gradient(135deg, ${COLORS.panel}, ${COLORS.panelLight})">
-      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:4px">YOUR SQUAD</div>
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:4px">MY CARDS — ONLY WHAT YOU OWN</div>
       <div style="font-size:26px;font-weight:900;color:${COLORS.cream}">${owned.length} <span style="color:${COLORS.muted};font-weight:700">players owned</span></div>
       <div class="row" style="gap:14px;margin-top:8px;font-size:11px;font-weight:800">
         <span style="color:${COLORS.cyan}">${totalShards} shards</span>
@@ -1573,6 +1691,107 @@ function myCardsView(){
 }
 
 // ---------- Shop view ----------
+
+// ------------------------------------------------------------- pack tiles
+// A pack used to be a coloured box with a gem price on it, which left the
+// single most important idea in the shop unstated: gems BUY packs, and packs
+// GIVE PLAYER CARDS. People were being asked to spend a currency on something
+// that looked like more currency. Each tile now says what you get, shows the
+// odds as a bar you can actually read, and puts real cards from the pool on
+// the front so the reward is a picture rather than a promise.
+
+function packOdds(pack){
+  const total = RARITY_ORDER.reduce((sum,r)=>sum+(pack.weights[r]||0),0) || 1;
+  return RARITY_ORDER
+    .map(r=>({ rarity:r, pct:(pack.weights[r]||0)/total*100, color:RARITY[r].color }))
+    .filter(o=>o.pct>0);
+}
+
+// Every pack can technically produce a GOAT -- a Bronze has a 0.002% chance --
+// so "the highest rarity possible" is true of all six and tells a buyer
+// nothing. Three numbers actually describe a pack: what you will usually get,
+// what you can realistically hope for, and the jackpot.
+function packBands(pack){
+  const odds = packOdds(pack);
+  const modal = odds.reduce((best,o)=> o.pct > best.pct ? o : best, odds[0]);
+  // "Realistic" = the best rarity that still comes up about once in a hundred
+  // packs. That is the number that separates a Bronze from a GOAT pack.
+  const realistic = odds.filter(o=>o.pct >= 1).slice(-1)[0] || modal;
+  const jackpot = odds[odds.length-1];
+  return { odds, modal, realistic, jackpot };
+}
+
+// Three cards that look like what this pack actually gives: the common case,
+// something in between, and the best realistic pull. Seeded off the pack id so
+// the shop does not reshuffle under the player, and so two packs never show the
+// same three faces.
+function packExamples(pack){
+  const { modal, realistic } = packBands(pack);
+  const lo = tierRank(modal.rarity), hi = tierRank(realistic.rarity);
+  const wanted = [lo, Math.round((lo+hi)/2), hi];
+  const seed = pack.id.length + pack.cost;
+  return wanted.map((tier,i)=>{
+    const atTier = (state.players||[]).filter(p=>
+      !p.exclusive && p.active!==false && tierRank(p.rarity)===tier);
+    const pool = atTier.length ? atTier : (state.players||[]).filter(p=>!p.exclusive && p.active!==false);
+    if(!pool.length) return null;
+    return pool[(seed*7 + i*13) % pool.length];
+  }).filter(Boolean);
+}
+
+
+function packTile(pack){
+  const cost = packCost(pack);
+  const { odds, modal, realistic, jackpot } = packBands(pack);
+  const examples = packExamples(pack);
+  const afford = state.gems >= cost && state.shop.phase === "list";
+  const fmt = (n)=> n < 1 ? n.toFixed(2) : n.toFixed(0);
+  return `<div class="panel" style="position:relative;padding:0;overflow:hidden;border:1px solid ${pack.glow}55;background:${COLORS.panel}">
+    <div class="row between" style="align-items:center;gap:10px;padding:12px 14px;background:linear-gradient(120deg, ${pack.grad[0]}, ${pack.grad[1]})">
+      <div class="row" style="gap:10px;align-items:center;min-width:0">
+        <span style="font-size:28px;flex-shrink:0">${pack.icon}</span>
+        <div style="min-width:0">
+          <div style="font-weight:900;font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${pack.name}</div>
+          <div style="font-size:9px;font-weight:800;letter-spacing:.08em;color:#ffffffdd">CONTAINS 1 PLAYER CARD</div>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:8px;color:#ffffffcc;letter-spacing:.08em">USUALLY</div>
+        <div style="font-size:11px;font-weight:900;color:#fff">${RARITY[modal.rarity].label}</div>
+      </div>
+    </div>
+
+    <div style="padding:12px 14px">
+      ${examples.length ? `<div class="row" style="gap:8px;margin-bottom:12px">
+        ${examples.map(c=>`<div style="flex:1;min-width:0">${playerCard(c,{mode:"showcase"})}</div>`).join("")}
+      </div>` : ""}
+
+      <div class="row" style="gap:2px;height:9px;border-radius:999px;overflow:hidden;margin-bottom:8px;background:${COLORS.bg}">
+        ${odds.map(o=>`<div title="${o.rarity} ${fmt(o.pct)}%" style="width:${Math.max(o.pct,1.4)}%;background:${o.color}"></div>`).join("")}
+      </div>
+
+      <div class="row" style="gap:6px;margin-bottom:12px">
+        ${[
+          {label:"USUALLY", o:modal},
+          {label:"IF LUCKY", o:realistic},
+          {label:"JACKPOT", o:jackpot},
+        ].filter((b,i,a)=> i===0 || b.o.rarity !== a[i-1].o.rarity)
+         .map(b=>`<div style="flex:1;min-width:0;text-align:center;padding:6px 4px;border-radius:10px;background:${COLORS.bg};border:1px solid ${b.o.color}44">
+            <div style="font-size:7px;letter-spacing:.1em;color:${COLORS.muted}">${b.label}</div>
+            <div style="font-size:9px;font-weight:900;color:${b.o.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${RARITY[b.o.rarity].label}</div>
+            <div style="font-size:8px;color:${COLORS.muted}">${fmt(b.o.pct)}%</div>
+          </div>`).join("")}
+      </div>
+
+      <button data-action="open-pack" data-pack-id="${pack.id}" ${afford?"":"disabled"}
+        class="btn scrimtap wfull row center" style="gap:6px;padding:11px 0;font-size:12px;font-weight:900;
+        background:${afford?pack.glow:COLORS.panelLight};color:${afford?"#0b1220":COLORS.muted};opacity:${afford?1:0.75}">
+        ${icon("Gem",13,afford?"#0b1220":COLORS.muted)} ${cost} ${afford?"— OPEN PACK":(state.gems<cost?"— NOT ENOUGH GEMS":"")}
+      </button>
+    </div>
+  </div>`;
+}
+
 function shopView(){
   const s = state.shop;
   const lockedCount = state.players.filter(p=>!p.owned && !p.exclusive && p.active!==false).length;
@@ -1641,16 +1860,13 @@ function shopView(){
         <div class="row" style="gap:4px;font-size:24px;font-weight:900;color:${COLORS.gold}">${icon("Gem",20,COLORS.gold)} ${state.gems}</div></div>
       <div style="text-align:right"><div style="font-size:11px;color:${COLORS.muted}">Cards left to find</div><div style="font-size:18px;font-weight:900;color:${COLORS.cream}">${lockedCount}</div></div>
     </div>
+    <div style="margin-bottom:16px">
+      ${cardCarousel("all", "CARDS YOU CAN PULL", COLORS.pink)}
+    </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">PLAYER PACKS</div>
     ${s.packError ? `<div style="font-size:11px;font-weight:700;margin-bottom:10px;color:${COLORS.danger}">${esc(s.packError)}</div>` : ""}
-    <div class="grid2" style="margin-bottom:22px">
-      ${PACKS.map(pack=>{ const cost = packCost(pack); return `
-        <div class="panel" style="position:relative;padding:16px;text-align:center;overflow:hidden;background:linear-gradient(160deg, ${pack.grad[0]}, ${pack.grad[1]});box-shadow:0 4px 18px ${pack.glow}44;border:none">
-          <div style="font-size:34px;margin-bottom:4px;animation:floatBounce 2.4s ease-in-out infinite">${pack.icon}</div>
-          <div style="font-weight:900;font-size:12px;color:#fff;margin-bottom:4px">${pack.name}</div>
-          <div style="font-size:9px;color:#ffffffcc;margin-bottom:10px;min-height:22px">${pack.blurb}</div>
-          <button data-action="open-pack" data-pack-id="${pack.id}" ${state.gems<cost||s.phase!=="list"?"disabled":""} class="btn scrimtap wfull row center" style="gap:3px;padding:8px 0;font-size:11px;background:#fff;color:${pack.grad[0]};opacity:${state.gems<cost?0.4:1}">${icon("Gem",12,pack.grad[0])} ${cost}</button>
-        </div>`; }).join("")}
+    <div class="col" style="gap:14px;margin-bottom:22px">
+      ${PACKS.map(packTile).join("")}
     </div>
     <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">GEM PASSES</div>
     <div style="font-size:11px;color:${COLORS.muted};margin-bottom:10px">${isNativeApp() ? "Real purchases via Google Play." : "Real purchases via Stripe -- you'll be taken to a secure checkout page."}</div>
@@ -3374,6 +3590,8 @@ document.getElementById("stage").addEventListener("click", function(e){
       render(); break;
     case "enlarge-card":
       state.enlargedCardId = Number(el.dataset.playerId); render(); break;
+    case "toggle-objectives":
+      state.objectivesExpanded = !state.objectivesExpanded; playTap(); render(); break;
     case "open-news":
       state.newsOpen = true; render(); break;
     case "home-promo":
@@ -3925,6 +4143,8 @@ initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/ia
   // stretched across a landscape screen (or vice versa). Only fires on an
   // actual crossing -- render() replaces #stage wholesale and is far too
   // expensive to run on every pixel of a resize drag.
+  startCarousels();
+
   let wasWide = window.innerWidth >= 820;
   window.addEventListener("resize", ()=>{
     const isWide = window.innerWidth >= 820;
