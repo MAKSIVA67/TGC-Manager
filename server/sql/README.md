@@ -493,3 +493,68 @@ game to exactly how it works today, and no data is lost. Then send over what
 they saw.
 
 Any other error: copy the full red message and send it over.
+
+---
+
+# Migration 008 — make bans actually work
+
+**What it fixes:** banning someone currently only asks the app nicely. The
+check lives in the browser, so a player who gets around it — or just keeps
+using the login they already have — carries on playing with full access.
+
+This matters more than it sounds. The plan for anyone who cheats is "ban them",
+and right now that plan has no working tool behind it.
+
+**How:** the database itself now refuses any write from a banned account, on
+every table a player can touch. Nothing else changes. Admins are unaffected, and
+you can still unban people.
+
+## How to run migration 008
+
+1. **https://supabase.com/dashboard** → sign in → your **TCG Manager** project.
+2. Left sidebar → **SQL Editor** → green **+ New query**.
+3. Open `server/sql/008_enforce_bans_server_side.sql`, select all (**Ctrl+A**),
+   copy (**Ctrl+C**).
+4. Paste into the big box, click the green **Run** button.
+5. Expect **Success. No rows returned**.
+
+Safe to run more than once. Independent of 007 — run it in either order.
+
+### Checking it worked
+
+```sql
+select tgname, tgrelid::regclass as table_name
+from pg_trigger
+where not tgisinternal and tgname like 'no_writes_when_banned_%'
+order by 2;
+```
+
+You should get one row per table (profiles, user_cards, matches, squads,
+messages, trades, challenges, friend_requests, cup_runs).
+
+Then the real test: **ban a spare account from the Admin tab and try to open a
+pack with it.** It should fail. Unban it and it should work again.
+
+### If something goes wrong
+
+If a NORMAL player suddenly can't do anything, check they aren't accidentally
+flagged as banned:
+
+```sql
+select display_name, banned from public.profiles where banned = true;
+```
+
+To undo this migration entirely:
+
+```sql
+do $$ declare t text; begin
+  foreach t in array array['profiles','user_cards','matches','squads','messages',
+                           'trades','challenges','friend_requests','cup_runs'] loop
+    execute format('drop trigger if exists %I on public.%I', 'no_writes_when_banned_'||t, t);
+  end loop;
+end $$;
+```
+
+Tested before shipping: applied to a real Postgres and checked 21 ways —
+a banned account blocked on every table, a normal player unaffected, an admin
+still able to unban, and the SQL editor never locked out.
