@@ -409,6 +409,27 @@
     press(el.btnTackle, () => { a.input.wantTackle = true; snapAim(a); });
     press(el.btnSkill, () => { a.input.wantSkill = true; snapAim(a); });
 
+    // Simple scheme. One button, and what it does is whatever it says it does.
+    press(el.btnPrimary,
+      () => {
+        if (a.primaryKind === "shoot") {
+          a.input.shootHeld = 0.0001;
+          if (el.powerRing) el.powerRing.style.opacity = "1";
+        }
+      },
+      () => {
+        if (a.primaryKind === "pass") { a.input.wantPass = true; snapAim(a); }
+        else if (a.primaryKind === "tackle") { a.input.wantTackle = true; snapAim(a); }
+        else {
+          // Held longer = hit harder, same charge model the pro SHOOT uses, so
+          // nothing has to be relearned moving between the two schemes.
+          a.input.wantShoot = clamp((a.input.shootHeld || 0.0001) / 0.62, 0.35, 1);
+          a.input.shootHeld = 0;
+          if (el.powerRing) el.powerRing.style.opacity = "0";
+        }
+        snapAim(a);
+      });
+
     // Mentality chips. press() swallows the event, so a tap on the tactics bar
     // can never also be read as the floating joystick starting a drag.
     if (el.tacticBtns) {
@@ -657,6 +678,39 @@
   // Pass target search. `aim` biases the choice toward whatever direction the
   // human is holding, which is the difference between "a pass" and "the pass
   // I meant" -- with the stick centred it falls back to pure evaluation.
+  // The simple scheme's whole design is here: the player never chooses an
+  // action, they just press the button and the right thing happens. So this has
+  // to read the situation the way a person would.
+  //   no ball        -> TACKLE (win it back)
+  //   team-mate ahead -> PASS
+  //   nobody ahead    -> SHOOT
+  // "Ahead" is deliberately generous -- a 100-degree cone towards the goal
+  // rather than dead in front -- because a cone this wide is what makes the
+  // button feel like it agrees with you.
+  function simplePrimaryAction(a) {
+    const c = a.controlled;
+    if (!c) return "tackle";
+    if (a.ball.owner !== c) return "tackle";
+    const dir = attackDirZ(c.team);
+    const gz = goalZFor(c.team);
+    // Close enough to score and roughly facing the goal: always offer the shot.
+    if (dist(c.x, c.z, 0, gz) < 24) return "shoot";
+    const mates = mateListFor(a, c.team);
+    for (let i = 0; i < mates.length; i++) {
+      const q = mates[i];
+      if (q === c || q.isGK) continue;
+      const dz = (q.z - c.z) * dir;
+      if (dz < 2) continue;                       // level with us or behind
+      const d = dist(c.x, c.z, q.x, q.z);
+      if (d < 4 || d > c.attrs.vision + 8) continue;
+      // Inside the forward cone?
+      if (dz / d < 0.34) continue;
+      if (laneClearance(a, c.team, c.x, c.z, q.x, q.z) < 0.8) continue;
+      return "pass";
+    }
+    return "shoot";
+  }
+
   function bestPassTarget(a, p, aimX, aimZ, aimMag) {
     const mates = mateListFor(a, p.team);
     const dir = attackDirZ(p.team);
@@ -1423,7 +1477,7 @@
         if (p.lunge <= 0 && !p.lungeHit) { p.stun = 0.42; p.cooldown = 0.3; }
       } else if (p.stun > 0) {
         p.vx *= Math.max(0, 1 - 6 * dt); p.vz *= Math.max(0, 1 - 6 * dt);
-      } else if (p === a.controlled && live) {
+      } else if (p === a.controlled && live && a.controlMode !== "auto") {
         humanControl(a, p, dt);
       } else if (a.celebrate > 0) {
         celebrateMove(a, p, dt);
@@ -2163,6 +2217,13 @@
     stepPossession(a, dt);
     stepBounds(a);
     updateControlled(a);
+    // Keep the one button honest. Cheap to compute, and setPrimaryAction only
+    // touches the DOM when the answer actually changes -- rewriting the same
+    // label sixty times a second is how you make a phone warm.
+    if (a.controlMode === "simple" && HUD.setPrimaryAction) {
+      a.primaryKind = simplePrimaryAction(a);
+      HUD.setPrimaryAction(a, a.primaryKind);
+    }
     stepCamera(a, dt);
     stepIndicators(a);
     if (a.el.staminaFill) a.el.staminaFill.style.width =
@@ -2343,6 +2404,8 @@
       el: {}, paused: false, running: true, forfeited: false,
       camPos: { x: 0, y: 16, z: -30 }, camLook: { x: 0, y: 0, z: 0 },
       kickoffFreeze: 1.4, lastTouch: null, controlled: null,
+      controlMode: (cfg.controlMode === "auto" || cfg.controlMode === "pro") ? cfg.controlMode : "simple",
+      primaryKind: null,
       celebrate: 0, celebrateBy: null, celebrateFor: TEAM_OPP,
       restart: null, tacticTimer: 0,
       manualHold: false, manualUntil: -1,
@@ -2451,6 +2514,9 @@
     a.root = built.root; a.el = built.el;
     document.body.appendChild(a.root);
     bindControls(a);
+    // After a.el exists and the HUD is in the document -- setControlMode reads
+    // a.el, so calling it any earlier silently does nothing at all.
+    if (HUD.setControlMode) HUD.setControlMode(a, a.controlMode);
     goLandscape(a);
     // Paint the tactics bar with the starting shape before the first frame, so
     // it is never briefly blank or showing the wrong chip.

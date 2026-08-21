@@ -115,6 +115,14 @@
       'background:currentColor"></span></span>';
   }
 
+  // Wraps a legend row so setControlMode can show only the rows describing
+  // controls that are actually on screen. The note below about an incomplete
+  // legend cuts both ways: a legend listing buttons that are NOT there is
+  // worse still, because the player goes looking for them mid-match.
+  function tag(schemes, html) {
+    return "<div data-schemes=\"" + schemes + "\">" + html + "</div>";
+  }
+
   function legendRow(color, label, text) {
     return '<div style="display:flex;align-items:center;gap:9px">' +
       '<span style="flex:0 0 auto;width:56px;text-align:center;padding:3px 0 4px;border-radius:7px;' +
@@ -276,8 +284,8 @@
     // which is the core's floating-stick zone. Attack and defend sets share
     // the same two big slots so muscle memory survives the swap.
     const mkBtn = (label, icon, color, size, right, bottom) => {
-      const iconPx = size >= 70 ? 22 : size >= 56 ? 19 : 17;
-      const fs = size >= 70 ? 11 : size >= 56 ? 9.5 : 9;
+      const iconPx = size >= 90 ? 27 : size >= 70 ? 22 : size >= 56 ? 19 : 17;
+      const fs = size >= 90 ? 13 : size >= 70 ? 11 : size >= 56 ? 9.5 : 9;
       const b = h("div",
         "position:absolute;right:" + right + "px;bottom:calc(" + SB + " + " + bottom + "px);" +
         "width:" + size + "px;height:" + size + "px;border-radius:50%;z-index:2;" +
@@ -307,6 +315,17 @@
     el.btnThrough = mkBtn("THRU", ICON.through, C.gold, 54, 28, 186);
     el.btnSkill = mkBtn("SKILL", ICON.skill, C.pink, 48, 110, 132);
     el.btnSprint = mkBtn("RUN", ICON.sprint, C.gold, 54, 18, 28);
+
+    // ---- simple scheme -------------------------------------------------
+    // Maksim's brief: this should feel like a football manager, not FIFA.
+    // Seven buttons is a console pad; most people will never learn it. The
+    // simple scheme is ONE big button that says what it will do right now --
+    // PASS when a team-mate is ahead of you, SHOOT when nobody is, TACKLE when
+    // the other side has the ball. It sits in the SAME place whatever it says,
+    // so the thumb never has to hunt for it. There is deliberately no separate
+    // slide button: TACKLE already lunges by itself when you are close enough,
+    // so a second control would only let the player get that decision wrong.
+    el.btnPrimary = mkBtn("PASS", ICON.pass, C.turf, 96, 18, 92);
 
     // Charge ring, concentric with the SHOOT/TACKLE slot. The core writes
     // opacity / borderColor / transform on it, so nothing here may rely on a
@@ -395,13 +414,15 @@
       "</div>" +
       // Every button on screen gets a line. An incomplete legend is worse than
       // none -- players assume the controls they weren't told about don't exist.
-      legendRow(C.cream, "DRAG", "Left half of the screen steers. Aim with it too") +
-      legendRow(C.danger, "SHOOT", "Hold to charge power, release to strike") +
-      legendRow(C.turf, "PASS", "Tap to find the best-placed teammate") +
-      legendRow(C.gold, "THRU", "Slide a pass into space behind the defence") +
-      legendRow(C.pink, "SKILL", "Burst past your marker") +
-      legendRow(C.gold, "RUN", "Hold to sprint") +
-      legendRow(C.cyan, "SHAPE", "Change tactics any time — no pause needed")));
+      tag("pro simple", legendRow(C.cream, "DRAG", "Left half of the screen steers. Aim with it too")) +
+      tag("simple", legendRow(C.turf, "ACTION", "One button. It says what it will do: pass, shoot or tackle")) +
+      tag("pro", legendRow(C.danger, "SHOOT", "Hold to charge power, release to strike")) +
+      tag("pro", legendRow(C.turf, "PASS", "Tap to find the best-placed teammate")) +
+      tag("pro", legendRow(C.gold, "THRU", "Slide a pass into space behind the defence")) +
+      tag("pro", legendRow(C.pink, "SKILL", "Burst past your marker")) +
+      tag("pro simple", legendRow(C.gold, "RUN", "Hold to sprint")) +
+      tag("auto", legendRow(C.turf, "WATCH", "Your team plays itself. Sit back and manage")) +
+      tag("pro simple auto", legendRow(C.cyan, "SHAPE", "Change tactics any time — no pause needed"))));
     root.appendChild(el.hint);
 
     // --------------------------------------------------------------- banner
@@ -642,12 +663,19 @@
     if (s.mode === m && !silent) return;
     s.mode = m;
     const atk = m === "attack";
-    el.btnShoot.style.display = atk ? "flex" : "none";
-    el.btnThrough.style.display = atk ? "flex" : "none";
-    el.btnSkill.style.display = atk ? "flex" : "none";
-    el.btnTackle.style.display = atk ? "none" : "flex";
-    el.btnSwitch.style.display = atk ? "none" : "flex";
-    el.btnPass.style.display = atk ? "flex" : "none";
+    // Swapping the attack and defence sets is a PRO-scheme idea. In the simple
+    // scheme there is one button whose label already follows the situation, and
+    // in auto there are no buttons at all -- so this must not re-show the set
+    // setControlMode just hid. Possession changes constantly, so without this
+    // guard the full seven reappear within a second of kick off.
+    const pro = (s.controlMode || "pro") === "pro";
+    const vis = (node, on) => { if (node) node.style.display = (pro && on) ? "flex" : "none"; };
+    vis(el.btnShoot, atk);
+    vis(el.btnThrough, atk);
+    vis(el.btnSkill, atk);
+    vis(el.btnTackle, !atk);
+    vis(el.btnSwitch, !atk);
+    vis(el.btnPass, atk);
     if (silent) return;
 
     const col = atk ? C.turf : C.cyan;
@@ -881,6 +909,55 @@
   H.hideHint = function (a) {
     const s = a && a.el && a.el._hud;
     if (s) hideHint(s);
+  };
+
+  // Which control scheme is on screen. "auto" hides the lot -- the AI is
+  // playing and the player is watching -- "simple" shows the one big button,
+  // "pro" restores the full set for anyone who wants it.
+  H.setControlMode = function (a, mode) {
+    const s = a && a.el && a.el._hud;
+    const e = a && a.el;
+    if (!e) return;
+    if (s) s.controlMode = mode;
+    const pro = mode === "pro", simple = mode === "simple", auto = mode === "auto";
+    const show = (node, on) => { if (node) node.style.display = on ? "flex" : "none"; };
+    show(e.btnPrimary, simple);
+    show(e.btnShoot, pro);
+    show(e.btnTackle, false);
+    show(e.btnPass, pro);
+    show(e.btnSwitch, false);
+    show(e.btnThrough, pro);
+    show(e.btnSkill, pro);
+    show(e.btnSprint, !auto);
+    if (e.stickBase) e.stickBase.style.display = auto ? "none" : "block";
+    if (e.powerRing) e.powerRing.style.opacity = "0";
+    if (e.hint) {
+      e.hint.style.display = auto ? "none" : "";
+      e.hint.querySelectorAll("[data-schemes]").forEach(function (row) {
+        row.style.display = row.getAttribute("data-schemes").split(" ").indexOf(mode) > -1 ? "" : "none";
+      });
+    }
+  };
+
+  // Called every frame by the core while in the simple scheme. Cheap: it only
+  // touches the DOM when the action actually changes, because writing the same
+  // label sixty times a second is how you make a phone warm.
+  H.setPrimaryAction = function (a, kind) {
+    const e = a && a.el;
+    const s = e && e._hud;
+    if (!e || !e.btnPrimary || !s) return;
+    if (s.primaryKind === kind) return;
+    s.primaryKind = kind;
+    const spec = {
+      pass:   { label: "PASS",   icon: ICON.pass,   color: C.turf },
+      shoot:  { label: "SHOOT",  icon: ICON.shoot,  color: C.danger },
+      tackle: { label: "TACKLE", icon: ICON.tackle, color: C.cyan },
+    }[kind] || { label: "PASS", icon: ICON.pass, color: C.turf };
+    e.btnPrimary.innerHTML = ic(spec.icon, 27) + "<span>" + spec.label + "</span>";
+    e.btnPrimary.style.color = spec.color;
+    e.btnPrimary.style.borderColor = spec.color + "CC";
+    e.btnPrimary.style.background =
+      "radial-gradient(circle at 50% 28%," + spec.color + "4D," + spec.color + "1A 72%),rgba(8,14,24,.55)";
   };
 
   window.Match3DHud = H;
