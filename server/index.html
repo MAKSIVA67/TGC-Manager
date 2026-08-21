@@ -271,7 +271,13 @@ input,textarea{font-family:inherit;font-size:16px}
    direct children stagger in behind it -- a whole screen appearing at once
    reads as a page load, whereas a short cascade reads as an app. Capped at
    eight children so a long collection list doesn't take a second to appear. */
-@keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+/* Opacity only, deliberately. An element with a transform animation applied
+   becomes the containing block for its position:fixed descendants, so animating
+   transform on this wrapper detaches every full-screen overlay inside it from
+   the viewport -- a pack reveal opened on the same render as a tab change would
+   be drawn hundreds of pixels down the page instead of over it. The per-child
+   stagger below already supplies the movement. */
+@keyframes viewIn{from{opacity:0}to{opacity:1}}
 @keyframes itemIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 .viewEnter{animation:viewIn 260ms var(--ease-out-strong) both}
 .viewEnter > .view > *{animation:itemIn 320ms var(--ease-out-strong) both}
@@ -691,7 +697,13 @@ const OBJECTIVES = [
   {id:"obj_trades3",label:"Trade 3 Times",desc:"Successfully complete 3 trades with friends",reward:50,target:3,progress:(s,p,season,friendsUI)=>(friendsUI&&friendsUI.trades||[]).filter(t=>t.status==="completed").length},
 ];
 const DAILY_REWARDS = [10,15,20,25,35,45,60];
-const SPIN_ITEM_W = 76, SPIN_GAP = 8, SPIN_STEP = SPIN_ITEM_W + SPIN_GAP, SPIN_FILLER_COUNT = 22;
+// The reel shows real card faces, not initials on a disc. At the old 76px a
+// card was a coloured dot -- you could not see what you nearly won, which is
+// most of the drama of opening a pack. At 216 the centre card fills a phone
+// with its neighbours peeking in on both sides, so the near-miss is legible.
+const SPIN_ITEM_W = 216, SPIN_GAP = 14, SPIN_STEP = SPIN_ITEM_W + SPIN_GAP, SPIN_FILLER_COUNT = 22;
+// 842x1191 is the card art ratio the whole app uses.
+const SPIN_ITEM_H = Math.round(SPIN_ITEM_W * 1191 / 842);
 const NEWS_ITEMS = [
   {v:"v7",text:"New Home hub — daily rewards, live objectives, and featured packs. Plus 70 real-world footballers added to the pool!"},
   {v:"v6",text:"Packs now come in 4 tiers — Bronze, Silver, Gold, and Legendary — each with different odds."},
@@ -1842,7 +1854,7 @@ function shopView(){
       <div style="position:relative;z-index:2;text-align:center;width:100%">
         <div style="font-size:10px;font-weight:900;letter-spacing:.15em;margin-bottom:4px;color:${pack.glow}">${pack.icon} ${pack.name.toUpperCase()}</div>
         <div class="display" style="font-weight:800;letter-spacing:.15em;font-size:13px;margin-bottom:16px;color:${COLORS.gold}">SPINNING...</div>
-        <div id="spinStrip" style="position:relative;overflow:hidden;margin:0 auto;height:104px;width:100%;max-width:440px">
+        <div id="spinStrip" style="position:relative;overflow:hidden;margin:0 auto;height:${SPIN_ITEM_H+26}px;width:100%;max-width:100vw">
           <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);z-index:10">
             <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${COLORS.gold}"></div>
           </div>
@@ -1906,411 +1918,13 @@ function shopView(){
 // card is what it is honestly showing.
 function spinItemHTML(p){
   const rc = p ? RARITY[p.rarity].color : COLORS.gold;
-  const body = p
-    ? `<div class="avatarCircle" style="width:36px;height:36px;font-weight:900;font-size:13px;background:${rc};color:${COLORS.bg}">${p.power}</div>
-       <div style="font-size:8px;color:${COLORS.muted};margin-top:4px;max-width:${SPIN_ITEM_W-8}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name.split(" ").slice(-1)[0])}</div>`
-    : `<div class="avatarCircle" style="width:36px;height:36px;font-weight:900;font-size:17px;background:${rc};color:${COLORS.bg}">?</div>
-       <div style="font-size:8px;color:${COLORS.muted};margin-top:4px">&nbsp;</div>`;
-  return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:12px;flex-shrink:0;width:${SPIN_ITEM_W}px;height:88px;background:${COLORS.panelLight};border:2px solid ${rc}55">${body}</div>`;
-}
-
-// Drops the real card into the slot the reel is going to stop on, WITHOUT
-// re-rendering. render() does stage.innerHTML = appHTML(), which would destroy
-// the node mid-transition and strand the shop in "spinning" -- the same failure
-// the transitionend comment below describes. s.spinItems is updated too, so a
-// re-render triggered by anything else (a realtime notification, the rank-up
-// timer) draws the real card rather than putting the placeholder back.
-function fillSpinLandingSlot(card){
-  const s = state.shop;
-  s.spinItems = s.spinItems.map((p,i)=> i===s.spinFinalIndex ? card : p);
-  const track = document.getElementById("spinTrack");
-  const cell = track && track.children[s.spinFinalIndex];
-  if(cell) cell.outerHTML = spinItemHTML(card);
-}
-
-function startSpinAnimation(){
-  const s = state.shop;
-  const wrap = document.getElementById("spinStrip");
-  const track = document.getElementById("spinTrack");
-  if(!wrap || !track) return;
-  const tickTimes = [90,180,280,390,510,650,800,970,1160,1380,1630,1920,2260,2650];
-  tickTimes.forEach((t)=>setTimeout(()=>playTap(), t));
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      const width = wrap.offsetWidth;
-      const target = width/2 - SPIN_ITEM_W/2 - s.spinFinalIndex*SPIN_STEP;
-      track.style.transition = "transform 2.9s cubic-bezier(0.1,0.7,0.15,1)";
-      track.style.transform = `translateX(${target}px)`;
-    });
-  });
-  // The reveal used to depend solely on this transitionend. Any render() during
-  // the 2.9s spin -- a realtime friend/trade notification, the rank-up timer --
-  // replaces #stage wholesale and destroys the node the listener is attached
-  // to, so the event never fired: the card was already granted but the shop sat
-  // in "spinning" forever, and open-pack is gated on phase==="list", which
-  // locked the shop for the rest of the session.
-  //
-  // landPack() is idempotent (it clears pendingPick), so a belt-and-braces
-  // timer costs nothing and guarantees the reveal always lands.
-  let landed = false;
-  const land = ()=>{ if(landed) return; landed = true; landPack(); };
-  const onEnd = (e)=>{
-    if(e.propertyName !== "transform") return;
-    track.removeEventListener("transitionend", onEnd);
-    land();
-  };
-  track.addEventListener("transitionend", onEnd);
-  setTimeout(land, 3400);
-}
-// Shards a duplicate is worth. Scaled by rarity so pulling a GOAT you already
-// have still feels like a result rather than a let-down. FALLBACK ONLY --
-// open_pack() returns shards_gained, and shards_for_duplicate() in 007 is this
-// same ladder. Only reached when 007 has not been run.
-function shardsForDuplicate(rarity){
-  const r = tierRank(rarity);
-  if(r >= tierRank("Icon")) return 12;
-  if(r >= tierRank("Mythic")) return 8;
-  if(r >= tierRank("Legendary")) return 6;
-  if(r >= tierRank("Ultra")) return 4;
-  if(r >= tierRank("Epic")) return 3;
-  return 2;
-}
-
-function landPack(){
-  const s = state.shop;
-  const pick = s.pendingPick;
-  // The reel can finish before the server has said what was pulled -- a slow
-  // connection, not an error. Remember that the reel is done and let the pull's
-  // own resolve call this again; nothing is revealed until there is something
-  // real to reveal, and the ceiling timer in "open-pack" bounds the wait.
-  if(!pick){ if(s.phase==="spinning") s.landPending = true; return; }
-  s.landPending = false;
-  // Ownership, level and shards were applied by openPackRemote() the moment
-  // the server answered -- this is presentation only.
-  if(isTopTier(pick.rarity)){ playFanfare(); playImpact(); } else if(isHighTier(pick.rarity)) playSparkle(); else playChime();
-  s.revealed = pick; s.phase="revealed"; s.pendingPick=null;
-  render();
-}
-
-// Bumped on every tap. A pull that resolves after its reveal was dismissed, or
-// after a second pack was started, belongs to a shop state that no longer
-// exists and must not write into it.
-let packOpenSeq = 0;
-
-// Asks the database to open the pack, and only if that function isn't there
-// falls back to rolling it here. Both branches resolve the same shape:
-// { card, duplicate, shards_gained } or { error }.
-function requestPackPull(pack){
-  return openPackRemote(pack.id).then(res=>{
-    if(!res || !res.rpcMissing) return res;
-    return openPackLocalFallback(pack);
-  });
-}
-
-// FALLBACK ONLY -- 007 has not been run on this database, so the browser rolls
-// the card and writes the row itself, exactly as it did before. Forgeable, and
-// that is the whole point of replacing it.
-function openPackLocalFallback(pack){
-  // Packs roll the whole active pool, not just cards you don't own: a card you
-  // already have comes back as shards, so a pull is never wasted and there is
-  // still a reason to open packs once the collection is complete.
-  const pool = state.players.filter(p=>!p.exclusive && p.active!==false);
-  const pick = pickWeighted(pool, pack.weights);
-  if(!pick) return Promise.resolve({error:"No cards are available in that pack right now."});
-  const wasOwned = !!pick.owned;
-  const gained = wasOwned ? shardsForDuplicate(pick.rarity) : 0;
-  const landed = { card: pick, duplicate: wasOwned, shards_gained: gained };
-  if(wasOwned){
-    // The shards are the entire payout of a duplicate, so if they didn't land
-    // the pack bought nothing -- report it and let the caller hand the cost
-    // back rather than charging for a reward that only existed on screen.
-    return grantShards(pick.id, gained).then(res=>
-      (res && res.error) ? {error:"Couldn't save those shards — check your connection. Nothing was charged."} : landed);
-  }
-  return commitPackOpenFallback(pick.id).then(res=>{
-    if(res && res.error) return {error:"Couldn't save that card — check your connection. Nothing was charged."};
-    pick.owned = true;
-    return landed;
-  });
-}
-
-// ---------- Play view ----------
-function currentClub(){ return SEASON_CLUBS[(state.season.matchday-1)%SEASON_CLUBS.length]; }
-function pitchHTML(){
-  const pl = state.play;
-  const showMy = pl.phase!=="__never";
-  const mySlots = buildSlots(pl.formationKey,"my");
-  const showOpp = pl.phase!=="building";
-  const zr = pl.phase==="result" ? (pl.finalResult && pl.finalResult.zoneResults) : (pl.phase==="halftime"||pl.phase==="battling") ? pl.zoneResultsLive : null;
-  const bands = {FWD:[0,25],MID:[25,50],DEF:[50,75],GK:[75,100]};
-  const zoneShade = zr ? Object.keys(bands).map(z=>{
-    const [top,bottom]=bands[z]; const r=zr[z];
-    return `<div style="position:absolute;left:0;right:0;top:${top}%;height:${bottom-top}%;background:${r==="win"?COLORS.turf+"22":r==="lose"?COLORS.danger+"22":"transparent"}"></div>`;
-  }).join("") : "";
-  const WANDER_KF = ["wanderA","wanderB","wanderC","wanderD"];
-  function chip(p, isMy, key, i){
-    const hasBall = pl.phase==="battling" && key && pl.ballOwnerKey===key;
-    if(!p) return `<div class="avatarCircle" style="width:40px;height:40px;border:2px dashed ${COLORS.muted};color:${COLORS.muted};font-weight:900">+</div>`;
-    const rarity = RARITY[p.rarity];
-    const avatar = `<div id="${key?"avatar-"+key:""}" class="avatarCircle" style="width:40px;height:40px;font-weight:900;font-size:14px;background:${rarity.color};color:${COLORS.bg};border:2px solid ${hasBall?COLORS.gold:"rgba(255,255,255,.7)"};box-shadow:${hasBall?`0 0 14px ${COLORS.gold}cc`:`0 0 12px ${rarity.color}66`};transition:box-shadow .3s ease,border-color .3s ease">${p.power}</div>`;
-    const nameTag = `<div style="font-size:9px;font-weight:800;margin-top:2px;padding:0 4px;border-radius:4px;color:${COLORS.cream};background:rgba(0,0,0,.5)">${esc(p.name.split(" ").slice(-1)[0])}</div>`;
-    const inner = `<div class="col" style="align-items:center">${avatar}${nameTag}</div>`;
-    if(pl.phase!=="battling" || !key) return inner;
-    const kf = WANDER_KF[i%4], dur=(2.8+(i%4)*0.4).toFixed(1), delay=((i%5)*0.2).toFixed(1);
-    return `<div style="animation:${kf} ${dur}s ease-in-out infinite;animation-delay:${delay}s"><div id="chip-${key}" style="transform:scale(${hasBall?1.22:1});transition:transform .3s ease">${inner}</div></div>`;
-  }
-  const oppSlots = pl.oppSlots || [];
-  const battling = pl.phase==="battling";
-  const ballList = battling ? motionSlotList() : [];
-  const ballSlot = ballList.find(m=>m.key===pl.ballOwnerKey);
-  // Redrawn to match the 3D arena. The old version was flat stripes, a
-  // halfway line and a centre circle, which looked like a different game
-  // sitting next to the stadium you actually play in. Same trick as the
-  // arena's ground texture: real markings, mow stripes and a vignette, only
-  // in CSS instead of a canvas.
-  const line = "rgba(255,255,255,.34)";
-  return `<div class="pitchWrap" style="position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;height:340px;
-    background:
-      radial-gradient(120% 80% at 50% 50%, rgba(255,255,255,.07), transparent 70%),
-      repeating-linear-gradient(180deg, #1B6C3E 0px, #1B6C3E 34px, #1F7A46 34px, #1F7A46 68px);
-    box-shadow:inset 0 0 70px rgba(0,0,0,.55), 0 10px 30px -18px #000">
-    <!-- touchlines -->
-    <div style="position:absolute;inset:6px;border:2px solid ${line};border-radius:3px"></div>
-    <!-- halfway line + centre circle + spot -->
-    <div style="position:absolute;left:6px;right:6px;top:50%;height:2px;background:${line}"></div>
-    <div style="position:absolute;width:96px;height:96px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;border:2px solid ${line}"></div>
-    <div style="position:absolute;width:6px;height:6px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;background:${line}"></div>
-    <!-- penalty + six-yard boxes, both ends -->
-    <div style="position:absolute;left:50%;top:6px;transform:translateX(-50%);width:58%;height:52px;border:2px solid ${line};border-top:none"></div>
-    <div style="position:absolute;left:50%;top:6px;transform:translateX(-50%);width:27%;height:20px;border:2px solid ${line};border-top:none"></div>
-    <div style="position:absolute;left:50%;bottom:6px;transform:translateX(-50%);width:58%;height:52px;border:2px solid ${line};border-bottom:none"></div>
-    <div style="position:absolute;left:50%;bottom:6px;transform:translateX(-50%);width:27%;height:20px;border:2px solid ${line};border-bottom:none"></div>
-    <!-- goals -->
-    <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:19%;height:7px;border:2px solid ${line};border-top:none;background:rgba(255,255,255,.10)"></div>
-    <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:19%;height:7px;border:2px solid ${line};border-bottom:none;background:rgba(255,255,255,.10)"></div>
-    ${zoneShade}
-    ${showOpp ? oppSlots.map((slot,i)=>`<div style="position:absolute;left:${slot.x}%;top:${slot.y}%;transform:translate(-50%,-50%)">${chip((pl.oppLineup||{})[slot.id],false,"opp-"+slot.id,i)}</div>`).join("") : ""}
-    ${mySlots.map((slot,i)=>`<button data-action="${pl.phase==="building"?"open-slot-picker":"noop"}" data-slot-id="${slot.id}" style="position:absolute;left:${slot.x}%;top:${slot.y}%;transform:translate(-50%,-50%);background:none;border:none;padding:0" class="scrimtap">${chip(pl.myLineup[slot.id],true,"my-"+slot.id,i)}</button>`).join("")}
-    ${battling ? `<div id="ballMarker" style="position:absolute;left:${ballSlot?ballSlot.x:50}%;top:${ballSlot?ballSlot.y:50}%;transform:translate(-50%,-180%);font-size:16px;transition:left .4s ease, top .4s ease;display:${ballSlot?"block":"none"}">⚽</div>` : ""}
-    ${pl.phase==="battling" ? `<div style="position:absolute;top:8px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:900;letter-spacing:.15em;color:${COLORS.gold};animation:pulseLive 1.2s ease-in-out infinite">● LIVE</div>` : ""}
-  </div>`;
-}
-function playView(){
-  const pl = state.play;
-  const mySlots = buildSlots(pl.formationKey,"my");
-  const filled = Object.values(pl.myLineup).filter(Boolean).length;
-  const isComplete = filled===mySlots.length;
-  const usedIds = Object.values(pl.myLineup).filter(Boolean).map(p=>p.id);
-
-  let modals = "";
-  if(pl.activeSlot){
-    const slot = pl.activeSlot;
-    const options = state.players.filter(p=>p.owned && p.position===slot.position && !usedIds.includes(p.id));
-    modals += `<div class="modalWrap" data-action="close-modal" data-modal="active">
-      <div class="modalSheet" data-action="noop">
-        <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">Choose your ${slot.label}</div><button data-action="close-modal" data-modal="active" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
-        ${pl.myLineup[slot.id] ? `<button data-action="remove-slot" data-slot-id="${slot.id}" class="btn scrimtap wfull" style="padding:10px;margin-bottom:12px;font-size:13px;background:${COLORS.danger}22;color:${COLORS.danger}">Remove current player</button>` : ""}
-        <div class="grid2">
-          ${options.map(p=>playerCard(p,{mode:"select",action:"assign-player",disabled:false})).join("")}
-          ${options.length===0 ? `<div style="grid-column:1/3;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No available ${slot.position} cards. Try the Shop!</div>` : ""}
-        </div>
-      </div>
-    </div>`;
-  }
-  if(pl.subSlot){
-    const slot = pl.subSlot;
-    const bench = state.players.filter(p=>p.owned && p.position===slot.position && !usedIds.includes(p.id));
-    modals += `<div class="modalWrap" data-action="close-modal" data-modal="sub">
-      <div class="modalSheet" data-action="noop">
-        <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">Sub in a ${slot.position}</div><button data-action="close-modal" data-modal="sub" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
-        <div class="grid2">
-          ${bench.map(p=>playerCard(p,{mode:"select",action:"sub-player"})).join("")}
-          ${bench.length===0 ? `<div style="grid-column:1/3;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No bench ${slot.position} available.</div>` : ""}
-        </div>
-      </div>
-    </div>`;
-  }
-  let body = "";
-  if(pl.phase==="building"){
-    body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.cyan};margin-bottom:8px">Season ${state.season.number} · Matchday ${state.season.matchday}/6 vs ${currentClub()}</div>
-    <div class="row" style="gap:8px;margin-bottom:12px">
-      ${Object.entries(FORMATIONS).map(([key,f])=>`<button data-action="set-formation" data-key="${key}" class="btn scrimtap" style="flex:1;padding:8px 0;font-size:10px;background:${pl.formationKey===key?COLORS.turf:COLORS.panel};color:${pl.formationKey===key?COLORS.bg:COLORS.muted}">${f.name}</button>`).join("")}
-    </div>`;
-  }
-  if(pl.phase==="battling"||pl.phase==="result"||pl.phase==="halftime"){
-    body += `<div class="row center" style="gap:16px;margin-bottom:8px">
-      <span style="font-size:12px;font-weight:800;color:${COLORS.muted}">YOU</span>
-      <div style="font-size:24px;font-weight:900;color:${COLORS.turf}">${pl.myGoals}</div>
-      <span style="font-size:13px;font-weight:900;color:${COLORS.muted}">—</span>
-      <div style="font-size:24px;font-weight:900;color:${COLORS.danger}">${pl.oppGoals}</div>
-      <span style="font-size:12px;font-weight:800;color:${COLORS.muted}">THEM</span>
-    </div>`;
-    if(pl.isChallengeMatch && pl.opponentMeta){
-      body += `<div style="text-align:center;font-size:11px;font-weight:800;margin-bottom:8px;color:${COLORS.pink}">⚔️ Friendly vs ${esc(pl.opponentMeta.profileName)}'s ${esc(pl.opponentMeta.teamName)} ${pl.opponentMeta.avatar}</div>`;
-    }
-  }
-  if(pl.phase==="battling") body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.gold};margin-bottom:8px">⏱ <span id="matchMinuteText">${pl.matchMinute}</span>'</div>`;
-  if(pl.phase==="halftime") body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.gold};margin-bottom:8px">⏸ HALF-TIME — 45'</div>`;
-  if(pl.phase==="result") body += `<div style="text-align:center;font-size:12px;font-weight:800;color:${COLORS.gold};margin-bottom:8px">FULL TIME — 90'</div>`;
-
-  body += pitchHTML();
-
-  if(pl.phase==="battling"||pl.phase==="result"||pl.phase==="halftime"){
-    body += `<div class="panel" style="padding:10px 12px;margin-bottom:16px;text-align:center;font-size:13px;font-weight:800;color:${COLORS.cream};min-height:20px">${pl.commentary}</div>`;
-  }
-
-  if(pl.phase==="building"){
-    body += cupView();
-    const chem = chemistryFor(pl.myLineup);
-    body += `<div class="panel" style="padding:10px 12px;margin-bottom:10px">
-      <div class="row between" style="margin-bottom:6px">
-        <span style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted}">TEAM CHEMISTRY</span>
-        <span style="font-size:13px;font-weight:900;color:${chemColor(chem.score)}">${chem.score}%${chem.bonus>0?` · +${Math.round(chem.bonus*100)}% power`:""}</span>
-      </div>
-      <div style="height:8px;border-radius:999px;overflow:hidden;background:${COLORS.panelLight}">
-        <div style="height:100%;width:${chem.score}%;border-radius:999px;background:${chemColor(chem.score)};transition:width .3s ease"></div>
-      </div>
-      <div style="font-size:10px;color:${COLORS.muted};margin-top:5px">
-        ${chem.unset ? `${chem.unset} card${chem.unset>1?"s":""} missing league data — chemistry will improve once set.`
-          : "Players link when they share a league, or half-link by region."}
-      </div>
-    </div>
-    <button data-action="equip-best" class="btn scrimtap wfull row center" style="gap:6px;padding:10px 0;margin-bottom:10px;font-size:12px;font-weight:800;background:${COLORS.panel};color:${COLORS.gold};border:1px solid ${COLORS.gold}55">${icon("Sparkles",14,COLORS.gold)} EQUIP BEST SQUAD</button>
-    <div style="text-align:center;font-size:12px;color:${COLORS.muted};margin-bottom:12px">${filled}/${mySlots.length} positions filled — tap a slot to assign a player</div>
-    <button data-action="kickoff" ${!isComplete?"disabled":""} class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C;opacity:${!isComplete?0.4:1}">▶️ KICK OFF</button>
-    <div style="text-align:center;font-size:11px;margin-top:8px;color:${COLORS.muted}">Want to challenge a friend instead? Head to the Friends tab — this squad is what you'll battle with.</div>`;
-  }
-  if(pl.phase==="halftime"){
-    body += `<div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:8px">${pl.halfSubUsed?"SUBSTITUTION USED":"ONE SUBSTITUTION AVAILABLE"}</div>
-    <div class="col" style="gap:8px;margin-bottom:16px">
-      ${mySlots.map(slot=>{ const p=pl.myLineup[slot.id]; if(!p) return "";
-        // In the legacy timed match, GK/DEF already played out and were
-        // revealed in the first half (see beginMatch()'s reveal("GK",...)),
-        // so swapping them can't change an already-resolved result -- only
-        // MID/FWD are worth offering. A live 3D match has no pre-resolved
-        // zones at all, so there every position is genuinely swappable.
-        const swappable = pl.live3d || slot.position==="MID" || slot.position==="FWD";
-        return `
-        <div class="row panel" style="padding:8px;gap:12px">
-          <div class="avatarCircle" style="width:34px;height:34px;font-weight:900;font-size:13px;background:${RARITY[p.rarity].color};color:${COLORS.bg}">${p.power}</div>
-          <div style="flex:1"><div style="font-size:12px;font-weight:800;color:${COLORS.cream}">${esc(p.name)}</div><div style="font-size:10px;color:${COLORS.muted}">${slot.position}</div></div>
-          ${swappable
-            ? `<button data-action="open-sub" data-slot-id="${slot.id}" ${pl.halfSubUsed?"disabled":""} class="btn scrimtap row center" style="gap:4px;padding:6px 12px;font-size:10px;background:${COLORS.panelLight};color:${COLORS.gold};opacity:${pl.halfSubUsed?0.3:1}">${icon("Repeat",12,COLORS.gold)} SWAP</button>`
-            : `<div style="font-size:9px;font-weight:700;color:${COLORS.muted};text-align:right;max-width:70px">ZONE PLAYED</div>`}
-        </div>`; }).join("")}
-    </div>
-    <button data-action="continue-second-half" class="display btn scrimtap wfull" style="padding:14px 0;font-size:18px;background:${COLORS.turf};color:${COLORS.bg};box-shadow:0 4px 0 #1C9E5C">KICK OFF 2ND HALF</button>`;
-  }
-  if(pl.phase==="result" && pl.finalResult){
-    const fr = pl.finalResult;
-    body += `<div style="border-radius:16px;padding:20px;margin-bottom:16px;text-align:center;background:${fr.won?COLORS.turf+"22":fr.isDraw?COLORS.cyan+"22":COLORS.danger+"22"};border:2px solid ${fr.won?COLORS.turf:fr.isDraw?COLORS.cyan:COLORS.danger};animation:${fr.won||fr.isDraw?"popIn .4s var(--ease-out-strong)":"shake .4s ease"}">
-      <div style="font-size:22px;font-weight:900;margin-bottom:4px;color:${fr.won?COLORS.turf:fr.isDraw?COLORS.cyan:COLORS.danger}">${fr.won?"VICTORY! 🎉":fr.isDraw?"DRAW":"DEFEAT"}</div>
-      <div style="font-size:13px;margin-bottom:4px;color:${COLORS.cream}">${fr.line}</div>
-      <div style="font-size:11px;margin-bottom:8px;color:${COLORS.muted}">${fr.score ? `Final score: ${fr.score.my} - ${fr.score.opp}` : `Zones won: ${fr.myZoneWins} - ${fr.oppZoneWins}`}</div>
-      <div style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:999px;background:${COLORS.panelLight}">${icon("Gem",14,COLORS.gold)} <span style="font-size:13px;font-weight:800;color:${COLORS.gold}">+${fr.gemsEarned} gems</span></div>
-    </div>
-    ${fr.zoneResults ? `<div class="grid2" style="margin-bottom:16px">
-      ${ZONES.map(z=>`<div class="row between panel" style="padding:8px 10px;border:1px solid ${fr.zoneResults[z.key]==="win"?COLORS.turf:fr.zoneResults[z.key]==="lose"?COLORS.danger:COLORS.muted}">
-        <span style="font-size:12px;font-weight:800;color:${COLORS.cream}">${z.label}</span>
-        <span style="font-size:12px;font-weight:900;color:${fr.zoneResults[z.key]==="win"?COLORS.turf:fr.zoneResults[z.key]==="lose"?COLORS.danger:COLORS.muted}">${fr.zoneResults[z.key]==="win"?"WON":fr.zoneResults[z.key]==="lose"?"LOST":"TIE"}</span>
-      </div>`).join("")}
-    </div>` : liveMatchStatsHTML(fr)}
-    ${pl.isChallengeMatch ? `<div style="font-size:10px;text-align:center;margin-bottom:16px;color:${COLORS.muted}">⚔️ Friendly challenge — season & matchday weren't affected.</div>` : ""}
-    ${pl.cupSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:${pl.cupSummary.won?`linear-gradient(135deg, ${COLORS.gold}, ${COLORS.pink})`:COLORS.panel};border:1px solid ${pl.cupSummary.won?"transparent":COLORS.danger+"66"}">
-      <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:${pl.cupSummary.saveFailed?COLORS.danger:pl.cupSummary.won?"#fff":COLORS.danger}">
-        ${pl.cupSummary.saveFailed ? "🏆 Couldn't save your cup progress"
-          : pl.cupSummary.champion ? "🏆 CUP CHAMPIONS!"
-          : pl.cupSummary.won ? `🏆 Through to the ${cupRoundLabel(pl.cupSummary.round+1)}`
-          : pl.cupSummary.replay ? "🏆 Tie drawn — replay"
-          : "🏆 Knocked out of the cup"}
-      </div>
-      <div style="font-size:12px;color:${(pl.cupSummary.won&&!pl.cupSummary.saveFailed)?"#ffffffdd":COLORS.muted}">
-        ${pl.cupSummary.saveFailed ? "You won the tie, but it didn't reach the server. Check your connection — the round hasn't been counted."
-          : pl.cupSummary.won ? `+${pl.cupSummary.reward} gems${pl.cupSummary.champion?" — you've won the whole thing.":""}`
-          : pl.cupSummary.replay ? "Nobody won it, so nobody goes out. Play the tie again from the Play tab — you're still in, and there's no second entry fee."
-          : "Knockout football. Enter again from the Play tab."}
-      </div>
-    </div>` : ""}
-    ${pl.seasonSummary ? `<div style="border-radius:16px;padding:16px;margin-bottom:16px;text-align:center;background:linear-gradient(135deg, ${COLORS.purple}, ${COLORS.pink})">
-      <div style="font-weight:900;font-size:17px;margin-bottom:4px;color:#fff">🏁 Season ${pl.seasonSummary.number} Complete!</div>
-      <div style="font-size:13px;margin-bottom:4px;color:#ffffffdd">${pl.seasonSummary.wins}W - ${pl.seasonSummary.draws||0}D - ${pl.seasonSummary.losses}L · ${pl.seasonSummary.points} pts</div>
-      <div style="font-size:13px;font-weight:800;margin-bottom:10px;color:${COLORS.gold}">+${pl.seasonSummary.bonus} bonus gems!</div>
-      <button data-action="close-season-summary" class="btn scrimtap" style="padding:8px 16px;font-size:13px;background:#fff;color:${COLORS.purple}">Awesome!</button>
-    </div>` : ""}
-    <button data-action="play-again" class="btn scrimtap wfull" style="padding:16px 0;font-size:17px;font-weight:900;letter-spacing:.02em;background:${COLORS.panelLight};color:${COLORS.cream}">PLAY AGAIN</button>`;
-  }
-
-  const confetti = (state.confettiOn && pl.phase==="result" && pl.finalResult && pl.finalResult.won) ? confettiHTML() : "";
-  return `<div class="view" style="padding-top:8px">
-    ${confetti}
-    ${state.stats.streak>=2 && pl.phase==="building" ? `<div class="row center" style="gap:6px;margin-bottom:8px;font-size:13px;font-weight:800;color:${COLORS.gold}">${icon("Flame",16,COLORS.gold)} ${state.stats.streak} win streak — opponents are getting tougher!</div>` : ""}
-    ${body}
-    ${modals}
-  </div>`;
-}
-function confettiHTML(){
-  let pieces = "";
-  const emo = ["⚽","🎉","⭐","✨","🔥","🏆","🟢","🔴","🔵","🟡"];
-  for(let i=0;i<32;i++){
-    const left = Math.random()*100, delay=(Math.random()*0.4).toFixed(2), dur=(1.6+Math.random()).toFixed(2), size=(14+Math.random()*10).toFixed(0);
-    pieces += `<div class="confettiPiece" style="left:${left}%;font-size:${size}px;animation:confettiFall ${dur}s ease-in ${delay}s forwards">${emo[i%emo.length]}</div>`;
-  }
-  return `<div style="position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:45">${pieces}</div>`;
-}
-
-// ---------- Friends view (Phase B) ----------
-function friendsView(){
-  const ui = state.friendsUI;
-  if(ui.chat.friendId) return `<div class="view">${chatSection()}</div>`;
-  if(ui.viewingChallengeId) return `<div class="view">${challengeResultSection()}</div>`;
-  if(ui.trade.friendId) return `<div class="view">${tradeComposerSection()}</div>`;
-  if(ui.viewingTradeId) return `<div class="view">${tradeReviewSection()}</div>`;
-  const sub = ui.subTab;
-  const badges = notifBadges();
-  // "Friends" carries challenge + chat notifications (both surface inline
-  // per-friend row there, not on their own sub-tab) -- Requests/Trades each
-  // have their own dedicated sub-tab already, so their counts go there.
-  const tabs = [
-    {key:"friends", label:"Friends", count: badges.challenges + badges.chat},
-    {key:"requests", label:"Requests", count: badges.requests},
-    {key:"trades", label:"Trades", count: badges.trades},
-    {key:"find", label:"Find"},
-  ];
-  return `<div class="view">
-    <div class="row" style="gap:8px;margin-bottom:16px">
-      ${tabs.map(t=>{
-        const active = sub===t.key;
-        const textColor = active ? COLORS.bg : (t.count ? COLORS.danger : COLORS.muted);
-        return `<button data-action="friends-subtab" data-subtab="${t.key}" class="btn scrimtap" style="flex:1;padding:10px 4px;font-size:11px;font-weight:800;background:${active?COLORS.turf:COLORS.panel};color:${textColor}">${t.label.toUpperCase()}${t.count?` (${t.count})`:""}</button>`;
-      }).join("")}
-    </div>
-    ${sub==="friends" ? friendsListSection() : sub==="requests" ? friendsRequestsSection() : sub==="trades" ? friendsTradesSection() : friendsFindSection()}
-  </div>`;
-}
-// A pending challenge from somebody who is not on your friends list used to be
-// counted by notifBadges() but rendered nowhere: accept/decline only exist
-// inside the friends loop below, so the unread badge could never be cleared and
-// the challenger waited forever for an answer that had no button. Anyone can
-// challenge anyone (there is no friends-only rule yet), so these need a home.
-function strangerChallengesSection(){
-  const ui = state.friendsUI;
-  const myId = state.session.user.id;
-  const friendIds = new Set((ui.friends||[]).map(f=>f.id));
-  const strays = (ui.challenges||[]).filter(c =>
-    c.status==="pending" && c.opponent_id===myId && !friendIds.has(c.challenger_id));
-  if(!strays.length) return "";
-  return `<div class="panel" style="padding:12px;margin-bottom:12px;border:1px solid ${COLORS.pink}55">
-    <div style="font-size:10px;font-weight:900;letter-spacing:.1em;color:${COLORS.pink};margin-bottom:8px">CHALLENGES FROM PLAYERS YOU HAVEN&#39;T ADDED</div>
-    ${strays.map(c=>{
-      const name = (c.otherProfile && c.otherProfile.display_name) || "Player";
-      return `<div class="row between" style="align-items:center;padding:6px 0">
-        <div style="font-size:12px;font-weight:800;color:${COLORS.cream}">${esc(name)}</div>
-        <div class="row" style="gap:6px">
-          <button data-action="challenge-accept" data-challenge-id="${c.id}" class="btn scrimtap" style="padding:6px 10px;font-size:10px;background:${COLORS.turf};color:${COLORS.bg}">Accept</button>
-          <button data-action="challenge-decline" data-challenge-id="${c.id}" class="btn scrimtap panel" style="padding:6px 10px;font-size:10px;color:${COLORS.danger}">Decline</button>
-        </div>
-      </div>`;
-    }).join("")}
+  if(p) return `<div style="flex-shrink:0;width:${SPIN_ITEM_W}px;height:${SPIN_ITEM_H}px">${playerCard(p,{mode:"showcase"})}</div>`;
+  // The landing slot before the server has said what was pulled. The reel is
+  // already moving by then, so a face-down card is what it is honestly showing.
+  return `<div style="flex-shrink:0;width:${SPIN_ITEM_W}px;height:${SPIN_ITEM_H}px;border-radius:14px;
+    display:flex;align-items:center;justify-content:center;border:2px solid ${rc}66;
+    background:repeating-linear-gradient(135deg, ${COLORS.panelLight} 0 12px, ${COLORS.panel} 12px 24px)">
+    <div class="avatarCircle" style="width:74px;height:74px;font-weight:900;font-size:34px;background:${rc};color:${COLORS.bg}">?</div>
   </div>`;
 }
 
