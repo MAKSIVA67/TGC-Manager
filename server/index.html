@@ -1152,18 +1152,8 @@ function fcHomeHTML(o){
       </div>
 
       <div class="fcRight">
-        <div class="fcFeature" style="background:linear-gradient(150deg, ${promo.grad[0]}2e, ${COLORS.panel} 62%)">
-          <div class="display" style="font-size:15px;letter-spacing:.06em;color:${COLORS.cream}">${esc(promo.name.toUpperCase())}</div>
-          <div style="font-size:9px;color:${COLORS.muted};margin-bottom:6px">${promo.cost.toLocaleString()} gems</div>
-          <div class="fcPacks">
-            ${[0,1,2].map(i=>`<div class="fcPack" data-action="nav-tab" data-tab="shop"
-              style="background:linear-gradient(160deg, ${promo.grad[0]}, ${promo.grad[1]});box-shadow:0 6px 20px ${promo.glow}55${i===1?";transform:scale(1.1)":""}">
-              <span style="font-size:${i===1?26:21}px">${promo.icon}</span>
-            </div>`).join("")}
-          </div>
-          <div class="fcDots">
-            ${promos.map((p,i)=>`<span class="fcDot${i===sel?" on":""}" data-action="home-promo" data-i="${i}"></span>`).join("")}
-          </div>
+        <div class="fcFeature" style="background:linear-gradient(150deg, ${COLORS.gold}22, ${COLORS.panel} 62%);padding:10px">
+          ${cardCarousel("owned", "YOUR SQUAD", COLORS.gold)}
         </div>
 
         <div class="fcTiles">
