@@ -608,6 +608,25 @@ const FORMATIONS = {
 const MY_Y = {GK:90,DEF:71,MID:51,FWD:30};
 const OPP_Y = {GK:10,DEF:29,MID:47,FWD:68};
 const ROW_XS = {1:[50],2:[28,72],3:[18,50,82],4:[12,37,63,88]};
+// Moving between formations used to do `myLineup = {}` -- the entire squad was
+// thrown away and the pitch went empty, which reads as "my players vanished".
+// Slot ids are position + index (DEF1, DEF2...), so they genuinely do not carry
+// across a shape change: 1-2-4-2 has four MID slots, 1-3-3-2 has three. Rather
+// than discard everyone, re-seat each position band strongest first into
+// whatever slots the new shape offers. Anyone who no longer fits goes back to
+// the bench rather than being silently deleted.
+function reseatLineup(lineup, newFormationKey){
+  const byPos = {GK:[],DEF:[],MID:[],FWD:[]};
+  Object.entries(lineup||{}).forEach(([slotId,card])=>{
+    const pos = zoneOf(slotId);
+    if(card && byPos[pos]) byPos[pos].push(card);
+  });
+  Object.keys(byPos).forEach(pos=>byPos[pos].sort((a,b)=>b.power-a.power));
+  const out = {};
+  buildSlots(newFormationKey,"my").forEach(s=>{ out[s.id] = byPos[s.position].shift() || null; });
+  return out;
+}
+
 function buildSlots(formationKey, side){
   const counts = FORMATIONS[formationKey].counts;
   const yMap = side==="my" ? MY_Y : OPP_Y;
@@ -3671,7 +3690,8 @@ document.getElementById("stage").addEventListener("click", function(e){
       const id = el.dataset.slotId; pl.myLineup = {...pl.myLineup, [id]:null}; pl.activeSlot=null; render(); break;
     }
     case "set-formation":
-      pl.formationKey = el.dataset.key; pl.myLineup = {}; playTap(); render(); break;
+      pl.myLineup = reseatLineup(pl.myLineup, el.dataset.key);
+      pl.formationKey = el.dataset.key; pl.activeSlot = null; playTap(); render(); break;
     case "equip-best": {
       const mySlots = buildSlots(pl.formationKey,"my");
       const owned = state.players.filter(p=>p.owned);

@@ -746,6 +746,28 @@
     return best;
   }
 
+  // Never let PASS do nothing. bestPassTarget filters hard -- a lane that is
+  // not clear enough, a team-mate too close or too far -- and returns nothing,
+  // so the press did literally nothing. That reads as a broken button rather
+  // than a considered refusal. Fall back to the most sensible body in range: a
+  // poor pass is still a pass, and the accuracy roll already decides how well
+  // it lands.
+  function anyPassTarget(a, p) {
+    const mates = mateListFor(a, p.team);
+    const dir = attackDirZ(p.team);
+    let best = null, bestScore = -1e9;
+    for (let i = 0; i < mates.length; i++) {
+      const q = mates[i];
+      if (q === p || q.isGK) continue;
+      const d = dist(p.x, p.z, q.x, q.z);
+      if (d < 2.5 || d > 55) continue;
+      const sc = -d * 0.6 + ((q.z - p.z) * dir) * 0.5
+        + clamp(nearestOppDist(a, p.team, q.x, q.z), 0, 10);
+      if (sc > bestScore) { bestScore = sc; best = q; }
+    }
+    return best;
+  }
+
   function pass(a, p, target) {
     if (!target) return false;
     const acc = p.attrs.passAccuracy * (0.78 + p.stamina * 0.24);
@@ -2044,11 +2066,11 @@
             throughBall(a, c, t, a._thruX, a._thruZ);
             toast(a, "⇢ " + lastName(t.name) + " in behind!", 900);
           } else {
-            const p2 = bestPassTarget(a, c, inp.aimX, inp.aimZ, inp.aimMag);
+            const p2 = (bestPassTarget(a, c, inp.aimX, inp.aimZ, inp.aimMag) || anyPassTarget(a, c));
             if (p2) { pass(a, c, p2); toast(a, "→ " + lastName(p2.name), 800); }
           }
         } else if (inp.wantPass) {
-          const t = bestPassTarget(a, c, inp.aimX, inp.aimZ, inp.aimMag);
+          const t = (bestPassTarget(a, c, inp.aimX, inp.aimZ, inp.aimMag) || anyPassTarget(a, c));
           if (t) { pass(a, c, t); toast(a, "→ " + lastName(t.name), 800); }
         } else if (inp.wantSkill) {
           doSkill(a, c);
@@ -2220,6 +2242,13 @@
     // Keep the one button honest. Cheap to compute, and setPrimaryAction only
     // touches the DOM when the answer actually changes -- rewriting the same
     // label sixty times a second is how you make a phone warm.
+    // Attack buttons mean "the ball is at MY feet". Anything else -- loose,
+    // or with a team-mate -- and the useful actions are defensive, so say so.
+    const holding = a.ball.owner === a.controlled ? "attack" : "defend";
+    if (holding !== a.shownMode && HUD.setMode) {
+      a.shownMode = holding;
+      HUD.setMode(a, holding);
+    }
     if (a.controlMode === "simple" && HUD.setPrimaryAction) {
       a.primaryKind = simplePrimaryAction(a);
       HUD.setPrimaryAction(a, a.primaryKind);
