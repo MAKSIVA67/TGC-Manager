@@ -83,6 +83,35 @@ input,textarea{font-family:inherit;font-size:16px}
    layout instead: fixed nav rail down the left, currencies pinned top right,
    content filling everything between. Portrait is untouched, so a tablet or a
    desktop window that happens to be tall still works. */
+/* ---------- pack tiles ---------- */
+/* A pack should look like an object you could pick up. The layers below are,
+   from the bottom: the pack colour, a metal sweep, a raking highlight, and a
+   hairline bevel. Higher tiers get a stronger sweep, which is what separates a
+   Bronze from a GOAT without simply changing the hue. */
+.packTile{position:relative;border-radius:16px;overflow:hidden;isolation:isolate;
+  box-shadow:0 10px 26px rgba(0,0,0,.5), 0 1px 0 rgba(255,255,255,.10) inset,
+  0 -14px 26px -18px rgba(0,0,0,.9) inset}
+.packHead{position:relative;overflow:hidden}
+/* Polished-metal sweep. The conic gradient is what makes it read as metal
+   rather than as a flat wash. */
+.packHead::before{content:"";position:absolute;inset:-40%;pointer-events:none;
+  background:conic-gradient(from 210deg at 50% 50%,
+    rgba(255,255,255,.00) 0deg, rgba(255,255,255,.26) 40deg,
+    rgba(255,255,255,.00) 92deg, rgba(0,0,0,.18) 160deg,
+    rgba(255,255,255,.20) 232deg, rgba(255,255,255,.00) 300deg);
+  opacity:var(--sheen,.5);mix-blend-mode:overlay}
+/* Raking highlight along the top edge -- the single cheapest cue that a
+   surface is curved rather than flat. */
+.packHead::after{content:"";position:absolute;left:0;right:0;top:0;height:52%;
+  pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.30),rgba(255,255,255,0))}
+.packEdge{position:absolute;left:0;right:0;height:1px;pointer-events:none;z-index:2}
+.packEdge.t{top:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent)}
+.packEdge.b{bottom:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.55),transparent)}
+/* Foil crawl, top tiers only. Slow enough to notice without being a
+   distraction on a page you are reading prices off. */
+@keyframes packFoil{0%{transform:translateX(-18%)}100%{transform:translateX(18%)}}
+.packTile.elite .packHead::before{animation:packFoil 5.5s ease-in-out infinite alternate}
+
 /* Rotating card showcase. Three cards at a time, swapped on a timer.
    render() replaces #stage wholesale, so the timer must never hold a
    reference to a node -- it looks the carousel up fresh on every tick and
@@ -1045,10 +1074,13 @@ function playerCard(p, opts){
   // name/position/rarity/stats (per Maksim's own card template). Cards
   // without art yet keep the placeholder foil design with those overlays
   // so they're still identifiable in the meantime.
-  const enlargeAttr = opts.mode==="index" && hasImage ? `data-action="enlarge-card" data-player-id="${p.id}"` : "";
+  // Every card is tappable now, in every list, and they all open the same
+  // popup -- the brief's general rule. Previously this was Index-only AND
+  // required uploaded art, so four cards in five did nothing when tapped.
+  const enlargeAttr = `data-action="enlarge-card" data-player-id="${p.id}"`;
   // "train" mode (My Cards) makes the whole tile open the training sheet, and
   // takes priority over enlarging so the tap does one predictable thing.
-  const trainAttr = opts.mode==="train" ? `data-action="open-train" data-player-id="${p.id}"` : "";
+  const trainAttr = "";
   const clickAttr = trainAttr || enlargeAttr || (opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "");
   // Level pip + "ready to train" dot, drawn over art and placeholder alike so
   // progress is visible without opening every card.
@@ -1342,55 +1374,54 @@ function homeView(){
   return `<div class="view">
     ${installBanner}
 
-    <div class="row" style="gap:12px;margin-bottom:16px">
-      <div class="avatarCircle" style="width:52px;height:52px;font-size:24px;position:relative;flex-shrink:0;background:linear-gradient(135deg, ${state.profile.color}, ${COLORS.purple})">
-        ${state.profile.avatar}
-        <div style="position:absolute;bottom:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:${COLORS.bg};border:2px solid ${state.profile.color};color:${state.profile.color};font-weight:900;font-size:9px;display:flex;align-items:center;justify-content:center">${level}</div>
-      </div>
-      <div style="flex:1">
-        <div class="row between" style="margin-bottom:4px"><span class="display" style="font-size:16px;color:${COLORS.cream}">${esc(state.profile.name||"Player")}</span><span style="font-size:10px;font-weight:900;color:${rank.color}">${rank.icon} ${rank.name.toUpperCase()}</span></div>
-        <div style="height:8px;border-radius:999px;overflow:hidden;background:${COLORS.panelLight}"><div style="height:100%;border-radius:999px;width:${xpPct}%;background:linear-gradient(90deg, ${state.profile.color}, ${COLORS.gold})"></div></div>
-      </div>
-    </div>
-
-    <div class="row" style="gap:12px;align-items:stretch">
-      <div class="col" style="gap:8px">
-        ${railBtn("Gift","DAILY", dailyClaimed?COLORS.muted:COLORS.gold, !dailyClaimed, "claim-daily", null, dailyClaimed)}
-        ${railBtn("Trophy","SEASON", COLORS.cyan, false, "nav-tab", "profile")}
-        ${railBtn("Award","AWARDS", COLORS.pink, false, "nav-tab", "profile")}
-        ${railBtn("Newspaper","NEWS", COLORS.turf, false, "open-news")}
-      </div>
-      <div class="col" style="gap:12px;flex:1">
-        <div class="col center" style="align-items:center;padding:20px 0;border-radius:16px;position:relative;overflow:hidden;background:radial-gradient(circle at 50% 20%, ${rank.color}22, ${COLORS.panel});border:1px solid ${COLORS.panelLight}">
-          <div style="font-size:38px;animation:floatBounce 3s ease-in-out infinite">${rank.icon}</div>
-          <div class="display" style="font-size:18px;color:${rank.color};letter-spacing:.03em">${rank.name.toUpperCase()}</div>
-          <div style="font-size:10px;font-weight:800;color:${COLORS.muted}">Season ${state.season.number} · Matchday ${state.season.matchday}/6</div>
-        </div>
-        <div class="panel" style="padding:10px">
-          <div style="font-size:10px;font-weight:900;letter-spacing:.1em;margin-bottom:6px;color:${COLORS.muted}">MY TEAM</div>
-          <div class="row between">
-            <div class="row" style="gap:8px">
-              ${crestHTML(state.profile.teamName||"My Team", state.profile.color, 34)}
-              <div><div style="font-size:11px;font-weight:800;color:${COLORS.cream}">${esc(state.profile.teamName||"My Team")}</div><div style="font-size:9px;color:${COLORS.muted}">${owned.length} players owned</div></div>
+    ${(()=>{
+      // The top of the home page used to be a medal, an XP bar and six tiles of
+      // text -- true, and completely inert. This is a card game, so the first
+      // thing on the page is now a card: your best one, at size, tappable like
+      // every other card in the app. The identity and the numbers sit beside it
+      // rather than instead of it.
+      const star = bestFive[0] || null;
+      const quick = [
+        {label:"DAILY", icon:"Gift",       color: dailyClaimed?COLORS.muted:COLORS.gold,
+         action: dailyClaimed?"nav-tab":"claim-daily", tab:"profile", dim: dailyClaimed},
+        {label:"PLAY",  icon:"PlayCircle", color:COLORS.turf, action:"nav-tab", tab:"play"},
+        {label:"SHOP",  icon:"ShoppingBag",color:COLORS.pink, action:"nav-tab", tab:"shop"},
+        {label:"SQUAD", icon:"Layers",     color:COLORS.cyan, action:"nav-tab", tab:"cards"},
+      ];
+      return `<div class="panel" style="padding:14px;margin-bottom:12px;position:relative;overflow:hidden;
+        background:radial-gradient(circle at 82% 12%, ${state.profile.color}2e, transparent 58%), ${COLORS.panel}">
+        <div class="row" style="gap:14px;align-items:center">
+          ${star ? `<div style="width:104px;flex-shrink:0">${playerCard(star,{mode:"showcase"})}</div>`
+                 : `<div style="width:104px;flex-shrink:0;aspect-ratio:842/1191;border-radius:12px;display:flex;align-items:center;justify-content:center;background:${COLORS.panelLight};color:${COLORS.muted};font-size:10px;text-align:center;padding:8px">Open a pack to get your first card</div>`}
+          <div style="flex:1;min-width:0">
+            <div class="row" style="gap:8px;align-items:center;margin-bottom:2px">
+              ${crestHTML(state.profile.teamName||"My Team", state.profile.color, 26)}
+              <div class="display" style="font-size:17px;line-height:1.1;color:${COLORS.cream};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(state.profile.teamName||"My Team")}</div>
             </div>
-            <div style="text-align:center;padding:4px 8px;border-radius:12px;background:${COLORS.panelLight}"><div class="display" style="font-size:16px;color:${COLORS.gold};line-height:1">${teamRating}</div><div style="font-size:7px;font-weight:800;color:${COLORS.muted}">RATING</div></div>
+            <div style="font-size:9px;font-weight:900;letter-spacing:.1em;color:${rank.color};margin-bottom:8px">${rank.icon} ${rank.name.toUpperCase()} &middot; LEVEL ${level}</div>
+            <div style="height:7px;border-radius:999px;overflow:hidden;background:${COLORS.bg};margin-bottom:10px">
+              <div style="height:100%;width:${xpPct}%;background:linear-gradient(90deg, ${state.profile.color}, ${COLORS.gold})"></div>
+            </div>
+            <div class="row" style="gap:14px">
+              <div><div style="font-size:8px;letter-spacing:.12em;color:${COLORS.muted}">RATING</div>
+                <div class="display" style="font-size:19px;color:${COLORS.gold}">${teamRating}</div></div>
+              <div><div style="font-size:8px;letter-spacing:.12em;color:${COLORS.muted}">CARDS</div>
+                <div class="display" style="font-size:19px;color:${COLORS.cream}">${owned.length}</div></div>
+              <div><div style="font-size:8px;letter-spacing:.12em;color:${COLORS.muted}">MATCHDAY</div>
+                <div class="display" style="font-size:19px;color:${COLORS.turf}">${state.season.matchday}/6</div></div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="grid2" style="margin-top:12px">
-      <button data-action="nav-tab" data-tab="play" class="panel scrimtap" style="padding:12px;text-align:left">
-        <div style="margin-bottom:6px">${icon("PlayCircle",18,COLORS.turf)}</div>
-        <div style="font-size:11px;font-weight:900;color:${COLORS.cream}">NEXT MATCH</div>
-        <div style="font-size:10px;color:${COLORS.muted}">vs ${currentClub()}</div>
-      </button>
-      <button data-action="nav-tab" data-tab="profile" class="panel scrimtap" style="padding:12px;text-align:left">
-        <div style="margin-bottom:6px">${icon("Trophy",18,COLORS.gold)}</div>
-        <div style="font-size:11px;font-weight:900;color:${COLORS.cream}">SEASON</div>
-        <div style="font-size:10px;color:${COLORS.muted}">${state.season.points} pts so far</div>
-      </button>
-    </div>
+      <div class="row" style="gap:8px;margin-bottom:12px">
+        ${quick.map(q=>`<button data-action="${q.action}" ${q.tab?`data-tab="${q.tab}"`:""} class="scrimtap"
+          style="flex:1;min-width:0;padding:10px 4px;border-radius:14px;cursor:pointer;border:1px solid ${q.color}33;
+          background:linear-gradient(160deg, ${q.color}1f, ${COLORS.panel});opacity:${q.dim?0.55:1}">
+          <div>${icon(q.icon,17,q.color)}</div>
+          <div style="font-size:9px;font-weight:900;letter-spacing:.06em;margin-top:3px;color:${q.color}">${q.label}</div>
+        </button>`).join("")}
+      </div>`;
+    })()}
 
     <div style="margin-top:12px">
       ${cardCarousel("owned", "YOUR SQUAD", COLORS.gold)}
@@ -1655,6 +1686,73 @@ const MAX_CARD_LEVEL = 10;
 function trainShardCost(level){ return 2 + level*2; }
 function trainGemCost(level){ return 40 + level*30; }
 
+
+// ------------------------------------------------------------- card detail
+// One popup for every card in the game, wherever it is tapped -- All Cards,
+// My Cards, the Home showcase, the Shop. The old "enlarged card" was a bare
+// full-screen <img>, which meant it did nothing at all for the four cards in
+// five that have no uploaded art yet, and carried none of the information a
+// collector actually wants. This shows the card itself (real art if there is
+// any, the foil treatment if not) with everything known about it, and offers
+// training in place rather than sending the player to a second sheet.
+function cardDetailModal(){
+  const card = state.enlargedCardId != null
+    ? state.players.find(p => p.id === state.enlargedCardId) : null;
+  if(!card) return "";
+  const rc = RARITY[card.rarity].color;
+  const owned = !!card.owned;
+  const maxed = card.level >= MAX_CARD_LEVEL;
+  const needS = trainShardCost(card.level), needG = trainGemCost(card.level);
+  const canTrain = owned && !maxed;
+  const okS = card.shards >= needS, okG = state.gems >= needG;
+  const stat = (label, value, color) => `<div style="flex:1;min-width:0;text-align:center;padding:8px 4px;border-radius:10px;background:${COLORS.bg}">
+      <div style="font-size:8px;letter-spacing:.1em;color:${COLORS.muted}">${label}</div>
+      <div class="display" style="font-size:16px;color:${color}">${value}</div>
+    </div>`;
+
+  return `<div class="overlayFull" style="z-index:70;background:radial-gradient(circle at 50% 30%, ${rc}33, transparent 62%), rgba(3,7,14,.94)"
+      data-action="close-modal" data-modal="enlarged-card">
+    <div class="panel" data-action="noop" style="width:min(92vw,380px);max-height:92vh;overflow-y:auto;padding:16px;border:2px solid ${rc};position:relative">
+      <button data-action="close-modal" data-modal="enlarged-card" style="position:absolute;top:10px;right:10px;z-index:2;background:rgba(3,7,14,.7);border:none;border-radius:999px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;color:${COLORS.cream}">${icon("X",17,COLORS.cream)}</button>
+
+      <div style="width:64%;margin:0 auto 14px">${playerCard(card,{mode:"showcase"})}</div>
+
+      <div class="display" style="font-size:20px;text-align:center;color:${COLORS.cream}">${esc(card.name)}</div>
+      <div style="text-align:center;font-size:11px;font-weight:800;letter-spacing:.06em;margin-top:2px;color:${rc}">
+        ${card.position} &middot; ${RARITY[card.rarity].label}${owned ? "" : " &middot; NOT OWNED YET"}
+      </div>
+
+      <div class="row" style="gap:6px;margin:14px 0">
+        ${stat("POWER", card.power, COLORS.gold)}
+        ${stat("LEVEL", card.level > 0 ? card.level : "-", COLORS.cream)}
+        ${stat("SHARDS", card.shards || 0, COLORS.cyan)}
+      </div>
+
+      ${(card.league || card.region) ? `<div class="row between" style="font-size:10px;color:${COLORS.muted};padding:8px 10px;border-radius:10px;background:${COLORS.bg};margin-bottom:12px">
+        <span>${esc(card.league || "Free Agent")}</span><span>${esc(card.region || "World")}</span>
+      </div>` : ""}
+
+      ${!owned ? `<div style="text-align:center;font-size:11px;color:${COLORS.muted};padding:10px 0">
+          Not in your collection yet. Open packs in the Shop for a chance at this card.
+        </div>
+        <button data-action="nav-tab" data-tab="shop" class="btn scrimtap wfull" style="padding:11px 0;font-size:12px;font-weight:900;background:${COLORS.gold};color:${COLORS.bg}">GO TO SHOP</button>`
+      : maxed ? `<div style="text-align:center;padding:10px 0;font-size:12px;font-weight:800;color:${COLORS.gold}">Fully trained &mdash; maximum level reached.</div>`
+      : `<div style="font-size:9px;font-weight:900;letter-spacing:.1em;color:${COLORS.muted};margin-bottom:5px">TRAIN TO LEVEL ${card.level + 1}</div>
+        <div style="height:7px;border-radius:999px;overflow:hidden;margin-bottom:8px;background:${COLORS.bg}">
+          <div style="height:100%;width:${Math.min(100, Math.round((card.shards / needS) * 100))}%;background:${okS ? COLORS.turf : COLORS.cyan}"></div>
+        </div>
+        <div class="row between" style="font-size:10px;margin-bottom:10px">
+          <span style="color:${okS ? COLORS.turf : COLORS.muted}">${card.shards || 0} shards ${okS ? "(need " + needS + ")" : "of " + needS}</span>
+          <span style="color:${okG ? COLORS.gold : COLORS.danger}">${needG} gems</span>
+        </div>
+        <button data-action="do-train" data-player-id="${card.id}" ${(okS && okG && !state.trainPending) ? "" : "disabled"}
+          class="btn scrimtap wfull" style="padding:11px 0;font-size:12px;font-weight:900;background:${(okS && okG) ? COLORS.turf : COLORS.panelLight};color:${(okS && okG) ? COLORS.bg : COLORS.muted}">
+          ${state.trainPending ? "TRAINING..." : (okS && okG) ? "TRAIN +1 POWER" : !okS ? "NEED MORE SHARDS" : "NEED MORE GEMS"}
+        </button>`}
+    </div>
+  </div>`;
+}
+
 function trainSheetHTML(){
   const card = state.players.find(p=>p.id===state.trainCardId);
   if(!card) return "";
@@ -1773,8 +1871,15 @@ function packTile(pack){
   const examples = packExamples(pack);
   const afford = state.gems >= cost && state.shop.phase === "list";
   const fmt = (n)=> n < 1 ? n.toFixed(2) : n.toFixed(0);
-  return `<div class="panel" style="position:relative;padding:0;overflow:hidden;border:1px solid ${pack.glow}55;background:${COLORS.panel}">
-    <div class="row between" style="align-items:center;gap:10px;padding:12px 14px;background:linear-gradient(120deg, ${pack.grad[0]}, ${pack.grad[1]})">
+  // Sheen and animation step up with the pack's own ceiling, so a GOAT pack
+  // looks like a more expensive object than a Bronze rather than just a
+  // differently coloured one.
+  const tier = tierRank(realistic.rarity);
+  const sheen = (0.36 + tier * 0.07).toFixed(2);
+  const elite = tier >= tierRank("Legendary") ? " elite" : "";
+  return `<div class="panel packTile${elite}" style="padding:0;border:1px solid ${pack.glow}66;background:${COLORS.panel};--sheen:${sheen}">
+    <div class="packHead row between" style="align-items:center;gap:10px;padding:13px 14px;background:linear-gradient(120deg, ${pack.grad[0]}, ${pack.grad[1]})">
+      <span class="packEdge t"></span><span class="packEdge b"></span>
       <div class="row" style="gap:10px;align-items:center;min-width:0">
         <span style="font-size:28px;flex-shrink:0">${pack.icon}</span>
         <div style="min-width:0">
@@ -2412,12 +2517,12 @@ function chatSection(){
   const chat = state.friendsUI.chat;
   const myId = state.session.user.id;
   return `
-    <div class="row between" style="margin-bottom:12px;align-items:center">
+    <div class="row between" style="position:sticky;top:0;z-index:16;margin:0 -16px 12px;padding:10px 16px;align-items:center;background:${COLORS.bg2 || COLORS.bg};border-bottom:1px solid ${COLORS.panelLight}">
       <button data-action="chat-close" class="scrimtap" style="background:none;border:none;color:${COLORS.gold};font-size:12px;font-weight:800">‹ Back</button>
       <div style="font-weight:800;font-size:14px;color:${COLORS.cream}">${esc(chat.friendName)}</div>
       <span style="width:40px"></span>
     </div>
-    <div id="chatScroll" style="height:360px;height:calc(100dvh - 260px);overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:10px;margin-bottom:12px;border-radius:12px;background:${COLORS.panel}">
+    <div id="chatScroll" style="height:calc(100dvh - 300px);min-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:10px;margin-bottom:12px;border-radius:12px;background:${COLORS.panel}">
       ${chat.loading ? `<div style="font-size:12px;color:${COLORS.muted}">Loading…</div>`
         : !chat.messages.length ? `<div style="font-size:12px;color:${COLORS.muted};text-align:center;margin-top:20px">Say hello!</div>`
         : chat.messages.map(m=>{
@@ -2488,6 +2593,16 @@ function tradeComposerSection(){
     <button data-action="trade-send" class="btn scrimtap wfull" style="padding:12px 0;font-size:13px;font-weight:800;background:${COLORS.turf};color:${COLORS.bg}">Send Offer</button>
   `;
 }
+// Renders one side of a trade as real cards. Only ever given the ids that are
+// actually part of the offer -- never a whole collection.
+function tradeCardStrip(cardIds){
+  const cards = (cardIds||[]).map(id=>state.players.find(x=>x.id===id)).filter(Boolean);
+  if(!cards.length) return "";
+  return `<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+    ${cards.map(c=>`<div style="width:74px">${playerCard(c,{mode:"showcase"})}</div>`).join("")}
+  </div>`;
+}
+
 function tradeReviewSection(){
   const ui = state.friendsUI;
   const trade = (ui.trades||[]).find(t=>t.id===ui.viewingTradeId);
@@ -2508,13 +2623,13 @@ function tradeReviewSection(){
     ${ui.tradeActionStatus ? `<div style="font-size:12px;margin-bottom:12px;color:${COLORS.danger}">${esc(ui.tradeActionStatus)}</div>` : ""}
     <div class="panel" style="padding:14px;margin-bottom:12px">
       <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:6px;color:${COLORS.turf}">YOU GIVE</div>
-      ${sides.youGive.cardIds.map(id=>`<div style="font-size:13px;color:${COLORS.cream}">${esc(cardName(id))}</div>`).join("")}
+      ${tradeCardStrip(sides.youGive.cardIds)}
       ${sides.youGive.gems>0 ? `<div style="font-size:13px;color:${COLORS.gold}">${sides.youGive.gems} gems</div>` : ""}
       ${!sides.youGive.cardIds.length && !sides.youGive.gems ? `<div style="font-size:12px;color:${COLORS.muted}">Nothing</div>` : ""}
     </div>
     <div class="panel" style="padding:14px;margin-bottom:16px">
       <div style="font-size:11px;font-weight:800;letter-spacing:.1em;margin-bottom:6px;color:${COLORS.gold}">YOU GET</div>
-      ${sides.youGet.cardIds.map(id=>`<div style="font-size:13px;color:${COLORS.cream}">${esc(cardName(id))}</div>`).join("")}
+      ${tradeCardStrip(sides.youGet.cardIds)}
       ${sides.youGet.gems>0 ? `<div style="font-size:13px;color:${COLORS.gold}">${sides.youGet.gems} gems</div>` : ""}
       ${!sides.youGet.cardIds.length && !sides.youGet.gems ? `<div style="font-size:12px;color:${COLORS.muted}">Nothing</div>` : ""}
     </div>
@@ -3092,11 +3207,7 @@ function appHTML(){
     <span style="font-size:22px">${state.rankUp.icon}</span><span style="font-weight:900;font-size:13px;color:${COLORS.bg}">PROMOTED TO ${state.rankUp.name.toUpperCase()}!</span>
   </div>` : "";
   const toastBanner = state.toast ? `<div style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:60;max-width:calc(100% - 24px);padding:10px 16px;border-radius:999px;font-size:12px;font-weight:800;text-align:center;color:${COLORS.bg};background:${COLORS.gold};box-shadow:0 4px 16px #0006">${esc(state.toast.message)}</div>` : "";
-  const enlargedCard = state.enlargedCardId!=null ? state.players.find(p=>p.id===state.enlargedCardId) : null;
-  const enlargedCardModal = enlargedCard && enlargedCard.imageUrl ? `<div style="position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(3,7,14,.9)" data-action="close-modal" data-modal="enlarged-card">
-    <img src="${esc(enlargedCard.imageUrl)}" data-action="noop" style="display:block;max-width:100%;max-height:100%;width:auto;height:auto;aspect-ratio:${CARD_ART_RATIO};object-fit:contain;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.6)" />
-    <button data-action="close-modal" data-modal="enlarged-card" style="position:absolute;top:calc(16px + env(safe-area-inset-top));right:16px;background:rgba(3,7,14,.7);border:none;border-radius:999px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:${COLORS.cream}">${icon("X",18,COLORS.cream)}</button>
-  </div>` : "";
+  const enlargedCardModal = cardDetailModal();
   // Entrance animation on TAB CHANGE ONLY. render() runs on every state change
   // -- a timer tick, a keystroke in a text field -- so animating every pass
   // would leave the screen permanently flickering.
