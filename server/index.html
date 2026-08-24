@@ -83,34 +83,113 @@ input,textarea{font-family:inherit;font-size:16px}
    layout instead: fixed nav rail down the left, currencies pinned top right,
    content filling everything between. Portrait is untouched, so a tablet or a
    desktop window that happens to be tall still works. */
-/* ---------- pack tiles ---------- */
-/* A pack should look like an object you could pick up. The layers below are,
-   from the bottom: the pack colour, a metal sweep, a raking highlight, and a
-   hairline bevel. Higher tiers get a stronger sweep, which is what separates a
-   Bronze from a GOAT without simply changing the hue. */
-.packTile{position:relative;border-radius:16px;overflow:hidden;isolation:isolate;
-  box-shadow:0 10px 26px rgba(0,0,0,.5), 0 1px 0 rgba(255,255,255,.10) inset,
-  0 -14px 26px -18px rgba(0,0,0,.9) inset}
-.packHead{position:relative;overflow:hidden}
-/* Polished-metal sweep. The conic gradient is what makes it read as metal
-   rather than as a flat wash. */
-.packHead::before{content:"";position:absolute;inset:-40%;pointer-events:none;
-  background:conic-gradient(from 210deg at 50% 50%,
-    rgba(255,255,255,.00) 0deg, rgba(255,255,255,.26) 40deg,
-    rgba(255,255,255,.00) 92deg, rgba(0,0,0,.18) 160deg,
-    rgba(255,255,255,.20) 232deg, rgba(255,255,255,.00) 300deg);
-  opacity:var(--sheen,.5);mix-blend-mode:overlay}
-/* Raking highlight along the top edge -- the single cheapest cue that a
-   surface is curved rather than flat. */
-.packHead::after{content:"";position:absolute;left:0;right:0;top:0;height:52%;
-  pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.30),rgba(255,255,255,0))}
-.packEdge{position:absolute;left:0;right:0;height:1px;pointer-events:none;z-index:2}
-.packEdge.t{top:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent)}
-.packEdge.b{bottom:0;background:linear-gradient(90deg,transparent,rgba(0,0,0,.55),transparent)}
-/* Foil crawl, top tiers only. Slow enough to notice without being a
-   distraction on a page you are reading prices off. */
-@keyframes packFoil{0%{transform:translateX(-18%)}100%{transform:translateX(18%)}}
-.packTile.elite .packHead::before{animation:packFoil 5.5s ease-in-out infinite alternate}
+/* ---------- pack sachets ----------
+   A pack is a foil sachet, not a panel. Layers, bottom to top: the pack
+   colour, a curved film highlight, a finish (matte / brushed / foil / holo /
+   prism / obsidian), the printed matter, then crimped serrated strips top and
+   bottom. The FINISH is what separates the tiers -- six packs that differed
+   only in hue read as one object recoloured six times, which is exactly what
+   they looked like.
+
+   All CSS, deliberately. render() replaces #stage wholesale on every state
+   change, so anything needing a retained node or a WebGL context would be
+   rebuilt every time a notification arrived. Container query units (cqw) make
+   the printed matter scale with the pack instead of needing a breakpoint per
+   size. */
+.sachetWrap{container-type:inline-size;position:relative;width:100%}
+.sachet{position:relative;width:100%;padding-top:134%;border-radius:6px;
+  overflow:hidden;isolation:isolate;
+  box-shadow:0 16px 34px -10px rgba(0,0,0,.8), 0 3px 8px rgba(0,0,0,.55),
+             0 0 0 1px rgba(255,255,255,.07) inset}
+.sachetLayer{position:absolute;inset:0}
+.sachetBody{background:linear-gradient(168deg,var(--p1),var(--p2))}
+/* The bag reads as a cylinder of film because of this one gradient: a dark
+   fold on the left, a bright specular band a fifth of the way across, then a
+   long falloff to a dark right edge. Flat fills are the tell of a fake pack. */
+.sachetCurve{background:linear-gradient(96deg,
+  rgba(0,0,0,.52) 0%, rgba(0,0,0,.16) 7%, rgba(255,255,255,.22) 19%,
+  rgba(255,255,255,.05) 34%, rgba(0,0,0,.04) 50%,
+  rgba(0,0,0,.20) 68%, rgba(0,0,0,.44) 88%, rgba(0,0,0,.62) 100%)}
+/* Matte tiers only: a fine paper tooth that kills the plastic sheen. */
+.sachetGrain{opacity:var(--grain,0);mix-blend-mode:multiply;
+  background-image:repeating-linear-gradient(48deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px),
+                   repeating-linear-gradient(-42deg,rgba(0,0,0,.12) 0 1px,transparent 1px 4px)}
+/* Brushed metal: fine axial striations. */
+.sachetBrush{opacity:var(--brush,0);mix-blend-mode:overlay;
+  background-image:repeating-linear-gradient(90deg,
+    rgba(255,255,255,.16) 0 1px, rgba(0,0,0,.10) 1px 2px, transparent 2px 4px)}
+/* Foil: an off-axis conic so the light wraps rather than washes. */
+.sachetFoil{opacity:var(--foil,0);mix-blend-mode:overlay;
+  background:conic-gradient(from 205deg at 32% 38%,
+    rgba(255,255,255,0) 0deg, rgba(255,255,255,.42) 38deg,
+    rgba(255,255,255,0) 88deg, rgba(0,0,0,.26) 158deg,
+    rgba(255,255,255,.34) 228deg, rgba(255,255,255,0) 300deg)}
+/* Holographic / prismatic. Drifts slowly -- fast rainbows look like a bug. */
+.sachetHolo{opacity:var(--holo,0);mix-blend-mode:overlay;
+  background:linear-gradient(112deg,#ff0a54,#ff8f1f,#ffe600,#22e39a,#12b0ff,#a24bff,#ff0a54);
+  background-size:280% 100%;animation:holoDrift 9s linear infinite}
+@keyframes holoDrift{to{background-position:280% 0}}
+/* Travelling specular band. One pass, long pause -- a sweep that never rests
+   turns into visual noise on a page you are reading prices off. */
+.sachetSweep{overflow:hidden;pointer-events:none}
+.sachetSweep::before{content:"";position:absolute;top:-30%;bottom:-30%;width:36%;
+  left:-45%;transform:skewX(-16deg);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  opacity:var(--sweep,0);animation:sachetSweep 5.4s ease-in-out infinite}
+@keyframes sachetSweep{0%{left:-45%}38%{left:115%}100%{left:115%}}
+/* Crimped seal strips. clip-path supplies the pinked edge; the ridges are a
+   repeating gradient. Both are what your fingers expect at the top of a bag. */
+.sachetCrimp{position:absolute;left:0;right:0;height:8.5%;z-index:6;top:auto;bottom:auto;
+  background-image:repeating-linear-gradient(90deg,
+    rgba(0,0,0,.34) 0 2px, rgba(255,255,255,.26) 2px 4px),
+    linear-gradient(180deg,rgba(255,255,255,.22),rgba(0,0,0,.28))}
+.sachetCrimp.t{top:0}
+.sachetCrimp.b{bottom:0}
+/* Tear notch, top right, where a real pack is nicked to start the tear. */
+.sachetNotch{position:absolute;top:7.2%;left:6%;width:5.5%;height:3.4%;z-index:7;
+  background:rgba(0,0,0,.55);clip-path:polygon(0 0,100% 0,50% 100%)}
+.sachetPrint{z-index:5;display:flex;flex-direction:column;align-items:center;
+  justify-content:space-between;padding:13% 8% 12%;text-align:center;color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.45)}
+.sachetBrand{font-size:4.4cqw;font-weight:900;letter-spacing:.26em;
+  color:rgba(255,255,255,.86);line-height:1}
+.sachetSet{font-size:3.3cqw;font-weight:800;letter-spacing:.2em;
+  color:rgba(255,255,255,.62);margin-top:2.5cqw;line-height:1}
+.sachetRule{width:34%;height:1px;margin:3cqw auto;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent)}
+.sachetTier{font-size:var(--tier,15cqw);line-height:.82;font-weight:700;color:#fff;
+  -webkit-text-stroke:.35cqw rgba(0,0,0,.42);
+  text-shadow:0 .5cqw 0 rgba(0,0,0,.42), 0 0 3cqw rgba(255,255,255,.45)}
+.sachetKind{font-size:4.6cqw;font-weight:900;letter-spacing:.34em;
+  color:rgba(255,255,255,.9);margin-top:1.5cqw}
+/* Guarantee ribbon -- the one promise a buyer actually reads. */
+.sachetRibbon{width:100%;padding:2.6cqw 2cqw;border-radius:1.6cqw;
+  background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.28);
+  font-size:3.6cqw;font-weight:900;letter-spacing:.09em;line-height:1.25}
+.sachetCount{font-size:3.2cqw;font-weight:800;letter-spacing:.16em;
+  color:rgba(255,255,255,.72);margin-top:2.4cqw}
+/* Foil seal sticker, top tiers only. Reads as something applied after the
+   bag was printed, which is why it sells "limited" rather than "decorated". */
+.sachetSeal{position:absolute;z-index:8;right:5%;top:2.5%;width:22%;
+  aspect-ratio:1;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;text-align:center;font-size:3.1cqw;font-weight:900;
+  letter-spacing:.04em;line-height:1.05;color:#1a1206;
+  background:conic-gradient(from 0deg,#fff3c4,#ffd35c,#b8860b,#ffe89a,#fff3c4);
+  box-shadow:0 2px 8px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.35) inset;
+  transform:rotate(-9deg)}
+/* Lift on hover/press. Packs are objects; objects respond to being touched. */
+.sachetWrap{transition:transform .28s cubic-bezier(.2,.7,.3,1)}
+.packRow:hover .sachetWrap{transform:translateY(-4px) rotate(-.6deg)}
+.packRow:active .sachetWrap{transform:translateY(-1px) scale(.985)}
+/* Cards fanned behind the sachet, peeking out like contents. */
+.packFan{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.packFan > div{position:absolute;left:50%;top:4%;width:62%;
+  transform-origin:50% 100%;opacity:.85;
+  filter:drop-shadow(0 6px 10px rgba(0,0,0,.6))}
+@media (prefers-reduced-motion: reduce){
+  .sachetHolo,.sachetSweep::before{animation:none !important}
+  .packRow:hover .sachetWrap{transform:none}
+}
 
 /* Rotating card showcase. Three cards at a time, swapped on a timer.
    render() replaces #stage wholesale, so the timer must never hold a
@@ -839,7 +918,7 @@ const state = {
   controlMode: "simple",
   objectivesExpanded: false,
   carousel: {},
-  shop: { phase:"list", selectedPack:null, revealed:null, pendingPick:null, dupeShards:0, landPending:false, packError:"", purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
+  shop: { phase:"list", previewPack:null, selectedPack:null, revealed:null, pendingPick:null, dupeShards:0, landPending:false, packError:"", purchasedPass:null, purchasedExclusive:null, spinItems:[], spinFinalIndex:0, purchasePending:null, purchaseError:"", checkoutNotice:null },
   // Pack prices as the database holds them ({id: cost}), loaded with the
   // catalog. Empty until migration 007 is run, in which case PACKS' own costs
   // stand -- see packCost().
@@ -1865,60 +1944,281 @@ function packExamples(pack){
 }
 
 
+// ---------- pack finishes ----------
+// The material each pack is printed on, keyed by pack id. This is the whole
+// point of the redesign: six packs that differ only in hue read as one object
+// recoloured six times, which is exactly what they looked like. A Bronze is
+// matte board with no foil and no glow; a GOAT is obsidian film under a
+// prismatic wash with a foil seal applied on top.
+// Adding a seventh pack means adding a row here -- packTile() never names a
+// tier, so nothing below has to change.
+//
+//   grain/brush/foil/holo  0..1 opacity of that finish layer
+//   sweep                  0..1 opacity of the travelling specular band
+//   glow                   0..1 outer bloom around the whole sachet
+//   ink                    the dark stop in the tier wordmark's metal gradient
+//   seal                   applied foil sticker text, or null for none
+const PACK_FINISH = {
+  bronze:    {motif:"ball",   set:"STARTER SERIES",  ink:"#4A2C12", grain:.55, brush:0,   foil:0,   holo:0,   sweep:0,   glow:0,   seal:null},
+  silver:    {motif:"boot",   set:"CLUB SERIES",     ink:"#2B3947", grain:0,   brush:.65, foil:.28, holo:0,   sweep:.35, glow:.12, seal:null},
+  gold:      {motif:"trophy", set:"CLUB SERIES",     ink:"#573408", grain:0,   brush:.22, foil:.62, holo:0,   sweep:.6,  glow:.28, seal:null},
+  legendary: {motif:"crest",  set:"ELITE SERIES",    ink:"#38185C", grain:0,   brush:0,   foil:.44, holo:.30, sweep:.75, glow:.5,  seal:"HOLO FOIL"},
+  mythic:    {motif:"flame",  set:"ELITE SERIES",    ink:"#0C2B4C", grain:0,   brush:0,   foil:.46, holo:.42, sweep:.85, glow:.7,  seal:"PRISM"},
+  goat:      {motif:"crown",  set:"IMMORTAL SERIES", ink:"#3D2A02", grain:0,   brush:0,   foil:.52, holo:.50, sweep:1,   glow:1,   seal:"1 OF 500"},
+};
+function packFinish(pack){
+  return PACK_FINISH[pack.id] || PACK_FINISH.bronze;
+}
+
+// Pinked edge for a crimp strip. Real packs are cut with a serrated blade, and
+// a straight edge is the clearest single tell that a pack is a CSS rectangle.
+// A clip-path polygon rather than a mask image: no asset, and it stays crisp
+// at any size.
+const CRIMP_TEETH = 24;
+function crimpClip(bottom){
+  const pts = [];
+  for(let i=0;i<=CRIMP_TEETH;i++){
+    const x = (i*100/CRIMP_TEETH).toFixed(2);
+    const y = i%2 ? 0 : 44;
+    pts.push(x+"% "+(bottom ? 100-y : y)+"%");
+  }
+  pts.push(bottom ? "100% 0%" : "100% 100%");
+  pts.push(bottom ? "0% 0%"   : "0% 100%");
+  return "polygon("+pts.join(",")+")";
+}
+
+// Original crest artwork, drawn in code. One shield/roundel silhouette shared
+// by every tier with a different glyph inside, so the six packs read as one
+// product family -- which is what "same family, rising value" needs. Drawn
+// rather than imported so there is no asset to ship, no licence to check, and
+// no second network request before the shop can paint.
+const PACK_GLYPHS = {
+  ball:   '<circle cx="32" cy="33" r="10.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 24.5l6.6 4.8-2.5 7.8h-8.2l-2.5-7.8z" fill="currentColor"/>',
+  boot:   '<path d="M22 22h7.4v8.2c0 1.7.8 2.7 2.3 3.4l7.5 3.3c2.6 1.2 4.2 3.4 4.2 6.1V44H22z" fill="currentColor"/><path d="M20.5 45.4h25V48h-25z" fill="currentColor" opacity=".8"/><path d="M26 38.6h3.2M31 40.2h3.2" stroke="#000" stroke-opacity=".32" stroke-width="1.6" stroke-linecap="round"/>',
+  trophy: '<path d="M25 23h14v8.5a7 7 0 0 1-14 0z" fill="currentColor"/><path d="M25 25h-3.5a4 4 0 0 0 4 4M39 25h3.5a4 4 0 0 1-4 4" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M30.4 39h3.2v5h-3.2z" fill="currentColor"/><path d="M26 45.5h12V48H26z" fill="currentColor"/>',
+  crest:  '<path d="M32 21l11 4v9c0 7-4.6 12.4-11 14.6C25.6 46.4 21 41 21 34v-9z" fill="currentColor" opacity=".92"/><path d="M32 27.5l2.2 4.7 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7z" fill="#000" opacity=".38"/>',
+  flame:  '<path d="M32 20c5 6.5 3 9.5 6 12.5 2 2 4 1 4 1 1.5 8-3.5 14.5-10 14.5S21 42 22.5 34c0 0 2.6 1.6 4.5-.5 3-3.4-1.5-7 5-13.5z" fill="currentColor"/>',
+  crown:  '<path d="M20 44h24l2.5-16-8 5.5L32 21l-6.5 12.5-8-5.5z" fill="currentColor"/><path d="M20 46.5h24V49H20z" fill="currentColor" opacity=".8"/>',
+};
+function packCrest(pack){
+  const f = packFinish(pack);
+  const glyph = PACK_GLYPHS[f.motif] || PACK_GLYPHS.ball;
+  // Gradient ids must be namespaced per pack: several inline SVGs share one
+  // document, so a bare id="b" makes every crest on the page use the first
+  // one's fill. That exact bug already shipped once on the card-art sheet.
+  const id = "pk" + pack.id;
+  const rays = [];
+  for(let i=0;i<16;i++){
+    rays.push('<path d="M32 32 L33.1 1 L30.9 1 Z" fill="#fff" transform="rotate('+(i*22.5)+' 32 32)"/>');
+  }
+  return '<svg viewBox="0 0 64 64" width="100%" height="100%" aria-hidden="true" focusable="false" style="display:block;color:#fff">'
+    + '<defs><radialGradient id="'+id+'b" cx="50%" cy="46%" r="52%">'
+    + '<stop offset="0%" stop-color="#fff" stop-opacity=".55"/>'
+    + '<stop offset="100%" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>'
+    + '<circle cx="32" cy="32" r="30" fill="url(#'+id+'b)"/>'
+    + '<g opacity=".34">' + rays.join("") + '</g>'
+    + '<circle cx="32" cy="32" r="21" fill="rgba(0,0,0,.30)"/>'
+    + '<circle cx="32" cy="32" r="21" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="1.2"/>'
+    + '<circle cx="32" cy="32" r="24.5" fill="none" stroke="#fff" stroke-opacity=".25" stroke-width=".8"/>'
+    + glyph
+    + '</svg>';
+}
+
+// The floor a pack guarantees, or null if it can still roll the bottom rarity.
+// Read off the weights rather than parsed out of the blurb, so a pack whose
+// odds are retuned in migration 007 cannot end up advertising a promise it no
+// longer keeps.
+function packFloor(pack){
+  const present = RARITY_ORDER.filter(r => (pack.weights[r]||0) > 0);
+  const floor = present[0];
+  return (floor && tierRank(floor) > 0) ? floor : null;
+}
+
+// The sachet itself -- the sellable object. Pure presentation: it reads pack
+// config and nothing else, so the same function serves the shop row, the
+// preview modal and the opening animation without a second implementation
+// drifting out of sync with this one.
+function packSachet(pack){
+  const f = packFinish(pack);
+  const floor = packFloor(pack);
+  // A guaranteed floor is the strongest thing a pack can promise, so it wins
+  // the ribbon; otherwise show the realistic ceiling, which is the number that
+  // actually separates a Bronze from a GOAT. Kept to three words either way --
+  // the full blurb wrapped to four cramped lines in here.
+  const ribbon = floor
+    ? "GUARANTEED " + RARITY[floor].label + "+"
+    : "UP TO " + RARITY[packBands(pack).realistic.rarity].label;
+  const tierWord = pack.name.replace(/\s*pack\s*$/i,"").toUpperCase();
+  // Long names have to come down in size or LEGENDARY overruns the bag. 84 is
+  // the width of the print area in container units, divided by the word.
+  const tierSize = Math.min(16, Math.round(84 / Math.max(tierWord.length, 4)));
+  const vars = "--p1:"+pack.grad[0]+";--p2:"+pack.grad[1]+";--ink:"+f.ink
+    + ";--grain:"+f.grain+";--brush:"+f.brush+";--foil:"+f.foil
+    + ";--holo:"+f.holo+";--sweep:"+f.sweep+";--tier:"+tierSize+"cqw";
+  const bloomAlpha = Math.round(f.glow*150).toString(16).padStart(2,"0");
+  const bloom = f.glow > 0
+    ? "filter:drop-shadow(0 0 "+Math.round(10+f.glow*22)+"px "+pack.glow+bloomAlpha+");"
+    : "";
+  return '<div class="sachetWrap" style="'+vars+";"+bloom+'">'
+    + '<div class="sachet">'
+      + '<div class="sachetLayer sachetBody"></div>'
+      + '<div class="sachetLayer sachetCurve"></div>'
+      + '<div class="sachetLayer sachetGrain"></div>'
+      + '<div class="sachetLayer sachetBrush"></div>'
+      + '<div class="sachetLayer sachetFoil"></div>'
+      + '<div class="sachetLayer sachetHolo"></div>'
+      + '<div class="sachetLayer sachetSweep"></div>'
+      + '<div class="sachetLayer sachetPrint">'
+        + '<div>'
+          + '<div class="sachetBrand">TCG MANAGER</div>'
+          + '<div class="sachetRule"></div>'
+          + '<div class="sachetSet">'+esc(f.set)+'</div>'
+        + '</div>'
+        + '<div style="width:54%;margin:0 auto">'+packCrest(pack)+'</div>'
+        + '<div>'
+          + '<div class="sachetTier display">'+esc(tierWord)+'</div>'
+          + '<div class="sachetKind">PACK</div>'
+        + '</div>'
+        + '<div style="width:100%">'
+          + '<div class="sachetRibbon">'+esc(ribbon)+'</div>'
+          + '<div class="sachetCount">1 PLAYER CARD</div>'
+        + '</div>'
+      + '</div>'
+      + '<div class="sachetCrimp t" style="clip-path:'+crimpClip(false)+'"></div>'
+      + '<div class="sachetCrimp b" style="clip-path:'+crimpClip(true)+'"></div>'
+      + '<div class="sachetNotch"></div>'
+      + (f.seal ? '<div class="sachetSeal">'+esc(f.seal)+'</div>' : '')
+    + '</div>'
+  + '</div>';
+}
+
+// Shop row: the pack object is the hero on the left, the numbers that decide a
+// purchase sit on the right, the action spans the full width underneath.
+// Previously the three sample cards were the loudest thing in the tile and the
+// pack was a coloured strip above them, so the product was framing other art
+// instead of being the product. The sample cards moved into the preview modal,
+// which is also where the full odds table lives -- six tiles each carrying
+// three cards made the shop a wall of other people's faces.
 function packTile(pack){
   const cost = packCost(pack);
   const { odds, modal, realistic, jackpot } = packBands(pack);
-  const examples = packExamples(pack);
   const afford = state.gems >= cost && state.shop.phase === "list";
+  const short = state.gems < cost;
   const fmt = (n)=> n < 1 ? n.toFixed(2) : n.toFixed(0);
-  // Sheen and animation step up with the pack's own ceiling, so a GOAT pack
-  // looks like a more expensive object than a Bronze rather than just a
-  // differently coloured one.
-  const tier = tierRank(realistic.rarity);
-  const sheen = (0.36 + tier * 0.07).toFixed(2);
-  const elite = tier >= tierRank("Legendary") ? " elite" : "";
-  return `<div class="panel packTile${elite}" style="padding:0;border:1px solid ${pack.glow}66;background:${COLORS.panel};--sheen:${sheen}">
-    <div class="packHead row between" style="align-items:center;gap:10px;padding:13px 14px;background:linear-gradient(120deg, ${pack.grad[0]}, ${pack.grad[1]})">
-      <span class="packEdge t"></span><span class="packEdge b"></span>
-      <div class="row" style="gap:10px;align-items:center;min-width:0">
-        <span style="font-size:28px;flex-shrink:0">${pack.icon}</span>
-        <div style="min-width:0">
-          <div style="font-weight:900;font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${pack.name}</div>
-          <div style="font-size:9px;font-weight:800;letter-spacing:.08em;color:#ffffffdd">CONTAINS 1 PLAYER CARD</div>
-        </div>
+  const f = packFinish(pack);
+  const bands = [
+    {label:"USUALLY",  o:modal},
+    {label:"IF LUCKY", o:realistic},
+    {label:"JACKPOT",  o:jackpot},
+  ].filter((b,i,a)=> i===0 || b.o.rarity !== a[i-1].o.rarity);
+
+  return `<div class="panel packRow" style="padding:14px;border:1px solid ${pack.glow}55;
+    background:radial-gradient(120% 90% at 8% 0%, ${pack.glow}1A, transparent 60%), ${COLORS.panel}">
+    <div class="row" style="gap:14px;align-items:stretch">
+
+      <div role="button" tabindex="0" data-action="preview-pack" data-pack-id="${pack.id}"
+        aria-label="Preview ${esc(pack.name)}"
+        style="flex:0 0 44%;max-width:172px;cursor:pointer;border-radius:6px">
+        ${packSachet(pack)}
       </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:8px;color:#ffffffcc;letter-spacing:.08em">USUALLY</div>
-        <div style="font-size:11px;font-weight:900;color:#fff">${RARITY[modal.rarity].label}</div>
+
+      <div class="col" style="flex:1;min-width:0;justify-content:space-between;gap:10px">
+        <div>
+          <div style="font-size:9px;font-weight:800;letter-spacing:.16em;color:${pack.glow}">${esc(f.set)}</div>
+          <div class="display" style="font-size:21px;line-height:1.05;color:${COLORS.cream};margin-top:1px">${esc(pack.name)}</div>
+          <div style="font-size:10px;color:${COLORS.muted};margin-top:4px;line-height:1.35">${esc(pack.blurb)}</div>
+        </div>
+
+        <div class="col" style="gap:5px">
+          ${bands.map(b=>`<div class="row between" style="align-items:center;gap:8px">
+            <span style="font-size:8px;letter-spacing:.12em;color:${COLORS.muted};flex-shrink:0">${b.label}</span>
+            <span class="row" style="gap:6px;align-items:center;min-width:0">
+              <span style="width:6px;height:6px;border-radius:50%;background:${b.o.color};flex-shrink:0"></span>
+              <span style="font-size:10px;font-weight:900;color:${b.o.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${RARITY[b.o.rarity].label}</span>
+              <span style="font-size:9px;color:${COLORS.muted};flex-shrink:0">${fmt(b.o.pct)}%</span>
+            </span>
+          </div>`).join("")}
+        </div>
+
+        <div>
+          <div class="row" style="gap:2px;height:7px;border-radius:999px;overflow:hidden;background:${COLORS.bg}">
+            ${odds.map(o=>`<div title="${o.rarity} ${fmt(o.pct)}%" style="width:${Math.max(o.pct,1.4)}%;background:${o.color}"></div>`).join("")}
+          </div>
+          <div data-action="preview-pack" data-pack-id="${pack.id}" role="button" tabindex="0"
+            style="font-size:9px;font-weight:800;letter-spacing:.1em;color:${pack.glow};margin-top:7px;cursor:pointer">
+            SEE WHAT'S INSIDE →
+          </div>
+        </div>
       </div>
     </div>
 
-    <div style="padding:12px 14px">
-      ${examples.length ? `<div class="row" style="gap:8px;margin-bottom:12px">
-        ${examples.map(c=>`<div style="flex:1;min-width:0">${playerCard(c,{mode:"showcase"})}</div>`).join("")}
+    <button data-action="open-pack" data-pack-id="${pack.id}" ${afford?"":"disabled"}
+      aria-label="Open ${esc(pack.name)} for ${cost} gems"
+      class="btn scrimtap wfull row center" style="gap:6px;margin-top:12px;padding:12px 0;font-size:12px;font-weight:900;letter-spacing:.04em;
+      background:${afford?`linear-gradient(120deg, ${pack.grad[0]}, ${pack.grad[1]})`:COLORS.panelLight};
+      color:${afford?"#0b1220":COLORS.muted};opacity:${afford?1:0.7}">
+      ${icon("Gem",13,afford?"#0b1220":COLORS.muted)} ${cost} ${afford?"— OPEN PACK":(short?"— NOT ENOUGH GEMS":"")}
+    </button>
+  </div>`;
+}
+
+// Preview state. The pack at full size, every rarity it can produce with its
+// real percentage, and three cards from the pool it draws on -- the questions
+// a buyer actually has before spending 7500 gems, none of which fit in a tile.
+function packPreviewModal(){
+  const pack = PACKS.find(p=>p.id===state.shop.previewPack);
+  if(!pack) return "";
+  const { odds } = packBands(pack);
+  const examples = packExamples(pack);
+  const cost = packCost(pack);
+  const afford = state.gems >= cost;
+  const f = packFinish(pack);
+  const fmt = (n)=> n < 1 ? n.toFixed(2) : n.toFixed(0);
+  return `<div class="overlayFull" data-action="close-pack-preview" style="background:
+    radial-gradient(circle at 50% 26%, ${pack.glow}33, transparent 62%), rgba(3,7,14,.96);
+    align-items:center;overflow-y:auto;padding:22px 16px">
+    <div class="col" style="gap:16px;width:100%;max-width:420px;margin:auto" onclick="event.stopPropagation()">
+      <div class="row between" style="align-items:center">
+        <div>
+          <div style="font-size:9px;font-weight:800;letter-spacing:.16em;color:${pack.glow}">${esc(f.set)}</div>
+          <div class="display" style="font-size:26px;line-height:1;color:${COLORS.cream}">${esc(pack.name)}</div>
+        </div>
+        <button data-action="close-pack-preview" class="btn scrimtap" aria-label="Close preview"
+          style="padding:8px;background:${COLORS.panelLight};color:${COLORS.cream}">${icon("X",16,COLORS.cream)}</button>
+      </div>
+
+      <div style="width:62%;max-width:220px;margin:0 auto">${packSachet(pack)}</div>
+
+      <div class="panel" style="padding:13px">
+        <div style="font-size:10px;font-weight:800;letter-spacing:.12em;color:${COLORS.muted};margin-bottom:9px">EVERY RARITY, REAL ODDS</div>
+        <div class="col" style="gap:5px">
+          ${odds.slice().reverse().map(o=>`<div class="row between" style="align-items:center;gap:10px">
+            <span class="row" style="gap:7px;align-items:center;min-width:0">
+              <span style="width:7px;height:7px;border-radius:50%;background:${o.color};flex-shrink:0"></span>
+              <span style="font-size:11px;font-weight:800;color:${o.color}">${RARITY[o.rarity].label}</span>
+            </span>
+            <span class="row" style="gap:8px;align-items:center;flex:1;min-width:0;justify-content:flex-end">
+              <span style="flex:1;max-width:120px;height:5px;border-radius:999px;background:${COLORS.bg};overflow:hidden">
+                <span style="display:block;height:100%;width:${Math.max(o.pct,1)}%;background:${o.color}"></span>
+              </span>
+              <span style="font-size:10px;font-weight:700;color:${COLORS.muted};min-width:38px;text-align:right">${fmt(o.pct)}%</span>
+            </span>
+          </div>`).join("")}
+        </div>
+      </div>
+
+      ${examples.length ? `<div>
+        <div style="font-size:10px;font-weight:800;letter-spacing:.12em;color:${COLORS.muted};margin-bottom:8px">CARDS THIS PACK DRAWS FROM</div>
+        <div class="row" style="gap:9px">
+          ${examples.map(c=>`<div style="flex:1;min-width:0">${playerCard(c,{mode:"showcase"})}</div>`).join("")}
+        </div>
       </div>` : ""}
 
-      <div class="row" style="gap:2px;height:9px;border-radius:999px;overflow:hidden;margin-bottom:8px;background:${COLORS.bg}">
-        ${odds.map(o=>`<div title="${o.rarity} ${fmt(o.pct)}%" style="width:${Math.max(o.pct,1.4)}%;background:${o.color}"></div>`).join("")}
-      </div>
-
-      <div class="row" style="gap:6px;margin-bottom:12px">
-        ${[
-          {label:"USUALLY", o:modal},
-          {label:"IF LUCKY", o:realistic},
-          {label:"JACKPOT", o:jackpot},
-        ].filter((b,i,a)=> i===0 || b.o.rarity !== a[i-1].o.rarity)
-         .map(b=>`<div style="flex:1;min-width:0;text-align:center;padding:6px 4px;border-radius:10px;background:${COLORS.bg};border:1px solid ${b.o.color}44">
-            <div style="font-size:7px;letter-spacing:.1em;color:${COLORS.muted}">${b.label}</div>
-            <div style="font-size:9px;font-weight:900;color:${b.o.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${RARITY[b.o.rarity].label}</div>
-            <div style="font-size:8px;color:${COLORS.muted}">${fmt(b.o.pct)}%</div>
-          </div>`).join("")}
-      </div>
-
       <button data-action="open-pack" data-pack-id="${pack.id}" ${afford?"":"disabled"}
-        class="btn scrimtap wfull row center" style="gap:6px;padding:11px 0;font-size:12px;font-weight:900;
-        background:${afford?pack.glow:COLORS.panelLight};color:${afford?"#0b1220":COLORS.muted};opacity:${afford?1:0.75}">
-        ${icon("Gem",13,afford?"#0b1220":COLORS.muted)} ${cost} ${afford?"— OPEN PACK":(state.gems<cost?"— NOT ENOUGH GEMS":"")}
+        class="btn scrimtap wfull row center" style="gap:6px;padding:14px 0;font-size:13px;font-weight:900;letter-spacing:.04em;
+        background:${afford?`linear-gradient(120deg, ${pack.grad[0]}, ${pack.grad[1]})`:COLORS.panelLight};
+        color:${afford?"#0b1220":COLORS.muted};opacity:${afford?1:0.7}">
+        ${icon("Gem",14,afford?"#0b1220":COLORS.muted)} ${cost} ${afford?"— OPEN PACK":"— NOT ENOUGH GEMS"}
       </button>
     </div>
   </div>`;
@@ -1928,6 +2228,7 @@ function shopView(){
   const s = state.shop;
   const lockedCount = state.players.filter(p=>!p.owned && !p.exclusive && p.active!==false).length;
   let overlay = "";
+  if(s.phase==="list" && s.previewPack) overlay = packPreviewModal();
   if(s.phase==="revealed" && s.selectedPack && s.revealed){
     const card = s.revealed;
     const rarityColor = RARITY[card.rarity].color;
@@ -4014,6 +4315,7 @@ document.getElementById("stage").addEventListener("click", function(e){
       const s = state.shop;
       const cost = packCost(pack);
       if(state.gems<cost || s.phase!=="list") break;
+      s.previewPack = null;
       playWhoosh();
       // Optimistic, and deliberately NOT declared to auth.js with
       // noteProfileWrite: during the in-flight window applyProfileRow's merge
@@ -4077,6 +4379,13 @@ document.getElementById("stage").addEventListener("click", function(e){
         refreshGameState();
       }, 12000);
       break;
+    }
+    case "preview-pack": {
+      if(state.shop.phase !== "list") break;
+      state.shop.previewPack = el.dataset.packId; render(); break;
+    }
+    case "close-pack-preview": {
+      state.shop.previewPack = null; render(); break;
     }
     case "close-reveal": {
       const s = state.shop; s.phase="list"; s.revealed=null; s.pendingPick=null; s.selectedPack=null; s.dupeShards=0; s.packError=""; s.spinItems=[]; render(); break;
