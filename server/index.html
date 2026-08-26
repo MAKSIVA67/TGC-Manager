@@ -324,6 +324,75 @@ input,textarea{font-family:inherit;font-size:16px}
 .pill{display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:12px;background:var(--panel)}
 .view{padding:14px 16px calc(100px + env(safe-area-inset-bottom))}
 .cardTile{position:relative;border-radius:16px;padding:12px 12px 12px 16px;text-align:left;width:100%;background:var(--panel);border-top:1px solid var(--panelLight);border-right:1px solid var(--panelLight);border-bottom:1px solid var(--panelLight);}
+
+/* ---- The card itself -------------------------------------------------
+   A player card is the product this whole game sells, and until now it was a
+   rounded panel with a rating chip floating in the middle of it -- an app
+   icon, not a card. Everything below is the frame the game draws over the
+   portrait: rating and position top-left, name plate along the bottom, and a
+   FINISH that steps up by tier.
+
+   The finish ladder is deliberately the same one the packs use -- matte board,
+   brushed metal, polished foil, prismatic -- so a Legendary pack and a
+   Legendary card are recognisably the same material. Tiers separated only by
+   hue read as one object recoloured ten times.
+
+   Sized in cqw throughout because the same card is rendered at 74px wide in a
+   trade list and 380px wide in the detail modal, and a breakpoint per size is
+   not a thing worth maintaining. */
+/* The container is a WRAPPER, not the card. An element cannot query itself:
+   cqw used on the container element resolves against the next container out,
+   or the viewport when there is none -- so the card's own radius and border
+   were being sized off the window. At 412px that happened to look right; in
+   landscape it turned every card into a fat-ringed pill. */
+.pcardWrap{container-type:inline-size;position:relative;width:100%}
+.pcard{position:relative;width:100%;aspect-ratio:842/1191;
+  border-radius:4.4cqw;overflow:hidden;padding:0;text-align:left;isolation:isolate;
+  background:var(--bg);border:0.6cqw solid var(--rc);box-shadow:0 1.6cqw 4cqw rgba(0,0,0,.45)}
+.pcardArt{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+/* Keeps the name plate legible over a light kit without dimming the face. */
+.pcardShade{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(3,7,14,.5) 0%,transparent 24%,transparent 62%,rgba(3,7,14,.55) 78%,rgba(3,7,14,.88) 100%)}
+.pcardFoil{position:absolute;inset:0;pointer-events:none}
+.pcard[data-band="1"] .pcardFoil{background:linear-gradient(104deg,transparent 34%,rgba(255,255,255,.10) 47%,transparent 60%)}
+.pcard[data-band="2"] .pcardFoil{background:linear-gradient(104deg,transparent 30%,rgba(255,255,255,.20) 46%,transparent 62%);
+  animation:pcardSweep 3.4s ease-in-out infinite}
+.pcard[data-band="3"] .pcardFoil{background:
+  conic-gradient(from 200deg at 50% 40%,var(--rc)44,transparent 22%,rgba(255,255,255,.22) 44%,transparent 66%,var(--rc)44),
+  linear-gradient(104deg,transparent 32%,rgba(255,255,255,.26) 46%,transparent 60%);
+  mix-blend-mode:screen;opacity:.62;animation:pcardSweep 2.6s ease-in-out infinite}
+@keyframes pcardSweep{0%,100%{transform:translateX(-16%)}50%{transform:translateX(16%)}}
+/* Corner brackets, from Legendary up. Two L-shapes at opposite corners, not a
+   full second frame -- an inset rectangle just reads as a thicker border. */
+.pcardCorner{display:none}
+.pcard[data-band="2"] .pcardCorner,.pcard[data-band="3"] .pcardCorner{display:block;position:absolute;inset:0;pointer-events:none}
+.pcardCorner::before,.pcardCorner::after{content:"";position:absolute;width:16cqw;height:16cqw;border:0.7cqw solid var(--rc);opacity:.85}
+.pcardCorner::before{top:2.2cqw;left:2.2cqw;border-right:0;border-bottom:0;border-radius:2.6cqw 0 0 0}
+.pcardCorner::after{bottom:2.2cqw;right:2.2cqw;border-left:0;border-top:0;border-radius:0 0 2.6cqw 0}
+.pcardRate{position:absolute;top:3.4cqw;left:3.6cqw;display:flex;flex-direction:column;align-items:center;
+  padding:1.6cqw 2.2cqw 1.8cqw;border-radius:2.6cqw;background:rgba(3,7,14,.62);
+  border:0.4cqw solid var(--rc);backdrop-filter:blur(2px)}
+.pcardNum{font-family:'Teko',system-ui,sans-serif;font-weight:700;font-size:15cqw;line-height:.92;color:var(--rc);
+  text-shadow:0 0.4cqw 1.2cqw rgba(0,0,0,.7)}
+.pcardPos{font-size:4.2cqw;font-weight:900;letter-spacing:.12em;color:#F3F6FA;opacity:.86;margin-top:0.4cqw}
+.pcardLv{position:absolute;top:3.4cqw;right:3.6cqw;padding:1cqw 2.2cqw;border-radius:99cqw;
+  background:var(--gold);color:var(--bg);font-size:4cqw;font-weight:900;letter-spacing:.04em}
+.pcardReady{position:absolute;top:3.6cqw;right:3.8cqw;width:3.4cqw;height:3.4cqw;border-radius:50%;
+  background:var(--turf);box-shadow:0 0 2.4cqw var(--turf);animation:pulseLive 1.4s ease-in-out infinite}
+.pcardPlate{position:absolute;left:0;right:0;bottom:0;padding:2.6cqw 3.4cqw 3.2cqw}
+.pcardName{font-family:'Teko',system-ui,sans-serif;font-size:8.6cqw;line-height:1.05;font-weight:900;letter-spacing:.01em;
+  color:#F3F6FA;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0.4cqw 1.4cqw rgba(0,0,0,.8)}
+.pcardTier{display:flex;align-items:center;gap:1.8cqw;margin-top:1.2cqw;
+  font-size:4cqw;font-weight:900;letter-spacing:.14em;color:var(--rc)}
+.pcardTier::before{content:"";width:6cqw;height:0.7cqw;border-radius:99cqw;background:var(--rc)}
+/* Not collected yet: keep the silhouette, lose the person. The shape still
+   varies card to card, so the index reads as a collection with gaps in it
+   rather than a grid of identical grey boxes. */
+.pcard.pcardLocked{border-color:var(--panelLight);box-shadow:none}
+.pcard.pcardLocked .pcardArt{filter:grayscale(1) brightness(.28) contrast(.85);opacity:.9}
+.pcard.pcardLocked .pcardName,.pcard.pcardLocked .pcardNum{color:var(--muted)}
+.pcardLock{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.pcardFoil{animation:none!important}}
 .badge{font-size:9px;font-weight:800;letter-spacing:.08em;padding:2px 8px;border-radius:999px}
 .avatarCircle{display:flex;align-items:center;justify-content:center;border-radius:999px}
 .modalWrap{position:fixed;inset:0;z-index:40;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.6);opacity:1;transition:opacity 200ms ease-out}
@@ -462,6 +531,7 @@ input,textarea{font-family:inherit;font-size:16px}
      cached lib/game-data.js -- a mixed pair that is broken in ways neither file
      is on its own, and exactly the hazard a paired client + migration change
      like 007 creates. -->
+<script src="lib/card-art.js?v=8"></script>
 <script src="lib/supabase-client.js?v=8"></script>
 <script src="lib/auth.js?v=8"></script>
 <script src="lib/game-data.js?v=8"></script>
@@ -1127,11 +1197,18 @@ function tabBar(){
       </button>`).join("")}
   </div></div>`;
 }
-// Foil trading-card treatment -- diagonal rarity-tinted gradient, a position
-// watermark for texture (no player photos, see the "no photos, foil design
-// only" decision), a big power-rating badge, and a foil sheen sweep that
-// only animates for Legendary+ so a full grid of these doesn't turn into a
-// wall of simultaneous motion.
+// The card treatment. A card is a procedural portrait (lib/card-art.js) inside
+// a frame the game draws: rating and position top-left, name plate along the
+// bottom, and a finish that steps up by tier.
+//
+// The "no photos, foil design only" decision it replaces is still true about
+// PHOTOS -- the roster is fictional and real player pictures would be both a
+// rights problem and a mismatch with the names -- but the conclusion drawn
+// from it, a rarity-tinted gradient with a position letter watermarked on it,
+// meant every card in the game was the same tile in a different colour.
+//
+// Sheen only animates for Legendary+, so a full grid does not turn into a wall
+// of simultaneous motion.
 const POSITION_GLYPH = {GK:"GK",DEF:"DF",MID:"MF",FWD:"FW"};
 // Aspect ratio of the card art template Maksim generates images against --
 // matches that layout exactly so uploaded art is never stretched/cropped
@@ -1199,6 +1276,43 @@ function playerCard(p, opts){
     ${readyToTrain ? `<div style="position:absolute;top:7px;right:7px;z-index:3;width:11px;height:11px;border-radius:50%;background:${COLORS.turf};box-shadow:0 0 10px ${COLORS.turf};animation:pulseLive 1.4s ease-in-out infinite"></div>` : ""}`;
   const disabled = opts.disabled ? "disabled" : "";
   const selectedOutline = opts.selected ? `;outline:3px solid ${COLORS.gold};outline-offset:-3px` : "";
+  // Cards with no uploaded art get a procedural portrait (lib/card-art.js)
+  // inside the game's own frame. That frame is where the name and the rating
+  // live, so it cannot be baked into the picture: training moves a card's
+  // power by up to +10, and a printed rating would start lying the first time
+  // anyone trained anything.
+  if(!hasImage && !locked && typeof cardPortraitURI === "function"){
+    const fxa = rarityFx(p.rarity);
+    // A grid tile is ~90px wide, where 26 bokeh circles and an eye highlight
+    // cost DOM and give back nothing.
+    const detail = opts.mode === "showcase" ? "full" : "thumb";
+    const lv = p.level > 0 ? `<div class="pcardLv">LV ${p.level}</div>` : "";
+    const ready = readyToTrain ? `<div class="pcardReady"></div>` : "";
+    return `<div class="pcardWrap"><button ${clickAttr} ${disabled} class="pcard scrimtap" style="--rc:${rarity.color}${opts.disabled?";pointer-events:none":""}${selectedOutline}" data-band="${fxa.band}">
+      <img class="pcardArt" src="${cardPortraitURI(p,{detail})}" alt="" />
+      <div class="pcardShade"></div>
+      <div class="pcardFoil"></div>
+      ${fxa.band >= 2 ? `<div class="pcardCorner"></div>` : ""}
+      <div class="pcardRate"><span class="pcardNum">${p.power}</span><span class="pcardPos">${p.position}</span></div>
+      ${lv || ready}
+      <div class="pcardPlate">
+        <div class="pcardName">${esc(p.name)}</div>
+        <div class="pcardTier">${rarity.label}</div>
+      </div>
+    </button></div>`;
+  }
+  if(locked && typeof cardPortraitURI === "function"){
+    return `<div class="pcardWrap"><button ${clickAttr} ${disabled} class="pcard pcardLocked scrimtap" style="--rc:${COLORS.panelLight}" data-band="0">
+      <img class="pcardArt" src="${cardPortraitURI(p,{detail:"thumb"})}" alt="" />
+      <div class="pcardShade"></div>
+      <div class="pcardLock">${icon("Lock",22,COLORS.muted)}</div>
+      <div class="pcardRate"><span class="pcardNum">?</span><span class="pcardPos">${p.position}</span></div>
+      <div class="pcardPlate">
+        <div class="pcardName">Locked</div>
+        <div class="pcardTier" style="--rc:${COLORS.muted};color:${COLORS.muted}">${rarity.label}</div>
+      </div>
+    </button></div>`;
+  }
   // Most of the ~200 cards have no uploaded art, so without this every one of
   // them was the same foil with a different letter on it -- which rather
   // defeats the point of collecting. The treatment now steps up by tier so a
@@ -2324,13 +2438,19 @@ function shopView(){
         ${bigPull ? `<div class="woFlash"></div>` : ""}
         ${isLegendary ? `<div class="display woName" style="font-size:22px;color:${rarityColor};margin-bottom:10px;text-align:center;position:relative">⚡ ${RARITY[card.rarity].label} PULL ⚡</div>` : ""}
         <div class="col center" style="align-items:center;position:relative">
-          <div class="woCard ${bigPull?"woHalo":""}" style="width:200px;padding:26px 18px;border-radius:16px;background:${fx2.bg(rarityColor)};border:4px solid ${rarityColor};box-shadow:0 0 ${bigPull?80:40}px ${rarityColor}aa;text-align:center;overflow:hidden;position:relative">
-            ${fx2.sweep ? `<div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.38) 50%,transparent 58%);animation:shineSweep ${fx2.sweep}s ease-in-out infinite ${bigPull?"1.2s":"0s"}"></div>` : ""}
-            ${(isLegendary||isHighTier(card.rarity)) ? `<div style="margin-bottom:6px">${icon("Sparkles",20,rarityColor)}</div>` : ""}
-            <div class="avatarCircle" style="width:80px;height:80px;font-weight:900;font-size:26px;background:${rarityColor};color:${COLORS.bg};margin:0 auto 10px">${card.power}</div>
-            <div class="display" style="font-size:19px;color:${COLORS.cream}">${esc(card.name)}</div>
-            <div style="font-size:11px;font-weight:700;color:${COLORS.muted};margin-top:2px">${card.position}</div>
-            <div style="font-weight:900;font-size:11px;letter-spacing:.12em;color:${rarityColor};margin-top:6px">${RARITY[card.rarity].label}</div>
+          <!-- The card you just pulled, actual size, not a summary of it. This
+               used to be a rating in a yellow circle with the name under it --
+               the one screen in a pack-opening game where the product has to
+               be the whole point, and it showed everything except the card.
+               pointer-events:none, because it is a <button> underneath, and
+               tapping your prize should not open a second copy of it over the
+               reveal. Two nested elements because .woCard and .woHalo both set an
+               animation: on one element the halo won and the card never rose
+               out of the beam, which is the entire choreography. -->
+          <div class="woCard" style="width:min(62vw,236px);filter:drop-shadow(0 0 ${bigPull?46:24}px ${rarityColor}aa)">
+            <div class="${bigPull?"woHalo":""}" style="pointer-events:none">
+              ${playerCard(card,{mode:"showcase"})}
+            </div>
           </div>
           ${s.dupeShards ? `<div style="margin-top:12px;text-align:center;animation:riseIn .7s var(--ease-out-strong) both">
             <div style="font-size:11px;font-weight:800;letter-spacing:.12em;color:${COLORS.muted}">ALREADY IN YOUR COLLECTION</div>
@@ -2619,9 +2739,9 @@ function playView(){
       <div class="modalSheet" data-action="noop">
         <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">Choose your ${slot.label}</div><button data-action="close-modal" data-modal="active" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
         ${pl.myLineup[slot.id] ? `<button data-action="remove-slot" data-slot-id="${slot.id}" class="btn scrimtap wfull" style="padding:10px;margin-bottom:12px;font-size:13px;background:${COLORS.danger}22;color:${COLORS.danger}">Remove current player</button>` : ""}
-        <div class="grid2">
+        <div class="grid3">
           ${options.map(p=>playerCard(p,{mode:"select",action:"assign-player",disabled:false})).join("")}
-          ${options.length===0 ? `<div style="grid-column:1/3;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No available ${slot.position} cards. Try the Shop!</div>` : ""}
+          ${options.length===0 ? `<div style="grid-column:1/4;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No available ${slot.position} cards. Try the Shop!</div>` : ""}
         </div>
       </div>
     </div>`;
@@ -2632,9 +2752,9 @@ function playView(){
     modals += `<div class="modalWrap" data-action="close-modal" data-modal="sub">
       <div class="modalSheet" data-action="noop">
         <div class="row between" style="margin-bottom:12px"><div style="font-weight:900;color:${COLORS.cream}">Sub in a ${slot.position}</div><button data-action="close-modal" data-modal="sub" style="background:none;border:none;color:${COLORS.muted}">${icon("X",18,COLORS.muted)}</button></div>
-        <div class="grid2">
+        <div class="grid3">
           ${bench.map(p=>playerCard(p,{mode:"select",action:"sub-player"})).join("")}
-          ${bench.length===0 ? `<div style="grid-column:1/3;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No bench ${slot.position} available.</div>` : ""}
+          ${bench.length===0 ? `<div style="grid-column:1/4;text-align:center;padding:16px 0;font-size:13px;color:${COLORS.muted}">No bench ${slot.position} available.</div>` : ""}
         </div>
       </div>
     </div>`;

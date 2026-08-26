@@ -1,54 +1,34 @@
-# Card art generator
+# Card art
 
-83 of the 103 cards had no picture. This fills every one of them without an
-upload, the same way the club crests already work: everything about a portrait
-is derived from a hash of that card's own name, so a card always looks the
-same, no two look alike, and nothing has to be drawn by hand.
+**The generator moved into the game: `server/lib/card-art.js`.**
 
-Deliberately a flat vector portrait rather than an attempt at realism —
-stylised reads as a design choice, near-realism reads as a bad photo. Kit
-colour, skin tone, hair style and colour, and a slight head tilt all vary;
-goalkeepers get a dark strip so they are identifiable at a glance; the
-background is tinted by rarity, so a wall of cards shows the tiers as a colour
-progression.
+It used to live here as an offline renderer that produced 83 PNGs to be bulk
+uploaded by hand through the Admin tab. That upload never happened, so for
+every player the game still showed the old placeholder tile. Worse, the design
+guaranteed it would happen again: any improvement to the portraits meant
+re-rendering and re-uploading all 83 files.
 
-**These are a floor, not a ceiling.** Real illustration or generated portraits
-would look better. This exists so the game never ships with blank cards, and so
-any card can be replaced individually later without touching the rest.
+Now `window.cardPortraitURI(card)` builds the portrait in the browser, from a
+hash of the card's own name and id. A card always looks the same, no two look
+alike, a brand new card has art the moment it exists, and improving the
+generator improves every card at once with a push.
 
-## Regenerating
+## What still applies
 
-```
-cd server/tools/card-art
-npm install puppeteer-core        # if not already available
-node render.js
-```
+- **The roster is FICTIONAL** ("Cristiano Golden Boot", "Edson Black Pearl").
+  Do NOT swap these portraits for photographs of real players -- that is a
+  rights problem in a game that takes money, and the faces would not match the
+  names anyway.
+- **Uploaded art still wins.** `playerCard()` uses `image_url` when a card has
+  one and draws no frame over it, on the assumption that uploaded art is a
+  finished card carrying its own name and rating. The procedural path is only
+  for cards with `image_url` null.
+- **The bulk uploader is unaffected** (`bulkUploadCardImages` in
+  `lib/admin-api.js`) -- it maps files by POSITION among active cards ordered
+  by id, so row N needs a file called `N.png`, not the card's id.
 
-Output lands in `out/`, named by FILE NUMBER — which is the card's position in
-the list of active cards ordered by id, because that is what the bulk uploader
-in the Admin tab matches on. It is NOT the card id.
+## Changing how portraits look
 
-`cards.tsv` is the list that needed art at the time of writing. To rebuild it:
-
-```sql
-select * from (
-  select row_number() over (order by id) as file_number,
-         id, name, position, rarity, image_url
-  from public.cards
-  where active is not false
-) s
-where image_url is null
-order by file_number;
-```
-
-## Uploading
-
-Admin tab → bulk upload → select every PNG at once. It uploads them one at a
-time and makes the thumbnails itself.
-
-## Watch out
-
-The names in this game are riffs on real footballers ("Cristiano Golden Boot",
-"Edson Black Pearl"). The names are legally distinct, but do NOT swap these for
-photographs of the real players — that is a rights problem in a game that takes
-money, and the faces would not match the names anyway.
+Edit `server/lib/card-art.js` and reload. Nothing to rebuild, nothing to
+upload. `portrait(card, {detail:"thumb"})` is the cheaper variant used for grid
+tiles; `"full"` is used where the card is the subject of the screen.
