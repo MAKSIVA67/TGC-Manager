@@ -96,13 +96,37 @@ input,textarea{font-family:inherit;font-size:16px}
    rebuilt every time a notification arrived. Container query units (cqw) make
    the printed matter scale with the pack instead of needing a breakpoint per
    size. */
-.sachetWrap{container-type:inline-size;position:relative;width:100%}
+.sachetWrap{container-type:inline-size;position:relative;width:100%;perspective:1000px}
+/* The pack is standing on something. Without this it floats in a void, which
+   is most of why a flat render reads as a sticker. */
+.sachetWrap::after{content:"";position:absolute;left:9%;right:9%;bottom:-4.5%;height:6%;
+  border-radius:50%;pointer-events:none;z-index:-1;filter:blur(5px);
+  background:radial-gradient(50% 50% at 50% 50%, rgba(0,0,0,.72), rgba(0,0,0,0) 72%)}
 .sachet{position:relative;width:100%;padding-top:134%;border-radius:6px;
   overflow:hidden;isolation:isolate;
-  box-shadow:0 16px 34px -10px rgba(0,0,0,.8), 0 3px 8px rgba(0,0,0,.55),
+  transform:rotateY(-7deg) rotateX(1.2deg);transform-origin:50% 62%;
+  transition:transform .34s cubic-bezier(.2,.7,.3,1);
+  box-shadow:14px 20px 38px -12px rgba(0,0,0,.85), 0 3px 8px rgba(0,0,0,.5),
              0 0 0 1px rgba(255,255,255,.07) inset}
 .sachetLayer{position:absolute;inset:0}
-.sachetBody{background:linear-gradient(168deg,var(--p1),var(--p2))}
+.sachetBody{background:
+  radial-gradient(120% 70% at 28% 18%, rgba(255,255,255,.20), transparent 60%),
+  linear-gradient(168deg,var(--p1),var(--p2))}
+/* Angled band behind the wordmark. Every real pack is built on a diagonal;
+   seven centred rows in a column reads as a slide, not as packaging. */
+.sachetBand{pointer-events:none;overflow:hidden}
+.sachetBand::before{content:"";position:absolute;left:-12%;right:-12%;top:57%;height:19%;
+  transform:rotate(-7deg);
+  background:linear-gradient(90deg,transparent,var(--band),transparent);
+  opacity:.22;filter:blur(.5px)}
+.sachetBand::after{content:"";position:absolute;left:-12%;right:-12%;top:56.4%;height:.6%;
+  transform:rotate(-7deg);background:var(--band);opacity:.5}
+/* Micro-grain over everything. Two-stop gradients band badly on OLED phones,
+   and a little noise is also most of what separates printed stock from a
+   CSS fill. feTurbulence inline so there is no image to ship. */
+.sachetGrainFine{pointer-events:none;opacity:.5;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
+  background-size:140px 140px}
 /* The bag reads as a cylinder of film because of this one gradient: a dark
    fold on the left, a bright specular band a fifth of the way across, then a
    long falloff to a dark right edge. Flat fills are the tell of a fake pack. */
@@ -179,8 +203,10 @@ input,textarea{font-family:inherit;font-size:16px}
   transform:rotate(-9deg)}
 /* Lift on hover/press. Packs are objects; objects respond to being touched. */
 .sachetWrap{transition:transform .28s cubic-bezier(.2,.7,.3,1)}
-.packRow:hover .sachetWrap{transform:translateY(-4px) rotate(-.6deg)}
-.packRow:active .sachetWrap{transform:translateY(-1px) scale(.985)}
+.packRow:hover .sachetWrap{transform:translateY(-5px)}
+.packRow:hover .sachet{transform:rotateY(-2deg) rotateX(0deg) scale(1.02)}
+.packRow:active .sachetWrap{transform:translateY(-1px)}
+.packRow:active .sachet{transform:rotateY(-4deg) scale(.985)}
 /* Cards fanned behind the sachet, peeking out like contents. */
 .packFan{position:absolute;inset:0;z-index:-1;pointer-events:none}
 .packFan > div{position:absolute;left:50%;top:4%;width:62%;
@@ -188,6 +214,7 @@ input,textarea{font-family:inherit;font-size:16px}
   filter:drop-shadow(0 6px 10px rgba(0,0,0,.6))}
 @media (prefers-reduced-motion: reduce){
   .sachetHolo,.sachetSweep::before{animation:none !important}
+  .sachet,.packRow:hover .sachet{transition:none}
   .packRow:hover .sachetWrap{transform:none}
 }
 
@@ -1959,12 +1986,12 @@ function packExamples(pack){
 //   ink                    the dark stop in the tier wordmark's metal gradient
 //   seal                   applied foil sticker text, or null for none
 const PACK_FINISH = {
-  bronze:    {motif:"ball",   set:"STARTER SERIES",  ink:"#4A2C12", grain:.55, brush:0,   foil:0,   holo:0,   sweep:0,   glow:0,   seal:null},
-  silver:    {motif:"boot",   set:"CLUB SERIES",     ink:"#2B3947", grain:0,   brush:.65, foil:.28, holo:0,   sweep:.35, glow:.12, seal:null},
-  gold:      {motif:"trophy", set:"CLUB SERIES",     ink:"#573408", grain:0,   brush:.22, foil:.62, holo:0,   sweep:.6,  glow:.28, seal:null},
-  legendary: {motif:"crest",  set:"ELITE SERIES",    ink:"#38185C", grain:0,   brush:0,   foil:.44, holo:.30, sweep:.75, glow:.5,  seal:"HOLO FOIL"},
-  mythic:    {motif:"flame",  set:"ELITE SERIES",    ink:"#0C2B4C", grain:0,   brush:0,   foil:.46, holo:.42, sweep:.85, glow:.7,  seal:"PRISM"},
-  goat:      {motif:"crown",  set:"IMMORTAL SERIES", ink:"#3D2A02", grain:0,   brush:0,   foil:.52, holo:.50, sweep:1,   glow:1,   seal:"1 OF 500"},
+  bronze:    {motif:null,     set:"STARTER SERIES",  base:["#7A4A22","#3A220E"], band:"#C98A54", grain:.55, brush:0,   foil:0,   holo:0,   sweep:0,   glow:0,   seal:null},
+  silver:    {motif:"boot",   set:"CLUB SERIES",     base:["#93A2B5","#3E4C5E"], band:"#DCE6F0", grain:0,   brush:.65, foil:.28, holo:0,   sweep:.35, glow:.12, seal:null},
+  gold:      {motif:"trophy", set:"CLUB SERIES",     base:["#D89A18","#5E3703"], band:"#FFD97A", grain:0,   brush:.22, foil:.62, holo:0,   sweep:.6,  glow:.28, seal:null},
+  legendary: {motif:"crest",  set:"ELITE SERIES",    base:["#6B2FA8","#250D42"], band:"#E9A6FF", grain:0,   brush:0,   foil:.44, holo:.30, sweep:.75, glow:.5,  seal:"HOLO FOIL"},
+  mythic:    {motif:"flame",  set:"ELITE SERIES",    base:["#1D63AE","#081E48"], band:"#7FE3FF", grain:0,   brush:0,   foil:.46, holo:.42, sweep:.85, glow:.7,  seal:"PRISM"},
+  goat:      {motif:"crown",  set:"IMMORTAL SERIES", base:["#2A1E07","#080703"], band:"#FFD86B", grain:0,   brush:0,   foil:.62, holo:.34, sweep:1,   glow:1,   seal:"1 OF 500"},
 };
 function packFinish(pack){
   return PACK_FINISH[pack.id] || PACK_FINISH.bronze;
@@ -1987,40 +2014,85 @@ function crimpClip(bottom){
   return "polygon("+pts.join(",")+")";
 }
 
-// Original crest artwork, drawn in code. One shield/roundel silhouette shared
-// by every tier with a different glyph inside, so the six packs read as one
-// product family -- which is what "same family, rising value" needs. Drawn
-// rather than imported so there is no asset to ship, no licence to check, and
-// no second network request before the shop can paint.
+// Tier badge glyphs. Bronze deliberately has none: the plainest tier should be
+// the plainest bag, and a badge on it would only repeat the ball above it.
 const PACK_GLYPHS = {
-  ball:   '<circle cx="32" cy="33" r="10.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 24.5l6.6 4.8-2.5 7.8h-8.2l-2.5-7.8z" fill="currentColor"/>',
-  boot:   '<path d="M22 22h7.4v8.2c0 1.7.8 2.7 2.3 3.4l7.5 3.3c2.6 1.2 4.2 3.4 4.2 6.1V44H22z" fill="currentColor"/><path d="M20.5 45.4h25V48h-25z" fill="currentColor" opacity=".8"/><path d="M26 38.6h3.2M31 40.2h3.2" stroke="#000" stroke-opacity=".32" stroke-width="1.6" stroke-linecap="round"/>',
-  trophy: '<path d="M25 23h14v8.5a7 7 0 0 1-14 0z" fill="currentColor"/><path d="M25 25h-3.5a4 4 0 0 0 4 4M39 25h3.5a4 4 0 0 1-4 4" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M30.4 39h3.2v5h-3.2z" fill="currentColor"/><path d="M26 45.5h12V48H26z" fill="currentColor"/>',
-  crest:  '<path d="M32 21l11 4v9c0 7-4.6 12.4-11 14.6C25.6 46.4 21 41 21 34v-9z" fill="currentColor" opacity=".92"/><path d="M32 27.5l2.2 4.7 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7z" fill="#000" opacity=".38"/>',
-  flame:  '<path d="M32 20c5 6.5 3 9.5 6 12.5 2 2 4 1 4 1 1.5 8-3.5 14.5-10 14.5S21 42 22.5 34c0 0 2.6 1.6 4.5-.5 3-3.4-1.5-7 5-13.5z" fill="currentColor"/>',
-  crown:  '<path d="M20 44h24l2.5-16-8 5.5L32 21l-6.5 12.5-8-5.5z" fill="currentColor"/><path d="M20 46.5h24V49H20z" fill="currentColor" opacity=".8"/>',
+  boot:   '<path d="M22 22h7.4v8.2c0 1.7.8 2.7 2.3 3.4l7.5 3.3c2.6 1.2 4.2 3.4 4.2 6.1V44H22z"/><path d="M20.5 45.4h25V48h-25z" opacity=".8"/>',
+  trophy: '<path d="M25 23h14v8.5a7 7 0 0 1-14 0z"/><path d="M30.4 39h3.2v5h-3.2z"/><path d="M26 45.5h12V48H26z"/>',
+  crest:  '<path d="M32 21l11 4v9c0 7-4.6 12.4-11 14.6C25.6 46.4 21 41 21 34v-9z" opacity=".95"/>',
+  flame:  '<path d="M32 20c5 6.5 3 9.5 6 12.5 2 2 4 1 4 1 1.5 8-3.5 14.5-10 14.5S21 42 22.5 34c0 0 2.6 1.6 4.5-.5 3-3.4-1.5-7 5-13.5z"/>',
+  crown:  '<path d="M20 44h24l2.5-16-8 5.5L32 21l-6.5 12.5-8-5.5z"/><path d="M20 46.5h24V49H20z" opacity=".8"/>',
 };
+
+// A football built from its own geometry rather than eyeballed: a regular
+// pentagon at the centre, a seam out of each of its vertices to the rim, and a
+// panel clipped against the rim at the end of every seam. Computed, so it is
+// correct at any size and still reads as a ball at 20px.
+//
+// The rim panels have to sit mostly OUTSIDE the circle so only a cap shows.
+// Drawn inside, the white collapses into five petals and the whole thing
+// reads as a car wheel -- which is exactly what the first attempt looked like.
+function footballMark(cx, cy, r, uid){
+  const ang = i => (-90 + i * 72) * Math.PI / 180;
+  const pt = (rad, a) => [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
+  const P = [];
+  for(let i=0;i<5;i++) P.push(pt(r*0.34, ang(i)));
+  const pent = P.map(p=>p[0].toFixed(2)+","+p[1].toFixed(2)).join(" ");
+  let seams = "", rim = "";
+  for(let i=0;i<5;i++){
+    const o = pt(r*1.02, ang(i));
+    seams += '<line x1="'+P[i][0].toFixed(2)+'" y1="'+P[i][1].toFixed(2)
+           + '" x2="'+o[0].toFixed(2)+'" y2="'+o[1].toFixed(2)+'"/>';
+    const c = pt(r*1.20, ang(i));
+    rim += '<circle cx="'+c[0].toFixed(2)+'" cy="'+c[1].toFixed(2)+'" r="'+(r*0.46).toFixed(2)+'"/>';
+  }
+  return '<defs><clipPath id="'+uid+'c"><circle cx="'+cx+'" cy="'+cy+'" r="'+r+'"/></clipPath></defs>'
+    + '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="currentColor"/>'
+    + '<g clip-path="url(#'+uid+'c)">'
+    +   '<g fill="#0B0F16" fill-opacity=".82"><polygon points="'+pent+'"/>'+rim+'</g>'
+    +   '<g stroke="#0B0F16" stroke-opacity=".82" stroke-width="'+(r*0.07).toFixed(2)
+    +     '" stroke-linecap="round">'+seams+'</g>'
+    + '</g>'
+    + '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#000" stroke-opacity=".22" stroke-width=".8"/>';
+}
+
+// The hero mark on the bag: halo, ring, motion trail, ball, tier badge. One
+// composition shared by all six tiers so they read as one product family --
+// the badge and the material are what separate them.
+//
+// Every gradient and clipPath id is namespaced per pack. Several inline SVGs
+// share one document, so a bare id="halo" makes all six packs render with the
+// first one's gradient. That bug already shipped once on the card-art sheet.
 function packCrest(pack){
   const f = packFinish(pack);
-  const glyph = PACK_GLYPHS[f.motif] || PACK_GLYPHS.ball;
-  // Gradient ids must be namespaced per pack: several inline SVGs share one
-  // document, so a bare id="b" makes every crest on the page use the first
-  // one's fill. That exact bug already shipped once on the card-art sheet.
-  const id = "pk" + pack.id;
+  const glyph = f.motif ? PACK_GLYPHS[f.motif] : null;
+  const uid = "pk" + pack.id;
   const rays = [];
-  for(let i=0;i<16;i++){
-    rays.push('<path d="M32 32 L33.1 1 L30.9 1 Z" fill="#fff" transform="rotate('+(i*22.5)+' 32 32)"/>');
+  for(let i=0;i<12;i++){
+    rays.push('<path d="M32 29 L33.4 0 L30.6 0 Z" fill="#fff" transform="rotate('+(i*30)+' 32 29)"/>');
   }
   return '<svg viewBox="0 0 64 64" width="100%" height="100%" aria-hidden="true" focusable="false" style="display:block;color:#fff">'
-    + '<defs><radialGradient id="'+id+'b" cx="50%" cy="46%" r="52%">'
-    + '<stop offset="0%" stop-color="#fff" stop-opacity=".55"/>'
-    + '<stop offset="100%" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>'
-    + '<circle cx="32" cy="32" r="30" fill="url(#'+id+'b)"/>'
-    + '<g opacity=".34">' + rays.join("") + '</g>'
-    + '<circle cx="32" cy="32" r="21" fill="rgba(0,0,0,.30)"/>'
-    + '<circle cx="32" cy="32" r="21" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="1.2"/>'
-    + '<circle cx="32" cy="32" r="24.5" fill="none" stroke="#fff" stroke-opacity=".25" stroke-width=".8"/>'
-    + glyph
+    + '<defs><radialGradient id="'+uid+'h" cx="50%" cy="45%" r="55%">'
+    +   '<stop offset="0%" stop-color="#fff" stop-opacity=".55"/>'
+    +   '<stop offset="72%" stop-color="#fff" stop-opacity=".06"/>'
+    +   '<stop offset="100%" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>'
+    + '<circle cx="32" cy="29" r="31" fill="url(#'+uid+'h)"/>'
+    + '<g opacity=".07">' + rays.join("") + '</g>'
+    + '<circle cx="32" cy="29" r="24" fill="rgba(0,0,0,.30)"/>'
+    + '<circle cx="32" cy="29" r="24" fill="none" stroke="#fff" stroke-opacity=".48" stroke-width="1.1"/>'
+    + '<circle cx="32" cy="29" r="27.4" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width=".7"/>'
+    // Motion trail on the left. Without it the mark is perfectly symmetrical,
+    // and perfect symmetry is what makes a composition read as a diagram.
+    + '<g stroke="#fff" stroke-opacity=".4" stroke-width="1.5" stroke-linecap="round" fill="none">'
+    +   '<path d="M7 22.5h7.5"/><path d="M4.5 29h9.5"/><path d="M8 35.5h6.5"/>'
+    + '</g>'
+    + footballMark(33.2, 27.8, 16, uid)
+    + (glyph
+        ? '<g transform="translate(49.5 46)">'
+        +   '<circle r="10.5" fill="rgba(0,0,0,.66)" stroke="#fff" stroke-opacity=".55" stroke-width="1.1"/>'
+        +   '<g transform="translate(-10.5 -10.5) scale(.328)" fill="currentColor">' + glyph + '</g>'
+        + '</g>'
+        : "")
     + '</svg>';
 }
 
@@ -2051,8 +2123,8 @@ function packSachet(pack){
   const tierWord = pack.name.replace(/\s*pack\s*$/i,"").toUpperCase();
   // Long names have to come down in size or LEGENDARY overruns the bag. 84 is
   // the width of the print area in container units, divided by the word.
-  const tierSize = Math.min(16, Math.round(84 / Math.max(tierWord.length, 4)));
-  const vars = "--p1:"+pack.grad[0]+";--p2:"+pack.grad[1]+";--ink:"+f.ink
+  const tierSize = Math.min(21, Math.round(104 / Math.max(tierWord.length, 4)));
+  const vars = "--p1:"+f.base[0]+";--p2:"+f.base[1]+";--band:"+f.band
     + ";--grain:"+f.grain+";--brush:"+f.brush+";--foil:"+f.foil
     + ";--holo:"+f.holo+";--sweep:"+f.sweep+";--tier:"+tierSize+"cqw";
   const bloomAlpha = Math.round(f.glow*150).toString(16).padStart(2,"0");
@@ -2068,13 +2140,15 @@ function packSachet(pack){
       + '<div class="sachetLayer sachetFoil"></div>'
       + '<div class="sachetLayer sachetHolo"></div>'
       + '<div class="sachetLayer sachetSweep"></div>'
+      + '<div class="sachetLayer sachetBand"></div>'
+      + '<div class="sachetLayer sachetGrainFine"></div>'
       + '<div class="sachetLayer sachetPrint">'
         + '<div>'
           + '<div class="sachetBrand">TCG MANAGER</div>'
           + '<div class="sachetRule"></div>'
           + '<div class="sachetSet">'+esc(f.set)+'</div>'
         + '</div>'
-        + '<div style="width:54%;margin:0 auto">'+packCrest(pack)+'</div>'
+        + '<div style="width:62%;margin:0 auto">'+packCrest(pack)+'</div>'
         + '<div>'
           + '<div class="sachetTier display">'+esc(tierWord)+'</div>'
           + '<div class="sachetKind">PACK</div>'
