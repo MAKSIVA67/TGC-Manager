@@ -1174,6 +1174,11 @@ window.render = render;
 window.rankForWins = rankForWins;
 window.computeZone = computeZone;
 window.buildSlots = buildSlots;
+// lib/manager.js (the Manager V1 page) draws with the same helpers as every
+// other screen. Read-only hand-over: it gets references, and nothing it does
+// can reassign anything in here.
+window.tcgUI = Object.freeze({ playerCard, icon, esc, crestHTML, chemistryFor, chemColor,
+  COLORS, RARITY, FORMATIONS });
 // lib/match3d.js drives its own audio cues from inside its render loop, so the
 // synth helpers below have to be reachable from outside this IIFE too. It calls
 // each one defensively (`if (window.playKick) ...`), so this list can shrink
@@ -1435,6 +1440,8 @@ function fcHomeHTML(o){
     {tab:"play",  icon:"Trophy",      label:"CUP",     c:COLORS.cyan},
     {tab:"cards", icon:"Sparkles",    label:"TRAIN",   c:COLORS.pink},
     {tab:"shop",  icon:"Gem",         label:"GEMS",    c:COLORS.turf},
+    // Manager V1 (lib/manager.js). Added, nothing removed.
+    {tab:"manager", icon:"Award",     label:"MANAGER", c:COLORS.purple},
   ];
   return `<div class="view" style="padding-top:4px">
     <div class="fcHome">
@@ -1738,6 +1745,8 @@ function homeView(){
         {label:"PLAY",  icon:"PlayCircle", color:COLORS.turf, action:"nav-tab", tab:"play"},
         {label:"SHOP",  icon:"ShoppingBag",color:COLORS.pink, action:"nav-tab", tab:"shop"},
         {label:"SQUAD", icon:"Layers",     color:COLORS.cyan, action:"nav-tab", tab:"cards"},
+        // Manager V1 (lib/manager.js). Added, nothing removed.
+        {label:"MANAGER", icon:"Award",    color:COLORS.purple, action:"nav-tab", tab:"manager"},
       ];
       return `<div class="panel" style="padding:14px;margin-bottom:12px;position:relative;overflow:hidden;
         background:radial-gradient(circle at 82% 12%, ${state.profile.color}2e, transparent 58%), ${COLORS.panel}">
@@ -3848,6 +3857,10 @@ function appHTML(){
   else if(state.tab==="friends") view = friendsView();
   else if(state.tab==="profile") view = profileView();
   else if(state.tab==="admin" && isAdmin()) view = adminView();
+  // Manager V1 lives entirely in lib/manager.js. If that file failed to load,
+  // fall back to Home rather than rendering an empty screen.
+  else if(state.tab==="manager") view = window.managerView ? window.managerView() : homeView();
+  if(window.managerSyncUrl) window.managerSyncUrl(state.tab);
   const shell = tabChanged ? `<div class="viewEnter">${view}</div>` : view;
   return `${rankUpBanner}${toastBanner}${railHeader()}${shell}${tabBar()}${enlargedCardModal}`;
 }
@@ -4996,3 +5009,7 @@ initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/ia
 })();
 })();
 </script>
+<!-- Manager V1 page (Task D). Loaded AFTER the main script so window.state,
+     window.render and window.tcgUI already exist. Everything it does is in its
+     own file; see the header comment in lib/manager.js. -->
+<script src="lib/manager.js?v=8"></script>
