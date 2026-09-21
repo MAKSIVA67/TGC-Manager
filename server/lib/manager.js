@@ -88,7 +88,8 @@ function injectStyles(){
 .mgrEmpty{aspect-ratio:842/1191;border-radius:10px;border:2px dashed #6C84A366;display:flex;align-items:center;justify-content:center;
   color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.08em}
 .mgrLabel{font-size:10px;font-weight:900;letter-spacing:.14em;color:var(--muted);margin:14px 0 8px}
-.mgrRow{display:flex;align-items:center;gap:10px;padding:9px;border-radius:14px;background:var(--panel);margin-bottom:8px;border:1px solid #ffffff0d}
+.mgrRow{display:flex;align-items:center;gap:10px;padding:9px;border-radius:14px;background:var(--panel);margin-bottom:8px;border:1px solid #ffffff0d;
+  content-visibility:auto;contain-intrinsic-size:auto 82px}
 .mgrThumb{width:44px;flex-shrink:0;aspect-ratio:842/1191;border-radius:6px;overflow:hidden;background:var(--bg);border:1px solid var(--rc,#ffffff22)}
 .mgrThumb img{width:100%;height:100%;object-fit:cover;display:block}
 .mgrInfo{flex:1;min-width:0}

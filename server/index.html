@@ -38,15 +38,32 @@ body{background:var(--bg);color:var(--cream);font-family:'Outfit',system-ui,-app
    is indistinguishable from flat black -- the app read as monochrome. Pushed
    to roughly three times that, and the base lifted off near-black onto a blue,
    so the colour is actually visible while text contrast stays intact. */
-#stage{max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;background:var(--bg2);position:relative;overflow-x:clip;
-  background-attachment:fixed;
+#stage{max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;background:transparent;position:relative;overflow-x:clip}
+/* PERFORMANCE -- the backdrop lives on its own fixed layer, not on #stage.
+   It used to be #stage's own background with background-attachment:fixed, and
+   a fixed background on the scrolling element makes the browser REPAINT the
+   whole screen on every frame of scrolling: on a mid-range phone that was
+   20-40 ms of main-thread work per frame, against a 16 ms budget, on every
+   screen. A fixed, separately composited layer is painted once and then just
+   placed by the GPU.
+   The film grain moves in here too. It was a full-screen fixed overlay on TOP
+   of everything with mix-blend-mode:overlay, which forces the GPU to re-blend
+   every pixel of the screen every frame, even when nothing moves. Under the
+   content, at normal blending, it reads the same and costs nothing.
+   z-index:-1 with #stage deliberately NOT a stacking context: the layer sits
+   under all page content and nothing else about the stacking order changes. */
+#stage::before{content:"";position:fixed;top:0;bottom:0;left:0;right:0;margin:0 auto;max-width:480px;
+  z-index:-1;pointer-events:none;transform:translateZ(0);
+  background-color:var(--bg2);
   background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/></svg>"),
     radial-gradient(circle at 10% -4%, #FFB02055, transparent 42%),
     radial-gradient(circle at 92% 2%, #E6394A44, transparent 40%),
     radial-gradient(circle at 96% 44%, #8B7FE84a, transparent 44%),
     radial-gradient(circle at 4% 52%, #1FA3A044, transparent 44%),
     radial-gradient(circle at 74% 86%, #2FD18038, transparent 46%),
-    radial-gradient(circle at 20% 100%, #2A4B9B55, transparent 50%);}
+    radial-gradient(circle at 20% 100%, #2A4B9B55, transparent 50%);
+  background-size:180px 180px, auto, auto, auto, auto, auto, auto}
 button{font-family:inherit;cursor:pointer;touch-action:manipulation;-webkit-user-select:none;user-select:none}
 input,textarea{font-family:inherit;font-size:16px}
 .display{font-family:'Teko',system-ui,sans-serif;font-weight:700;letter-spacing:0.02em}
@@ -57,6 +74,13 @@ input,textarea{font-family:inherit;font-size:16px}
 .wrap{flex-wrap:wrap}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+/* PERFORMANCE: a card tile that is off screen skips style, layout and paint
+   until it scrolls near the viewport. All Cards holds ~100 tiles and a phone
+   screen shows about 8, yet every tap -- render() rebuilds the whole screen --
+   used to style and lay out all of them. The sizes are only first guesses for
+   tiles never yet shown; `auto` makes the browser remember each real size. */
+.grid2>.pcardWrap,.grid2>.cardTile{content-visibility:auto;contain-intrinsic-size:auto 260px}
+.grid3>.pcardWrap,.grid3>.cardTile{content-visibility:auto;contain-intrinsic-size:auto 180px}
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .wfull{width:100%}
 .muted{color:var(--muted)}
@@ -66,7 +90,7 @@ input,textarea{font-family:inherit;font-size:16px}
 .panel{background:linear-gradient(168deg, #1B3049f2 0%, #132234ee 55%, #0F1D2Df2 100%);
   border:1px solid #2A4664;border-radius:16px;
   box-shadow:0 10px 24px -14px #030B14cc, inset 0 1px 0 #ffffff0f}
-.grainOverlay{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:.05;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");background-size:180px 180px}
+/* .grainOverlay removed: the grain now lives in #stage::before (see the PERFORMANCE note there). */
 .tabbtn .tabPill{position:absolute;inset:2px 6px;border-radius:12px;background:var(--turf);opacity:0;transform:scale(.85);transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong);z-index:0}
 .tabbtn.tabActive .tabPill{opacity:.16;transform:scale(1)}
 .tabbtn{position:relative}
@@ -148,19 +172,30 @@ input,textarea{font-family:inherit;font-size:16px}
     rgba(255,255,255,0) 0deg, rgba(255,255,255,.42) 38deg,
     rgba(255,255,255,0) 88deg, rgba(0,0,0,.26) 158deg,
     rgba(255,255,255,.34) 228deg, rgba(255,255,255,0) 300deg)}
-/* Holographic / prismatic. Drifts slowly -- fast rainbows look like a bug. */
-.sachetHolo{opacity:var(--holo,0);mix-blend-mode:overlay;
+/* Holographic / prismatic. Drifts slowly -- fast rainbows look like a bug.
+   PERFORMANCE: the drift is a transform on an oversized child, not an animated
+   background-position. That repainted every holo pack on every frame, and the
+   shop kept a phone half busy while nobody touched it. One tile of the rainbow
+   is 280% of the pack wide; the child is one tile plus one pack (380%) and
+   slides by exactly one tile, so the loop is seamless -- the old version
+   jumped every 9 s because 280% of travel was not a whole tile. */
+.sachetHolo{opacity:var(--holo,0);mix-blend-mode:overlay;overflow:hidden}
+.sachetHolo::before{content:"";position:absolute;top:0;bottom:0;left:0;width:380%;
   background:linear-gradient(112deg,#ff0a54,#ff8f1f,#ffe600,#22e39a,#12b0ff,#a24bff,#ff0a54);
-  background-size:280% 100%;animation:holoDrift 9s linear infinite}
-@keyframes holoDrift{to{background-position:280% 0}}
+  background-size:73.6842% 100%;animation:holoDrift 5s linear infinite}
+@keyframes holoDrift{to{transform:translateX(-73.6842%)}}
 /* Travelling specular band. One pass, long pause -- a sweep that never rests
    turns into visual noise on a page you are reading prices off. */
 .sachetSweep{overflow:hidden;pointer-events:none}
 .sachetSweep::before{content:"";position:absolute;top:-30%;bottom:-30%;width:36%;
-  left:-45%;transform:skewX(-16deg);
+  left:-45%;transform:translateX(0) skewX(-16deg);
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
   opacity:var(--sweep,0);animation:sachetSweep 5.4s ease-in-out infinite}
-@keyframes sachetSweep{0%{left:-45%}38%{left:115%}100%{left:115%}}
+/* PERFORMANCE: travels by transform, not by `left`. Animating `left` forces a
+   layout pass every frame -- on every pack, including the ones whose sweep is
+   invisible (opacity 0 still runs the animation). 444.44% of the band's own
+   width (36% of the pack) is the same 160% of the pack it used to travel. */
+@keyframes sachetSweep{0%{transform:translateX(0) skewX(-16deg)}38%{transform:translateX(444.44%) skewX(-16deg)}100%{transform:translateX(444.44%) skewX(-16deg)}}
 /* Crimped seal strips. clip-path supplies the pinked edge; the ridges are a
    repeating gradient. Both are what your fingers expect at the top of a bag. */
 .sachetCrimp{position:absolute;left:0;right:0;height:8.5%;z-index:6;top:auto;bottom:auto;
@@ -213,7 +248,7 @@ input,textarea{font-family:inherit;font-size:16px}
   transform-origin:50% 100%;opacity:.85;
   filter:drop-shadow(0 6px 10px rgba(0,0,0,.6))}
 @media (prefers-reduced-motion: reduce){
-  .sachetHolo,.sachetSweep::before{animation:none !important}
+  .sachetHolo::before,.sachetSweep::before{animation:none !important}
   .sachet,.packRow:hover .sachet{transition:none}
   .packRow:hover .sachetWrap{transform:none}
 }
@@ -303,6 +338,7 @@ input,textarea{font-family:inherit;font-size:16px}
 
 @media (min-width:820px){
   #stage{max-width:none;padding-left:88px}
+  #stage::before{max-width:none}
   .hdr{position:fixed;top:0;left:88px;right:0;padding:10px 18px 10px;border-bottom:1px solid #ffffff12;
     background:linear-gradient(180deg, #0B1730f2, #0B173099);backdrop-filter:none}
   .view{padding:calc(64px + 10px) 22px 26px}
@@ -384,8 +420,8 @@ input,textarea{font-family:inherit;font-size:16px}
 .pcardCorner::before{top:2.2cqw;left:2.2cqw;border-right:0;border-bottom:0;border-radius:2.6cqw 0 0 0}
 .pcardCorner::after{bottom:2.2cqw;right:2.2cqw;border-left:0;border-top:0;border-radius:0 0 2.6cqw 0}
 .pcardRate{position:absolute;top:3.4cqw;left:3.6cqw;display:flex;flex-direction:column;align-items:center;
-  padding:1.6cqw 2.2cqw 1.8cqw;border-radius:2.6cqw;background:rgba(3,7,14,.62);
-  border:0.4cqw solid var(--rc);backdrop-filter:blur(2px)}
+  padding:1.6cqw 2.2cqw 1.8cqw;border-radius:2.6cqw;background:rgba(3,7,14,.74);
+  border:0.4cqw solid var(--rc)}
 .pcardNum{font-family:'Teko',system-ui,sans-serif;font-weight:700;font-size:15cqw;line-height:.92;color:var(--rc);
   text-shadow:0 0.4cqw 1.2cqw rgba(0,0,0,.7)}
 .pcardPos{font-size:4.2cqw;font-weight:900;letter-spacing:.12em;color:#F3F6FA;opacity:.86;margin-top:0.4cqw}
@@ -531,7 +567,6 @@ input,textarea{font-family:inherit;font-size:16px}
 </div>
 
 <div id="stage"></div>
-<div class="grainOverlay"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- three.js pinned to the last release that ships a UMD build exposing a
@@ -1165,6 +1200,16 @@ function icon(name, size, color, extraStyle){
 // from one of the many incidental re-renders.
 let lastRenderedTab = null;
 function render(){ document.getElementById("stage").innerHTML = appHTML(); }
+// PERFORMANCE: open/close the card popup without rebuilding the screen under
+// it. A full render() on All Cards restyles ~100 cards -- a visible freeze
+// between the tap and the popup on a phone -- when the only thing that changed
+// is the popup. appHTML() writes the same popup into the same slot, so any
+// later full render() produces exactly this result; there is nothing to drift.
+function renderCardModal(){
+  const slot = document.getElementById("cardModalSlot");
+  if(!slot){ render(); return; }
+  slot.innerHTML = cardDetailModal();
+}
 // Exposed so the separate lib/*.js scripts (auth.js, game-data.js, ...) can
 // reach into this IIFE -- everything else declared in here stays private to
 // it, since a nested function's scope chain doesn't fall through to a
@@ -3862,7 +3907,9 @@ function appHTML(){
   else if(state.tab==="manager") view = window.managerView ? window.managerView() : homeView();
   if(window.managerSyncUrl) window.managerSyncUrl(state.tab);
   const shell = tabChanged ? `<div class="viewEnter">${view}</div>` : view;
-  return `${rankUpBanner}${toastBanner}${railHeader()}${shell}${tabBar()}${enlargedCardModal}`;
+  // The card popup has its own slot so opening/closing it can redraw just the
+  // popup (renderCardModal) instead of every card on the screen behind it.
+  return `${rankUpBanner}${toastBanner}${railHeader()}${shell}${tabBar()}<div id="cardModalSlot">${enlargedCardModal}</div>`;
 }
 
 // ---------- actions ----------
@@ -4389,10 +4436,11 @@ document.getElementById("stage").addEventListener("click", function(e){
       pl.activeSlot = slot; render(); break;
     }
     case "close-modal":
-      if(el.dataset.modal==="active") pl.activeSlot=null; else if(el.dataset.modal==="sub") pl.subSlot=null; else if(el.dataset.modal==="news") state.newsOpen=false; else if(el.dataset.modal==="enlarged-card") state.enlargedCardId=null;
+      if(el.dataset.modal==="enlarged-card"){ state.enlargedCardId=null; renderCardModal(); break; }
+      if(el.dataset.modal==="active") pl.activeSlot=null; else if(el.dataset.modal==="sub") pl.subSlot=null; else if(el.dataset.modal==="news") state.newsOpen=false;
       render(); break;
     case "enlarge-card":
-      state.enlargedCardId = Number(el.dataset.playerId); render(); break;
+      state.enlargedCardId = Number(el.dataset.playerId); renderCardModal(); break;
     case "set-control-mode":
       state.controlMode = el.dataset.mode; playTap(); render(); break;
     case "toggle-objectives":
