@@ -832,6 +832,27 @@ function reseatLineup(lineup, newFormationKey){
   return out;
 }
 
+// Re-seating only moves players within their own band, so a shape with MORE
+// of a position than the last one leaves a hole: Equip Best Squad in 1-2-4-2
+// seats two defenders, switch to 1-3-3-2 and the third DEF slot stays empty
+// even with defenders sitting on the bench -- a full squad of 9 became 8.
+// This fills each empty slot with the strongest owned card of that position
+// not already on the pitch. It never moves anyone already seated, and if the
+// player owns no spare card for a position the slot stays empty (nothing to
+// invent).
+function topUpLineup(lineup, formationKey){
+  const out = {...lineup};
+  const used = new Set(Object.values(out).filter(Boolean).map(p=>p.id));
+  buildSlots(formationKey,"my").forEach(s=>{
+    if(out[s.id]) return;
+    const best = state.players
+      .filter(p=>p.owned && p.position===s.position && !used.has(p.id))
+      .sort((a,b)=>b.power-a.power)[0];
+    if(best){ out[s.id] = best; used.add(best.id); }
+  });
+  return out;
+}
+
 function buildSlots(formationKey, side){
   const counts = FORMATIONS[formationKey].counts;
   const yMap = side==="my" ? MY_Y : OPP_Y;
@@ -1261,10 +1282,16 @@ function playerCard(p, opts){
   // popup -- the brief's general rule. Previously this was Index-only AND
   // required uploaded art, so four cards in five did nothing when tapped.
   const enlargeAttr = `data-action="enlarge-card" data-player-id="${p.id}"`;
-  // "train" mode (My Cards) makes the whole tile open the training sheet, and
-  // takes priority over enlarging so the tap does one predictable thing.
-  const trainAttr = "";
-  const clickAttr = trainAttr || enlargeAttr || (opts.action ? `data-action="${opts.action}" data-player-id="${p.id}"` : "");
+  // A list that passes its own action -- the squad picker ("assign-player",
+  // "sub-player") and the trade composer ("trade-toggle-offer"/"-request") --
+  // MUST get that action. The previous line was `trainAttr || enlargeAttr ||
+  // action`, and enlargeAttr is never empty, so the action was dead code:
+  // tapping a card in "Choose your FWD" opened the popup instead of picking
+  // the player, and no card could ever be put into a trade. Every card
+  // without a list action still opens the popup, as before.
+  const clickAttr = opts.action
+    ? `data-action="${opts.action}" data-player-id="${p.id}"`
+    : enlargeAttr;
   // Level pip + "ready to train" dot, drawn over art and placeholder alike so
   // progress is visible without opening every card.
   const readyToTrain = opts.mode==="train" && p.level<MAX_CARD_LEVEL && p.shards>=trainShardCost(p.level);
@@ -1965,7 +1992,7 @@ function cardDetailModal(){
           <span style="color:${okS ? COLORS.turf : COLORS.muted}">${card.shards || 0} shards ${okS ? "(need " + needS + ")" : "of " + needS}</span>
           <span style="color:${okG ? COLORS.gold : COLORS.danger}">${needG} gems</span>
         </div>
-        <button data-action="do-train" data-player-id="${card.id}" ${(okS && okG && !state.trainPending) ? "" : "disabled"}
+        <button data-action="do-train" data-card-id="${card.id}" ${(okS && okG && !state.trainPending) ? "" : "disabled"}
           class="btn scrimtap wfull" style="padding:11px 0;font-size:12px;font-weight:900;background:${(okS && okG) ? COLORS.turf : COLORS.panelLight};color:${(okS && okG) ? COLORS.bg : COLORS.muted}">
           ${state.trainPending ? "TRAINING..." : (okS && okG) ? "TRAIN +1 POWER" : !okS ? "NEED MORE SHARDS" : "NEED MORE GEMS"}
         </button>`}
@@ -4295,9 +4322,20 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "remove-slot": {
       const id = el.dataset.slotId; pl.myLineup = {...pl.myLineup, [id]:null}; pl.activeSlot=null; render(); break;
     }
-    case "set-formation":
+    case "set-formation": {
+      // A squad that was FULL stays full across a shape change (see
+      // topUpLineup). A squad the player left part-built on purpose is only
+      // re-seated, exactly as before -- nobody gets added behind their back.
+      const oldSlots = buildSlots(pl.formationKey,"my").length;
+      const filledBefore = Object.values(pl.myLineup||{}).filter(Boolean).length;
       pl.myLineup = reseatLineup(pl.myLineup, el.dataset.key);
+      if(filledBefore === oldSlots) pl.myLineup = topUpLineup(pl.myLineup, el.dataset.key);
+      console.log("[squad] set-formation", { from: pl.formationKey, to: el.dataset.key,
+        filledBefore, slotsBefore: oldSlots,
+        filledAfter: Object.values(pl.myLineup).filter(Boolean).length,
+        slotsAfter: buildSlots(el.dataset.key,"my").length });
       pl.formationKey = el.dataset.key; pl.activeSlot = null; playTap(); render(); break;
+    }
     case "equip-best": {
       const mySlots = buildSlots(pl.formationKey,"my");
       const owned = state.players.filter(p=>p.owned);
@@ -4381,7 +4419,14 @@ document.getElementById("stage").addEventListener("click", function(e){
     case "close-train":
       state.trainCardId = null; render(); break;
     case "do-train": {
-      const id = Number(el.dataset.cardId);
+      // Both Train buttons now write data-card-id. The card popup's used to
+      // write data-player-id, so this read undefined, Number(undefined) is
+      // NaN, and trainCard(NaN) matched no card -- "You don't own that card."
+      // for every card trained from the popup, which is every card trained
+      // from the Home top card. playerId stays as a fallback so a button
+      // rendered with the old attribute can never regress to NaN again.
+      const id = Number(el.dataset.cardId || el.dataset.playerId);
+      console.log("[ownership] do-train pressed", { cardId: el.dataset.cardId, playerId: el.dataset.playerId, resolvedId: id });
       trainCard(id).then(res=>{
         if(res && res.error){ playLose(); alert(res.error); return; }
         playFanfare();

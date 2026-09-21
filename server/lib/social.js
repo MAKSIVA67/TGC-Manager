@@ -518,8 +518,22 @@ function toggleTradeRequest(cardId) {
   window.render();
 }
 function submitTradeOffer() {
+  // The initiator is ALWAYS the signed-in user from the auth session, never a
+  // value carried on a button or passed in from the UI.
   const uid = window.state.session.user.id;
   const t = window.state.friendsUI.trade;
+  // Ownership debug log: every card offered must be one the signed-in user
+  // owns, and every id must be a number (card ids are numbers; a string id
+  // fails every strict comparison and reads as "not owned").
+  console.log("[ownership] submitTradeOffer", {
+    authUserId: uid, recipientId: t.friendId,
+    offered: t.offerIds.map(id => {
+      const c = window.state.players.find(p => p.id === id);
+      return { id, idType: typeof id, owned: !!(c && c.owned) };
+    }),
+    requested: t.requestIds.map(id => ({ id, idType: typeof id,
+      inTheirCollection: (t.friendCollection || []).includes(id) })),
+  });
   t.status = "Sending offer…";
   window.render();
   sendTradeOffer(uid, t.friendId, t.offerIds, t.requestIds, t.gems).then(({ error }) => {
@@ -656,8 +670,27 @@ function closeTradeView() {
 function submitAcceptTrade(tradeId) {
   window.state.friendsUI.tradeActionStatus = "Completing trade…";
   window.render();
+  // Ownership debug log. A "you don't have that card" on accept does not come
+  // from this file -- no string like it exists in the web client -- so it is
+  // the database's execute_trade refusing because one side no longer owns a
+  // card it put up. Log both sides against the signed-in user so the console
+  // shows WHICH card failed.
+  const trade = (window.state.friendsUI.trades || []).find(tr => tr.id === tradeId);
+  const authUserId = window.state.session.user.id;
+  if (trade) {
+    const sides = viewerTradeSides(trade, authUserId);
+    console.log("[ownership] submitAcceptTrade", { tradeId, authUserId,
+      youGive: (sides.youGive.cardIds || []).map(id => {
+        const c = window.state.players.find(p => p.id === id);
+        return { id, owned: !!(c && c.owned) };
+      }),
+      youGet: sides.youGet.cardIds });
+  }
   acceptTrade(tradeId).then(({ error }) => {
-    if (error) { window.state.friendsUI.tradeActionStatus = error; window.render(); return; }
+    if (error) {
+      console.log("[ownership] execute_trade refused", { tradeId, authUserId, serverMessage: error });
+      window.state.friendsUI.tradeActionStatus = error; window.render(); return;
+    }
     const uid = window.state.session.user.id;
     markTradeViewed(uid, tradeId);
     // Recorded as settled before the list comes back, or the reconcile above

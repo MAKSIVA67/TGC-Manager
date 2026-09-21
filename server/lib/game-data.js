@@ -260,6 +260,11 @@ function trainCard(cardId) {
   const userId = session && session.user && session.user.id;
   if (!userId) return Promise.resolve({ error: "Not signed in." });
   const card = window.state.players.find(p => p.id === cardId);
+  // Ownership debug log. The id must be a NUMBER: card ids are numbers, the
+  // comparison above is strict, and a string or NaN here matches nothing and
+  // reads as "You don't own that card." even for a card the player owns.
+  console.log("[ownership] trainCard", { userId, cardId, idType: typeof cardId,
+    found: !!card, owned: !!(card && card.owned) });
   if (!card || !card.owned) return Promise.resolve({ error: "You don't own that card." });
   // Deliberately no local shard check: the shard count is the one number that
   // can be ahead of the database, and gating on it is what let a failed grant
