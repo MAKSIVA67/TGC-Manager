@@ -231,6 +231,20 @@ input,textarea{font-family:inherit;font-size:16px}
 .carRow{display:flex;gap:10px;perspective:900px}
 .carCell{flex:1;min-width:0;animation:carIn .44s cubic-bezier(.2,.75,.3,1) both}
 .carCell.leaving{animation:carOut .3s ease both}
+/* Swipe and mouse-drag (see initCarouselSwipe). touch-action:pan-y gives
+   vertical movement to the browser, so the page still scrolls, and horizontal
+   movement to the pointer handlers. Without it a phone could only ever do one
+   of the two. The image drag guard stops desktop Chrome picking up a ghost
+   copy of the card art the moment a mouse drag starts. */
+.carRow{touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
+.carRow.dragging{cursor:grabbing}
+.carRow img{-webkit-user-drag:none;user-select:none}
+/* Going BACK plays the same animation mirrored, so the cards travel the way
+   the finger did. */
+@keyframes carInRev  { from{opacity:0;transform:translateX(-54px) scale(.88) rotateY(14deg)} to{opacity:1;transform:none} }
+@keyframes carOutRev { from{opacity:1;transform:none} to{opacity:0;transform:translateX(54px) scale(.88) rotateY(-14deg)} }
+.carRow.rev .carCell{animation-name:carInRev}
+.carCell.leavingRev{animation:carOutRev .3s ease both}
 .carDots{display:flex;gap:4px;justify-content:center;margin-top:10px}
 .carDot{width:5px;height:5px;border-radius:999px;background:#ffffff2e;transition:width .25s ease,background .25s ease}
 .carDot.on{width:16px;background:var(--carAccent,#FFB020)}
@@ -1506,12 +1520,17 @@ function carouselPool(kind){
     .slice().sort((a,b)=>tierRank(b.rarity)-tierRank(a.rarity));
 }
 
+// A modulo that stays positive. Swiping back drives the page index below
+// zero, and JS's % keeps the sign: (-3 % 10) is -3, pool[-3] is undefined,
+// and the carousel would render nothing.
+function posMod(n, m){ return ((n % m) + m) % m; }
+
 function carouselCells(kind, index){
   const pool = carouselPool(kind);
   if(!pool.length) return "";
   let out = "";
   for(let i=0;i<CAROUSEL_SIZE;i++){
-    const card = pool[(index*CAROUSEL_SIZE + i) % pool.length];
+    const card = pool[posMod(index*CAROUSEL_SIZE + i, pool.length)];
     out += `<div class="carCell" style="animation-delay:${i*70}ms">${playerCard(card,{mode:"showcase"})}</div>`;
   }
   return out;
@@ -1529,13 +1548,52 @@ function cardCarousel(kind, title, accent){
     </div>
     <div class="carRow" data-carousel-row>${carouselCells(kind,index)}</div>
     <div class="carDots">${Array.from({length:pages},(_,i)=>
-      `<span class="carDot${i===index%pages?" on":""}"></span>`).join("")}</div>
+      `<span class="carDot${i===posMod(index,pages)?" on":""}"></span>`).join("")}</div>
   </div>`;
 }
 
 // One timer for every carousel on the page. It never keeps hold of an element:
 // #stage is rebuilt on every state change, so it re-finds them each tick and
 // quietly does nothing when none are on screen.
+// Move one carousel by one page: +1 forward (the timer, or a swipe left),
+// -1 back (a swipe right). Shared by the timer and by swiping so both play
+// the same animation and keep the dots in step.
+function carouselGo(box, delta){
+  const kind = box.getAttribute("data-carousel");
+  // render() may have replaced the box since the gesture began (a toast, a
+  // realtime update). Work on the live one, or the page would move in a
+  // detached copy nobody can see.
+  if(!box.isConnected) box = document.querySelector(`[data-carousel="${kind}"]`) || box;
+  const row = box.querySelector("[data-carousel-row]");
+  if(!row) return;
+  state.carousel = state.carousel || {};
+  const next = (state.carousel[kind]||0) + delta;
+  const back = delta < 0;
+  row.classList.toggle("rev", back);
+  row.style.transition = "transform .3s ease"; row.style.transform = "";
+  row.querySelectorAll(".carCell").forEach((c,i)=>{
+    c.classList.add(back ? "leavingRev" : "leaving");
+    c.style.animationDelay = (i*50)+"ms";
+  });
+  setTimeout(()=>{
+    const liveRow = box.querySelector("[data-carousel-row]");
+    if(!liveRow) return;                        // navigated away mid-swap
+    state.carousel[kind] = next;
+    liveRow.style.transition = "";
+    liveRow.innerHTML = carouselCells(kind, next);
+    const pages = box.querySelectorAll(".carDot");
+    pages.forEach((d,i)=>d.classList.toggle("on", i === posMod(next, pages.length)));
+  }, 300);
+}
+
+// After a swipe the player is looking at a page they chose. The timer flipping
+// it away a moment later would feel like the app fighting them.
+const CAROUSEL_HOLD_MS = 7000;
+function carouselHeld(kind){
+  if(carDrag && carDrag.kind === kind) return true;
+  return !!(state.carouselHoldUntil && state.carouselHoldUntil[kind] > Date.now());
+}
+
 function startCarousels(){
   setInterval(()=>{
     const boxes = document.querySelectorAll("[data-carousel]");
@@ -1543,25 +1601,71 @@ function startCarousels(){
     if(document.hidden) return;                 // no point animating unseen
     if(state.shop && (state.shop.phase==="spinning"||state.shop.phase==="revealed")) return;
     boxes.forEach(box=>{
-      const kind = box.getAttribute("data-carousel");
-      const row = box.querySelector("[data-carousel-row]");
-      if(!row) return;
-      state.carousel = state.carousel || {};
-      const next = ((state.carousel[kind]||0) + 1);
-      row.querySelectorAll(".carCell").forEach((c,i)=>{
-        c.classList.add("leaving");
-        c.style.animationDelay = (i*50)+"ms";
-      });
-      setTimeout(()=>{
-        const liveRow = box.querySelector("[data-carousel-row]");
-        if(!liveRow) return;                    // navigated away mid-swap
-        state.carousel[kind] = next;
-        liveRow.innerHTML = carouselCells(kind, next);
-        const pages = box.querySelectorAll(".carDot");
-        pages.forEach((d,i)=>d.classList.toggle("on", i === next % pages.length));
-      }, 300);
+      if(carouselHeld(box.getAttribute("data-carousel"))) return;
+      carouselGo(box, +1);
     });
   }, CAROUSEL_EVERY_MS);
+}
+
+// Swipe on touch, drag with a mouse. Listeners sit on #stage rather than on a
+// carousel because render() rebuilds everything inside #stage on every state
+// change; #stage itself is the one element that survives.
+//
+// Pointer capture is taken only once the movement is clearly horizontal. Taking
+// it on pointerdown would retarget the click to the row, and a plain tap on a
+// card would stop opening its popup.
+const CAROUSEL_SWIPE_PX = 40;
+let carDrag = null, carSuppressClickUntil = 0;
+function initCarouselSwipe(){
+  const stage = document.getElementById("stage");
+  stage.addEventListener("pointerdown", e=>{
+    if(e.pointerType === "mouse" && e.button !== 0) return;
+    const row = e.target.closest("[data-carousel-row]");
+    if(!row) return;
+    const box = row.closest("[data-carousel]");
+    if(!box) return;
+    carDrag = { row, box, kind: box.getAttribute("data-carousel"), id: e.pointerId,
+                x0: e.clientX, y0: e.clientY, dx: 0, active: false };
+  });
+  stage.addEventListener("pointermove", e=>{
+    const d = carDrag;
+    if(!d || e.pointerId !== d.id) return;
+    d.dx = e.clientX - d.x0;
+    const dy = e.clientY - d.y0;
+    if(!d.active){
+      if(Math.abs(d.dx) < 8 || Math.abs(d.dx) < Math.abs(dy)) return;   // still a tap, or a scroll
+      d.active = true;
+      try{ d.row.setPointerCapture(d.id); }catch(_){}
+      d.row.classList.add("dragging");
+    }
+    d.row.style.transform = `translateX(${d.dx * 0.45}px)`;   // follows the finger, with resistance
+  });
+  const end = e=>{
+    const d = carDrag;
+    if(!d || e.pointerId !== d.id) return;
+    carDrag = null;
+    if(!d.active) return;                       // a tap -- the click handler owns it
+    d.row.classList.remove("dragging");
+    // Releasing a mouse drag over a card fires a click on it; without this a
+    // drag would end by opening that card's popup.
+    carSuppressClickUntil = Date.now() + 350;
+    state.carouselHoldUntil = state.carouselHoldUntil || {};
+    state.carouselHoldUntil[d.kind] = Date.now() + CAROUSEL_HOLD_MS;
+    if(e.type !== "pointercancel" && Math.abs(d.dx) >= CAROUSEL_SWIPE_PX){
+      carouselGo(d.box, d.dx < 0 ? +1 : -1);
+    } else {
+      d.row.style.transition = "transform .2s ease"; d.row.style.transform = "";
+      setTimeout(()=>{ d.row.style.transition = ""; }, 220);
+    }
+  };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", end);
+  stage.addEventListener("click", e=>{
+    if(Date.now() < carSuppressClickUntil){ e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  stage.addEventListener("dragstart", e=>{
+    if(e.target.closest && e.target.closest("[data-carousel-row]")) e.preventDefault();
+  });
 }
 
 function homeView(){
@@ -4859,6 +4963,7 @@ initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/ia
   // actual crossing -- render() replaces #stage wholesale and is far too
   // expensive to run on every pixel of a resize drag.
   startCarousels();
+  initCarouselSwipe();
 
   let wasWide = window.innerWidth >= 820;
   window.addEventListener("resize", ()=>{
