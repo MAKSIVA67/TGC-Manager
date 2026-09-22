@@ -29,23 +29,20 @@
 // ---------- state ----------
 function mgr(){
   const s = window.state;
-  if(!s.manager) s.manager = { tab:"team", pos:"ALL", market:"buy" };
+  if(!s.manager) s.manager = { tab:"team", pos:"ALL", market:"buy", sort:"new", sheet:null, sheetError:"", focus:null };
   return s.manager;
 }
 
-// ---------- player value (PLACEHOLDER) ----------
-// There is no value or price anywhere in the database -- this is an estimate
-// made up for the Transfer Market placeholder, and is shown as one. Rarity
-// sets the base, power scales it (squared, so the gap between a 70 and a 90
-// feels like a real gap), and each training level adds 6%. Rounded to 10.
-// Change the numbers here and every value on the page follows.
-const RARITY_BASE = { Common:60, Uncommon:90, Rare:140, Epic:220, Elite:320,
-  Ultra:460, Legendary:680, Mythic:950, Icon:1400, GOAT:2200 };
+// ---------- player value ----------
+// The same number the database charges (card_market_value in migration 009),
+// via lib/market.js. The fallback is the identical integer formula, used only
+// if market.js failed to load.
 function playerValue(p){
-  const base = RARITY_BASE[p.rarity] || 60;
-  const power = Math.max(1, p.power || p.basePower || 60);
-  const v = base * Math.pow(power / 75, 2) * (1 + 0.06 * (p.level || 0));
-  return Math.max(10, Math.round(v / 10) * 10);
+  if(window.Market) return window.Market.cardValue(p);
+  const base = ({ Common:60, Uncommon:90, Rare:140, Epic:220, Elite:320, Ultra:460,
+    Legendary:680, Mythic:950, Icon:1400, GOAT:2200 })[p.rarity] || 60;
+  const pw = Math.max(1, p.power || 60), lv = Math.max(0, p.level || 0);
+  return Math.max(10, Math.round(base * pw * pw * (100 + 6 * lv) / 5625000) * 10);
 }
 
 // ---------- helpers ----------
@@ -105,6 +102,41 @@ function injectStyles(){
 .mgrNote{padding:12px;border-radius:14px;margin-bottom:12px;font-size:11px;line-height:1.45;color:var(--cream);
   background:linear-gradient(135deg,#FFB02018,#8B7FE814);border:1px solid #FFB02040}
 .mgrTag{display:inline-block;font-size:8px;font-weight:900;letter-spacing:.1em;padding:2px 6px;border-radius:999px;margin-left:6px;vertical-align:1px}
+.mgrScoutGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.mgrScout{display:flex;flex-direction:column;gap:6px;min-width:0}
+.mgrPopIn{animation:mgrPop .45s cubic-bezier(.2,.9,.3,1.25) both}
+.mgrScout:nth-child(2) .mgrPopIn{animation-delay:.06s}.mgrScout:nth-child(3) .mgrPopIn{animation-delay:.12s}.mgrScout:nth-child(4) .mgrPopIn{animation-delay:.18s}
+@keyframes mgrPop{from{opacity:0;transform:translateY(10px) scale(.92)}to{opacity:1;transform:none}}
+.mgrBtnWide{width:100%;min-width:0;padding:8px 4px;font-size:10px}
+.mgrBtnCol{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.mgrBtnCol .mgrBtn{min-width:88px;padding:8px 8px}
+.mgrFocus{border-color:#FFB020aa;box-shadow:0 0 0 2px #FFB02055}
+.mgrFocusIn{animation:mgrFocusPulse 1.6s ease-in-out 2}
+@keyframes mgrFocusPulse{50%{box-shadow:0 0 0 5px #FFB02033}}
+.mgrExplain{padding:10px 12px;border-radius:14px;margin-bottom:10px;font-size:11px;line-height:1.5;background:var(--panel);border:1px solid #ffffff10;color:var(--cream)}
+.mgrStamp{flex-shrink:0;font-size:10px;font-weight:900;letter-spacing:.08em;padding:6px 9px;border-radius:8px;border:1.5px solid;transform:rotate(-4deg)}
+.mgrShimmer{background:linear-gradient(100deg,#ffffff08 30%,#ffffff18 50%,#ffffff08 70%);background-size:300% 100%;animation:mgrShim 1.4s linear infinite}
+@keyframes mgrShim{to{background-position:-150% 0}}
+.mgrSheetWrap{position:fixed;inset:0;z-index:65;display:flex;align-items:flex-end;justify-content:center;background:rgba(3,7,14,.72)}
+.mgrSheetIn{animation:mgrFade .18s ease both}
+.mgrSheetIn .mgrSheet{animation:mgrUp .32s cubic-bezier(.2,.9,.3,1) both}
+@keyframes mgrFade{from{opacity:0}}
+.mgrSheet{width:100%;max-width:440px;max-height:92vh;overflow-y:auto;padding:16px 16px calc(18px + env(safe-area-inset-bottom));border-radius:22px 22px 0 0;
+  background:linear-gradient(180deg,#16283d,var(--panel));border:1px solid #ffffff14}
+@keyframes mgrUp{from{transform:translateY(40%);opacity:.3}to{transform:none;opacity:1}}
+.mgrSheetTitle{font-size:10px;font-weight:900;letter-spacing:.16em;color:var(--muted);text-align:center;margin-bottom:10px}
+.mgrSheetCard{width:120px;margin:0 auto 8px}
+.mgrSheetName{font-family:Teko,system-ui,sans-serif;font-weight:700;font-size:22px;text-align:center;color:var(--cream);margin-bottom:10px}
+.mgrPrice{display:flex;align-items:center;justify-content:center;gap:14px;margin:4px 0 10px}
+.mgrStep{width:46px;height:46px;border-radius:50%;border:1px solid #ffffff22;background:var(--panelLight);color:var(--cream);font-size:24px;font-weight:900;cursor:pointer}
+.mgrPriceNum{text-align:center;min-width:120px}
+.mgrPriceNum b{display:block;font-family:Teko,system-ui,sans-serif;font-size:40px;line-height:1;color:var(--gold)}
+.mgrPriceNum span{font-size:9px;font-weight:900;letter-spacing:.14em;color:var(--muted)}
+.mgrSum{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:4px 2px}
+.mgrSum b{color:var(--cream)}
+.mgrSumTotal{border-top:1px solid #ffffff14;margin-top:4px;padding-top:8px;font-size:13px;color:var(--cream)}
+.mgrErr{margin-top:10px;padding:9px 10px;border-radius:10px;background:#FB5A5A1f;border:1px solid #FB5A5A66;color:#FFB4B4;font-size:12px;text-align:center}
+@media (prefers-reduced-motion:reduce){.mgrPopIn,.mgrSheetIn,.mgrSheetIn .mgrSheet,.mgrFocusIn,.mgrShimmer{animation:none!important}}
 `;
   const el = document.createElement("style");
   el.id = "mgrStyles";
@@ -243,39 +275,220 @@ function trainingSection(T){
     <div style="font-size:10px;color:${C.muted};text-align:center;margin-top:6px">Shards come from pulling a card you already own.</div>`;
 }
 
-// c) Transfer Market -- UI ONLY. Nothing here can buy, sell, or move a gem:
-// every button is disabled, there is no handler behind it, and the values are
-// the estimate from playerValue() above.
-function marketSection(T){
-  const C = T.COLORS, S = window.state, m = mgr();
-  const usedIds = new Set(lineupPlayers().map(p => p.id));
-  const list = m.market === "buy"
-    ? (S.players || []).filter(p => !p.owned && !p.exclusive && p.active !== false)
-    : ownedCards();
-  const filtered = list.filter(p => m.pos === "ALL" || p.position === m.pos)
-    .map(p => ({ p, v: playerValue(p) })).sort((a,b) => b.v - a.v);
+// c) Transfer Market -- LIVE (migration 009). Every button here asks the
+// database; lib/market.js does the calls and only updates the screen after the
+// server has confirmed. Before 009 is run the tab says so and keeps the buttons
+// switched off, so an old database can never be half-used.
+function mkt(){ return window.Market ? window.Market.state() : { status:"missing", listings:[], mine:[], scout:[] }; }
+function busyIs(k){ const s = mkt(); return !!s.busy && s.busy === k; }
 
-  const rows = filtered.map(({p, v}) => {
-    const rc = (T.RARITY[p.rarity] || {}).color || C.muted;
+function marketNote(T){
+  const C = T.COLORS, s = mkt();
+  if(s.status === "missing") return `<div class="mgrNote"><b style="color:${C.gold}">The transfer market opens after one database update.</b>
+      Everything below shows real prices, but buying and selling stay switched off until migration 009 has been run.</div>`;
+  if(s.status === "error") return `<div class="mgrNote" style="border-color:${C.danger}66"><b style="color:${C.danger}">Couldn't load the market.</b>
+      ${T.esc(s.error || "")}<div style="margin-top:8px"><button class="mgrBtn scrimtap" data-mgr="mreload" style="background:${C.panelLight};color:${C.cream}">TRY AGAIN</button></div></div>`;
+  if(s.status === "loading" || s.status === "idle") return `<div class="mgrNote mgrShimmer">Loading the transfer market…</div>`;
+  return "";
+}
+
+function rowThumb(T, p){
+  const rc = (T.RARITY[p.rarity] || {}).color || T.COLORS.muted;
+  return `<div class="mgrThumb" style="--rc:${rc}"><img src="${T.esc(thumbSrc(p))}" alt="" loading="lazy"/></div>`;
+}
+function rowMeta(T, p, level){
+  const rc = (T.RARITY[p.rarity] || {}).color || T.COLORS.muted;
+  const pw = p.basePower + (level != null ? level : (p.level || 0));
+  const lv = level != null ? level : p.level;
+  return `<span style="color:${rc}">${(T.RARITY[p.rarity]||{}).label||p.rarity}</span> · ${p.position} · PWR ${pw}${lv ? ` · LV ${lv}` : ""}`;
+}
+function gemTag(T, n, label){
+  return `<div class="mgrValue"><b>${fmt(n)}</b><span>${label || "GEMS"}</span></div>`;
+}
+
+function buyTab(T){
+  const C = T.COLORS, S = window.state, m = mgr(), s = mkt(), live = s.status === "ready";
+  // render() rebuilds the page on every tap; the pop plays only the first time
+  // the report is drawn, or every sort/filter tap would replay it.
+  const pop = !m.scoutShown && (s.scout || []).length > 0; if(pop) m.scoutShown = true;
+  // --- scouting report
+  const scout = (s.scout || []).map(o => ({ o, p: window.Market && window.Market.card(o.card_id) })).filter(x => x.p);
+  const scoutHTML = scout.length ? `<div class="mgrScoutGrid">${scout.map(({o, p}) => {
+      const can = live && !o.owned && S.gems >= o.price;
+      const label = o.owned || p.owned ? "OWNED" : busyIs("scout:" + p.id) ? "…" : S.gems < o.price ? "NEED GEMS" : "BUY";
+      return `<div class="mgrScout">
+        <div class="mgrScoutCard${pop ? " mgrPopIn" : ""}">${T.playerCard(p, { mode:"showcase" })}</div>
+        <button class="mgrBtn mgrBtnWide scrimtap" ${can && !(o.owned||p.owned) ? `data-mgr="mask" data-kind="scout" data-v="${p.id}"` : "disabled"}
+          style="background:${can && !(o.owned||p.owned) ? C.gold : C.panelLight};color:${can && !(o.owned||p.owned) ? C.bg : C.muted}">
+          ${label}${label === "BUY" ? ` · ${fmt(o.price)}` : ""}</button>
+      </div>`; }).join("")}</div>`
+    : `<div class="panel" style="padding:14px;text-align:center;font-size:12px;color:${C.muted}">${live ? "No scouting report today." : "The scouting report appears once the market is open."}</div>`;
+
+  // --- other managers' listings
+  let rows = (s.listings || []).map(l => ({ l, p: window.Market && window.Market.card(l.card_id) })).filter(x => x.p)
+    .filter(x => m.pos === "ALL" || x.p.position === m.pos);
+  if(m.sort === "cheap") rows.sort((a, b) => a.l.price - b.l.price);
+  const listHTML = rows.map(({l, p}) => {
+    const owned = l.owned || p.owned, can = live && !owned && S.gems >= l.price;
+    const label = owned ? "OWNED" : busyIs("buy:" + l.id) ? "…" : S.gems < l.price ? "NEED GEMS" : "BUY";
     return `<div class="mgrRow">
-        <div class="mgrThumb" style="--rc:${rc}"><img src="${T.esc(thumbSrc(p))}" alt="" loading="lazy"/></div>
+        ${rowThumb(T, p)}
         <div class="mgrInfo">
-          <div class="mgrName">${T.esc(p.name)}${usedIds.has(p.id) ? `<span class="mgrTag" style="background:${C.turf}22;color:${C.turf}">IN SQUAD</span>` : ""}</div>
-          <div class="mgrMeta"><span style="color:${rc}">${(T.RARITY[p.rarity]||{}).label||p.rarity}</span> · ${p.position} · PWR ${p.power}${p.level?` · LV ${p.level}`:""}</div>
+          <div class="mgrName">${T.esc(p.name)}</div>
+          <div class="mgrMeta">${rowMeta(T, p, l.level)}</div>
+          <div class="mgrMeta" style="margin-top:3px">listed by <span style="color:${C.cream}">${T.esc(l.seller_name || "a manager")}</span></div>
         </div>
-        <div class="mgrValue"><b>${fmt(v)}</b><span>GEMS</span></div>
-        <button class="mgrBtn" disabled style="background:${C.panelLight};color:${C.muted}">${m.market==="buy"?"BUY":"SELL"}<br><span style="font-size:8px;letter-spacing:.1em">SOON</span></button>
-      </div>`;
-  }).join("");
+        ${gemTag(T, l.price, "PRICE")}
+        <button class="mgrBtn scrimtap" ${can ? `data-mgr="mask" data-kind="buy" data-v="${l.id}"` : "disabled"}
+          style="background:${can ? C.turf : C.panelLight};color:${can ? C.bg : C.muted}">${label}</button>
+      </div>`; }).join("");
 
-  return `<div class="mgrNote"><b style="color:${C.gold}">Transfer Market is coming soon.</b>
-      Buying and selling are switched off. Nothing on this tab can spend or earn gems yet, and the values are estimates.</div>
+  return `<div class="row between" style="align-items:flex-end;margin:4px 0 8px">
+      <div class="mgrLabel" style="margin:0">TODAY'S SCOUTING REPORT</div>
+      <div style="font-size:10px;font-weight:800;color:${C.cyan}">${window.Market ? "new players in " + window.Market.scoutResetsIn() : ""}</div>
+    </div>
+    ${scoutHTML}
+    <div class="row between" style="align-items:center;margin:16px 0 8px">
+      <div class="mgrLabel" style="margin:0">FROM OTHER MANAGERS ${rows.length ? `(${rows.length})` : ""}</div>
+      <div class="row" style="gap:6px">
+        <button class="mgrChip scrimtap${m.sort !== "cheap" ? " on" : ""}" data-mgr="msort" data-v="new">NEWEST</button>
+        <button class="mgrChip scrimtap${m.sort === "cheap" ? " on" : ""}" data-mgr="msort" data-v="cheap">CHEAPEST</button>
+      </div>
+    </div>
+    ${posChips()}
+    ${listHTML || `<div class="panel" style="padding:18px;text-align:center;font-size:12px;color:${C.muted}">
+        No players listed${m.pos !== "ALL" ? " in this position" : ""} yet. Be the first: list one of yours in <b style="color:${C.cream}">SELL</b>.</div>`}`;
+}
+
+function sellTab(T){
+  const C = T.COLORS, m = mgr(), s = mkt(), live = s.status === "ready", M = window.Market;
+  const cards = ownedCards().filter(p => m.pos === "ALL" || p.position === m.pos)
+    .map(p => ({ p, v: M ? M.cardValue(p) : playerValue(p) })).sort((a, b) => b.v - a.v);
+  const active = (s.mine || []).filter(x => x.status === "active").length;
+  const rows = cards.map(({p, v}) => {
+    const why = M ? M.sellBlock(p) : null, qs = M ? M.quickSellPrice(v) : 0;
+    const canQ = live && !why, canL = live && !why && active < (M ? M.MAX_LISTINGS : 5);
+    const focus = m.focus === p.id, focusAnim = focus && !m.focusShown; if(focusAnim) m.focusShown = true;
+    return `<div class="mgrRow${focus ? " mgrFocus" : ""}${focusAnim ? " mgrFocusIn" : ""}" data-mgr-row="${p.id}">
+        ${rowThumb(T, p)}
+        <div class="mgrInfo">
+          <div class="mgrName">${T.esc(p.name)}</div>
+          <div class="mgrMeta">${rowMeta(T, p)}</div>
+          <div class="mgrMeta" style="margin-top:3px">value <b style="color:${C.gold}">${fmt(v)}</b>${why ? ` · <span style="color:${C.danger}">${T.esc(why)}</span>` : ""}</div>
+        </div>
+        <div class="mgrBtnCol">
+          <button class="mgrBtn scrimtap" ${canQ ? `data-mgr="mask" data-kind="quick" data-v="${p.id}"` : "disabled"}
+            style="background:${canQ ? C.gold : C.panelLight};color:${canQ ? C.bg : C.muted}">${busyIs("sell:" + p.id) ? "…" : "SELL +" + fmt(qs)}</button>
+          <button class="mgrBtn scrimtap" ${canL ? `data-mgr="mlistopen" data-v="${p.id}"` : "disabled"}
+            style="background:${canL ? C.panelLight : "transparent"};color:${canL ? C.cream : C.muted};border:1px solid ${canL ? C.cream + "44" : "#ffffff14"}">LIST</button>
+        </div>
+      </div>`; }).join("");
+  return `<div class="mgrExplain">
+      <div><b style="color:${C.gold}">SELL</b> pays instantly, at 35% of the player's value.</div>
+      <div><b style="color:${C.cream}">LIST</b> lets other managers buy them at your price (5% market fee). ${active}/${M ? M.MAX_LISTINGS : 5} listed.</div>
+      <div style="color:${C.muted}">You always keep at least 9 players, and players in your squad can't be sold.</div>
+    </div>
+    ${posChips()}
+    ${rows || `<div class="panel" style="padding:18px;text-align:center;font-size:12px;color:${C.muted}">No cards here.</div>`}`;
+}
+
+function mineTab(T){
+  const C = T.COLORS, s = mkt(), live = s.status === "ready", M = window.Market;
+  const rows = (s.mine || []).map(l => ({ l, p: M && M.card(l.card_id) })).filter(x => x.p).map(({l, p}) => {
+    const get = l.price - (l.fee != null ? l.fee : (M ? M.fee(l.price) : 0));
+    const status = l.status === "active"
+      ? `<button class="mgrBtn scrimtap" ${live ? `data-mgr="mcancel" data-v="${l.id}"` : "disabled"} style="background:${C.panelLight};color:${C.cream}">${busyIs("cancel:" + l.id) ? "…" : "CANCEL"}</button>`
+      : l.status === "sold"
+        ? `<span class="mgrStamp" style="color:${C.turf};border-color:${C.turf}">SOLD +${fmt(get)}</span>`
+        : `<span class="mgrStamp" style="color:${C.muted};border-color:${C.muted}">CANCELLED</span>`;
+    return `<div class="mgrRow" style="${l.status === "active" ? "" : "opacity:.7"}">
+        ${rowThumb(T, p)}
+        <div class="mgrInfo">
+          <div class="mgrName">${T.esc(p.name)}</div>
+          <div class="mgrMeta">${rowMeta(T, p, l.level)}</div>
+          <div class="mgrMeta" style="margin-top:3px">listed at <b style="color:${C.gold}">${fmt(l.price)}</b> · you get ${fmt(get)}</div>
+        </div>
+        ${status}
+      </div>`; }).join("");
+  return rows || `<div class="panel" style="padding:18px;text-align:center;font-size:12px;color:${C.muted}">
+      Nothing listed. Go to <b style="color:${C.cream}">SELL</b> and tap LIST on a player you don't need.</div>`;
+}
+
+// The confirm / price sheet. One at a time, drawn over the page.
+function sheetHTML(T){
+  const C = T.COLORS, m = mgr(), S = window.state, M = window.Market;
+  if(!m.sheet || !M) return "";
+  const sh = m.sheet, s = mkt();
+  let p = null, title = "", body = "", confirm = "", confirmColor = C.turf, extra = "";
+  if(sh.kind === "list"){
+    p = M.card(sh.id); if(!p) return "";
+    const b = M.listBounds(p), step = Math.max(5, Math.round(b.value / 20 / 5) * 5);
+    const price = Math.min(b.max, Math.max(b.min, sh.price || b.value));
+    const f = M.fee(price);
+    title = "List on the transfer market";
+    body = `<div class="mgrPrice">
+        <button class="mgrStep scrimtap" data-mgr="mprice" data-v="${-step}">−</button>
+        <div class="mgrPriceNum"><b>${fmt(price)}</b><span>GEMS</span></div>
+        <button class="mgrStep scrimtap" data-mgr="mprice" data-v="${step}">+</button>
+      </div>
+      <div class="mgrChips" style="justify-content:center">
+        ${[[1,"VALUE"],[1.5,"×1.5"],[2,"×2"],[3,"×3"]].map(([k, l]) => `<button class="mgrChip scrimtap" data-mgr="mpreset" data-v="${k}">${l}</button>`).join("")}
+      </div>
+      <div class="mgrSum"><span>Value</span><b>${fmt(b.value)}</b></div>
+      <div class="mgrSum"><span>Market fee (5%)</span><b style="color:${C.danger}">−${fmt(f)}</b></div>
+      <div class="mgrSum mgrSumTotal"><span>You receive when it sells</span><b style="color:${C.turf}">${fmt(price - f)}</b></div>
+      <div style="font-size:10px;color:${C.muted};text-align:center;margin-top:6px">Allowed: ${fmt(b.min)} to ${fmt(b.max)}. The player leaves your squad list while listed; cancel any time to get them back.</div>`;
+    confirm = busyIs("list:" + p.id) ? "LISTING…" : "LIST FOR " + fmt(price); confirmColor = C.cyan;
+  } else if(sh.kind === "quick"){
+    p = M.card(sh.id); if(!p) return "";
+    const qs = M.quickSellPrice(M.cardValue(p));
+    title = "Sell to the club";
+    body = `<div style="text-align:center;font-size:13px;color:${C.cream}">You get <b style="color:${C.gold}">${fmt(qs)} gems</b> right now.</div>
+      <div style="text-align:center;font-size:11px;color:${C.muted};margin-top:4px">Listing them could earn up to ${fmt(M.cardValue(p) * 5 - M.fee(M.cardValue(p) * 5))}. This can't be undone.</div>`;
+    confirm = busyIs("sell:" + p.id) ? "SELLING…" : "SELL FOR " + fmt(qs); confirmColor = C.gold;
+  } else if(sh.kind === "buy"){
+    const l = (s.listings || []).find(x => x.id === sh.id); if(!l) return "";
+    p = M.card(l.card_id); if(!p) return "";
+    title = "Buy from " + (l.seller_name || "a manager");
+    body = `<div style="text-align:center;font-size:13px;color:${C.cream}">Pay <b style="color:${C.gold}">${fmt(l.price)} gems</b>${l.level ? `, trained to level ${l.level}` : ""}.</div>
+      <div style="text-align:center;font-size:11px;color:${C.muted};margin-top:4px">You have ${fmt(S.gems)}. You'll have ${fmt(S.gems - l.price)} left.</div>`;
+    confirm = busyIs("buy:" + l.id) ? "BUYING…" : "BUY FOR " + fmt(l.price);
+  } else if(sh.kind === "scout"){
+    const o = (s.scout || []).find(x => x.card_id === sh.id); p = M.card(sh.id); if(!o || !p) return "";
+    title = "Sign from the scouting report";
+    body = `<div style="text-align:center;font-size:13px;color:${C.cream}">Pay <b style="color:${C.gold}">${fmt(o.price)} gems</b>.</div>
+      <div style="text-align:center;font-size:11px;color:${C.muted};margin-top:4px">You have ${fmt(S.gems)}. You'll have ${fmt(S.gems - o.price)} left.</div>`;
+    confirm = busyIs("scout:" + p.id) ? "SIGNING…" : "SIGN FOR " + fmt(o.price); confirmColor = C.gold;
+  } else return "";
+  if(m.sheetError) extra = `<div class="mgrErr">${T.esc(m.sheetError)}</div>`;
+  const anim = !!m.sheetAnim; m.sheetAnim = false;   // slide in once, not on every +/- tap
+  return `<div class="mgrSheetWrap${anim ? " mgrSheetIn" : ""}" data-mgr="mclose">
+      <div class="mgrSheet" data-mgr="noop">
+        <div class="mgrSheetTitle">${T.esc(title)}</div>
+        <div class="mgrSheetCard">${T.playerCard(p, { mode:"showcase" })}</div>
+        <div class="mgrSheetName">${T.esc(p.name)}</div>
+        ${body}${extra}
+        <button class="mgrBtn mgrBtnWide scrimtap" data-mgr="mconfirm" style="margin-top:14px;background:${confirmColor};color:${C.bg}">${confirm}</button>
+        <button class="mgrBtn mgrBtnWide scrimtap" data-mgr="mclose" style="margin-top:8px;background:transparent;color:${C.muted}">NOT NOW</button>
+      </div>
+    </div>`;
+}
+
+function marketSection(T){
+  const C = T.COLORS, S = window.state, m = mgr(), s = mkt();
+  // First visit (and after 15 s): fetch. Deferred so render() is never re-entered.
+  if(window.Market && (s.status === "idle" || (s.status === "ready" && Date.now() - s.loadedAt > 15000)))
+    setTimeout(() => window.Market.load(), 0);
+  const activeMine = (s.mine || []).filter(x => x.status === "active").length;
+  const sub = m.market === "sell" ? sellTab(T) : m.market === "mine" ? mineTab(T) : buyTab(T);
+  return `${marketNote(T)}
     <div class="mgrTabs" style="margin-bottom:10px">
       <button class="mgrTab scrimtap${m.market==="buy"?" on":""}" data-mgr="market" data-v="buy">BUY</button>
       <button class="mgrTab scrimtap${m.market==="sell"?" on":""}" data-mgr="market" data-v="sell">SELL</button>
+      <button class="mgrTab scrimtap${m.market==="mine"?" on":""}" data-mgr="market" data-v="mine">MY LISTINGS${activeMine ? ` (${activeMine})` : ""}</button>
     </div>
-    ${posChips()}
-    ${rows || `<div class="panel" style="padding:18px;text-align:center;font-size:12px;color:${C.muted}">${m.market==="buy" ? "You already own every card in this list." : "No cards to show."}</div>`}`;
+    ${sub}
+    ${sheetHTML(T)}`;
 }
 
 // ---------- page ----------
@@ -319,13 +532,73 @@ window.managerSyncUrl = function(tab){
 
 // Its own click handling for its own sub-tabs, on data-mgr (never data-action),
 // so the game's main click handler never sees these and none of its cases change.
+function toast(msg){ if(typeof window.showToast === "function") window.showToast(msg); }
+function runSheet(){
+  const m = mgr(), sh = m.sheet, M = window.Market;
+  if(!sh || !M) return;
+  const p = sh.kind === "buy" ? null : M.card(sh.id);
+  let job;
+  if(sh.kind === "list") {
+    const b = M.listBounds(p), price = Math.min(b.max, Math.max(b.min, sh.price || b.value));
+    job = M.list(sh.id, price).then(r => r.error ? r : (toast(`${p.name} is on the market for ${fmt(price)} gems`), m.market = "mine", r));
+  } else if(sh.kind === "quick") {
+    const qs = M.quickSellPrice(M.cardValue(p));
+    job = M.quickSell(sh.id).then(r => r.error ? r : (toast(`Sold ${p.name} for ${fmt(qs)} gems`), r));
+  } else if(sh.kind === "buy") {
+    const l = (M.state().listings || []).find(x => x.id === sh.id), bp = l && M.card(l.card_id);
+    job = M.buy(sh.id).then(r => r.error ? r : (toast(`${bp ? bp.name : "Player"} joined your club!`), celebrate(bp), r));
+  } else if(sh.kind === "scout") {
+    job = M.buyScout(sh.id).then(r => r.error ? r : (toast(`${p.name} signed from the scouting report!`), celebrate(p), r));
+  } else return;
+  m.sheetError = "";
+  window.render();
+  job.then(r => {
+    if(r && r.error){ m.sheetError = r.error; if(window.playLose) window.playLose(); }
+    else { m.sheet = null; if(window.playWin) window.playWin(); }
+    window.render();
+  });
+}
+// A signing is a moment -- open the new player's card, as a pack reveal would.
+function celebrate(p){
+  if(!p) return;
+  setTimeout(() => { window.state.enlargedCardId = p.id; window.render(); }, 250);
+}
+
 document.getElementById("stage").addEventListener("click", function(e){
   const el = e.target.closest("[data-mgr]");
   if(!el) return;
-  const m = mgr(), kind = el.dataset.mgr, v = el.dataset.v;
-  if(kind === "tab") m.tab = v;
+  const m = mgr(), kind = el.dataset.mgr, v = el.dataset.v, M = window.Market;
+  if(kind === "noop") return;
+  if(kind === "tab") { m.tab = v; m.scoutShown = false; }
   else if(kind === "pos") m.pos = v;
-  else if(kind === "market") m.market = v;
+  else if(kind === "market") { m.market = v; m.focus = null; m.scoutShown = false; }
+  else if(kind === "msort") m.sort = v;
+  else if(kind === "mreload") { if(M) M.load(true); }
+  else if(kind === "mask") { m.sheet = { kind: el.dataset.kind, id: Number(v) }; m.sheetError = ""; m.sheetAnim = true; }
+  else if(kind === "mlistopen") {
+    const p = M && M.card(v); if(!p) return;
+    m.sheet = { kind: "list", id: p.id, price: M.cardValue(p) }; m.sheetError = ""; m.sheetAnim = true;
+  }
+  else if(kind === "mprice" && m.sheet) {
+    const b = M.listBounds(M.card(m.sheet.id));
+    m.sheet.price = Math.min(b.max, Math.max(b.min, (m.sheet.price || b.value) + Number(v)));
+  }
+  else if(kind === "mpreset" && m.sheet) {
+    const b = M.listBounds(M.card(m.sheet.id));
+    m.sheet.price = Math.min(b.max, Math.max(b.min, Math.round(b.value * Number(v) / 5) * 5));
+  }
+  else if(kind === "mconfirm") { runSheet(); return; }
+  else if(kind === "mcancel") {
+    const l = M && (M.state().mine || []).find(x => x.id === Number(v)), p = l && M.card(l.card_id);
+    M.cancel(v).then(r => { if(r.error) toast(r.error); else toast(`${p ? p.name : "Player"} is back in your collection`); });
+  }
+  else if(kind === "mclose") { m.sheet = null; m.sheetError = ""; }
+  // From the card popup: "Sell on the transfer market" jumps straight to the card.
+  else if(kind === "goto-sell") {
+    m.tab = "market"; m.market = "sell"; m.pos = "ALL"; m.focus = Number(v); m.focusShown = false;
+    window.state.enlargedCardId = null; window.state.tab = "manager";
+    setTimeout(() => { const r = document.querySelector('[data-mgr-row="' + Number(v) + '"]'); if(r) r.scrollIntoView({ block: "center", behavior: "smooth" }); }, 60);
+  }
   else return;
   if(window.ensureAudio) window.ensureAudio();
   if(window.playTap) window.playTap();

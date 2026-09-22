@@ -2154,6 +2154,10 @@ function cardDetailModal(){
           class="btn scrimtap wfull" style="padding:11px 0;font-size:12px;font-weight:900;background:${(okS && okG) ? COLORS.turf : COLORS.panelLight};color:${(okS && okG) ? COLORS.bg : COLORS.muted}">
           ${state.trainPending ? "TRAINING..." : (okS && okG) ? "TRAIN +1 POWER" : !okS ? "NEED MORE SHARDS" : "NEED MORE GEMS"}
         </button>`}
+      ${(owned && window.Market && !card.exclusive) ? `<button data-mgr="goto-sell" data-v="${card.id}" class="btn scrimtap wfull"
+          style="margin-top:8px;padding:10px 0;font-size:11px;font-weight:900;letter-spacing:.06em;background:transparent;color:${COLORS.gold};border:1px solid ${COLORS.gold}55">
+          SELL ON THE TRANSFER MARKET &middot; worth ${window.Market.cardValue(card).toLocaleString("en-US")}
+        </button>` : ""}
     </div>
   </div>`;
 }
@@ -5060,4 +5064,5 @@ initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/ia
 <!-- Manager V1 page (Task D). Loaded AFTER the main script so window.state,
      window.render and window.tcgUI already exist. Everything it does is in its
      own file; see the header comment in lib/manager.js. -->
+<script src="lib/market.js?v=8"></script>
 <script src="lib/manager.js?v=8"></script>
