@@ -558,3 +558,73 @@ end $$;
 Tested before shipping: applied to a real Postgres and checked 21 ways —
 a banned account blocked on every table, a normal player unaffected, an admin
 still able to unban, and the SQL editor never locked out.
+
+---
+
+# Migration 009 — the transfer market
+
+**What it adds:** players can sell cards and buy cards.
+
+- **Quick sell** a card to the club for 35% of its value, paid instantly.
+- **List** a card for other players at your own price. When it sells you get
+  the price minus a 5% market fee.
+- **Buy** other players' listings.
+- **Daily scouting report:** 4 cards for sale each day, the same for everyone,
+  new ones at midnight UTC. Common to Ultra only, so Legendary and up stay
+  pack-only.
+
+All of it happens inside the database, because the lock-down (007 step 2) is
+on and the app can no longer change gems or cards itself.
+
+**Safety rules built in:** you can never go below 9 cards, never sell a player
+in your saved squad, never sell exclusive cards, never buy a card you already
+own, and banned players can't use the market or earn from it.
+
+**It also closes a loophole.** Once cards can be sold for gems, "sell
+everything, claim the free starter squad again, sell again" would have been
+an endless gem machine. The starter squad is now given once per account: not
+again after the account has sold on the market or completed a trade.
+
+**Has it been tested?** Yes, on a real Postgres with your schema and the real
+007 and 008 functions: 56 checks, including every way to cheat that could be
+thought of. Plus 44,300 price checks proving the price the app shows is exactly
+the price the database charges, and 19 checks of the real app screens driving
+the real database.
+
+## How to run migration 009
+
+1. **https://supabase.com/dashboard** → sign in → your **TCG Manager** project.
+2. Left sidebar → **SQL Editor** → green **+ New query**.
+3. Open `server/sql/009_transfer_market.sql`, select all (**Ctrl+A**), copy
+   (**Ctrl+C**).
+4. Paste into the big box, click the green **Run** button.
+5. Expect **Success. No rows returned**.
+
+Safe to run more than once. Nothing breaks for players on the old version of
+the site: they simply don't see the market yet.
+
+### Checking it worked
+
+```sql
+select public.card_market_value('Rare', 74, 0) as value,       -- expect 140
+       public.market_quick_sell_price(140)      as quick_sell,  -- expect 50
+       (select count(*) from public.market_scout_today()) as scouting_offers;  -- expect 4
+```
+
+Then in the game: **Home → MANAGER → TRANSFERS**. The scouting report should
+show 4 players with prices. Sell one card you don't need and check your gems
+went up by the amount the button showed.
+
+### If something goes wrong
+
+To switch buying and selling off without deleting anything, run this.
+Players can still browse, and pressing Buy or Sell shows a "permission
+denied" message instead of doing anything:
+
+```sql
+revoke execute on function public.market_quick_sell(bigint), public.market_list_card(bigint, integer),
+  public.market_buy_listing(bigint), public.market_buy_scout(bigint) from authenticated;
+```
+
+Cancelling listings still works while it's off, so nobody's card gets stuck.
+To switch it back on, run the file again.
