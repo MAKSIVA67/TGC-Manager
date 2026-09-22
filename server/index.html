@@ -658,19 +658,19 @@ input,textarea{font-family:inherit;font-size:16px}
      cached lib/game-data.js -- a mixed pair that is broken in ways neither file
      is on its own, and exactly the hazard a paired client + migration change
      like 007 creates. -->
-<script src="lib/card-art.js?v=8"></script>
-<script src="lib/supabase-client.js?v=8"></script>
-<script src="lib/auth.js?v=8"></script>
-<script src="lib/game-data.js?v=8"></script>
-<script src="lib/social.js?v=8"></script>
-<script src="lib/admin-api.js?v=8"></script>
-<script src="lib/iap.js?v=8"></script>
+<script src="lib/card-art.js?v=9"></script>
+<script src="lib/supabase-client.js?v=9"></script>
+<script src="lib/auth.js?v=9"></script>
+<script src="lib/game-data.js?v=9"></script>
+<script src="lib/social.js?v=9"></script>
+<script src="lib/admin-api.js?v=9"></script>
+<script src="lib/iap.js?v=9"></script>
 <!-- Match engine, split by concern: visuals (stadium/models/animation), HUD
      (overlay DOM + controls), then the core sim which uses both. Order
      matters -- match3d.js binds the other two at kickoff. -->
-<script src="lib/match3d-visuals.js?v=8"></script>
-<script src="lib/match3d-hud.js?v=8"></script>
-<script src="lib/match3d.js?v=8"></script>
+<script src="lib/match3d-visuals.js?v=9"></script>
+<script src="lib/match3d-hud.js?v=9"></script>
+<script src="lib/match3d.js?v=9"></script>
 
 <script>
 (function(){
@@ -5210,6 +5210,6 @@ initIAP(); // no-op on plain web / until REVENUECAT_API_KEY is set -- see lib/ia
 <!-- Manager V1 page (Task D). Loaded AFTER the main script so window.state,
      window.render and window.tcgUI already exist. Everything it does is in its
      own file; see the header comment in lib/manager.js. -->
-<script src="lib/market.js?v=8"></script>
-<script src="lib/manager.js?v=8"></script>
-<script src="lib/juice.js?v=8"></script>
+<script src="lib/market.js?v=9"></script>
+<script src="lib/manager.js?v=9"></script>
+<script src="lib/juice.js?v=9"></script>
