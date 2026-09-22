@@ -1672,6 +1672,7 @@ function cardCarousel(kind, title, accent){
   if(pool.length < 1) return "";
   const index = (state.carousel && state.carousel[kind]) || 0;
   const pages = Math.max(1, Math.min(6, Math.ceil(pool.length / CAROUSEL_SIZE)));
+  setTimeout(()=>preloadCarouselPage(kind, index + 1), 0);   // the first flip is warm too
   return `<div class="carousel" data-carousel="${kind}" style="--carAccent:${accent}">
     <div class="row between" style="margin-bottom:10px;align-items:center">
       <div style="font-size:10px;font-weight:900;letter-spacing:.12em;color:${accent}">${title}</div>
@@ -1706,6 +1707,7 @@ function carouselGo(box, delta){
     c.classList.add(back ? "leavingRev" : "leaving");
     c.style.animationDelay = (i*50)+"ms";
   });
+  preloadCarouselPage(kind, next);              // usually already done by the last swap
   setTimeout(()=>{
     const liveRow = box.querySelector("[data-carousel-row]");
     if(!liveRow) return;                        // navigated away mid-swap
@@ -1714,7 +1716,30 @@ function carouselGo(box, delta){
     liveRow.innerHTML = carouselCells(kind, next);
     const pages = box.querySelectorAll(".carDot");
     pages.forEach((d,i)=>d.classList.toggle("on", i === posMod(next, pages.length)));
+    preloadCarouselPage(kind, next + 1);        // and the one after, 3 s ahead of time
+    preloadCarouselPage(kind, next - 1);        // for a swipe back
   }, 300);
+}
+
+// PERFORMANCE: decode a carousel page's card images BEFORE it is shown. The
+// swap used to insert three images that had never been decoded, and decoding
+// them at insertion was a ~65 ms hitch on a phone every time the Home
+// carousel flipped. A decoded image stays in the browser's memory cache, so
+// the swap just places it.
+const carouselDecoded = new Set();
+function preloadCarouselPage(kind, index){
+  const pool = carouselPool(kind);
+  if(!pool.length) return;
+  for(let i=0;i<CAROUSEL_SIZE;i++){
+    const p = pool[posMod(index*CAROUSEL_SIZE + i, pool.length)];
+    const url = p && (p.imageThumbUrl || p.imageUrl);
+    if(!url || carouselDecoded.has(url)) continue;
+    carouselDecoded.add(url);
+    const img = new Image();
+    img.decoding = "async";
+    img.src = url;
+    if(img.decode) img.decode().catch(()=>carouselDecoded.delete(url));
+  }
 }
 
 // After a swipe the player is looking at a page they chose. The timer flipping

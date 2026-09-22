@@ -171,6 +171,70 @@ function tabs(){
 }
 
 // a) My Team -- the squad the Play tab uses, read-only here.
+// How a listing's price compares with the player's value. Strategy needs a
+// reference point: without one every price looks equally arbitrary.
+function dealBadge(T, p, l){
+  if(!window.Market) return "";
+  const C = T.COLORS, v = window.Market.value(p.rarity, p.basePower + (l.level || 0), l.level || 0), r = l.price / v;
+  const b = r <= 0.9 ? ["GREAT DEAL", C.turf] : r <= 1.2 ? ["FAIR PRICE", C.cyan] : r >= 2.5 ? ["PRICEY", C.danger] : null;
+  return b ? `<span class="mgrTag" style="background:${b[1]}22;color:${b[1]}">${b[0]}</span>` : "";
+}
+
+// Transfer targets: for each position, which player on the market would lift
+// your weakest starter the most per gem? This is what turns the market from a
+// shop into a decision. Also points out when your own bench already beats a
+// starter -- a free upgrade people miss.
+function targetsHTML(T, lu, inSquad){
+  const C = T.COLORS, S = window.state, M = window.Market, s = mkt();
+  if(!M || !inSquad.length) return "";
+  if(s.status === "idle") setTimeout(() => M.load(), 0);
+  const eff = p => p.basePower + (p.level || 0);
+  // Every slot of the formation, not just the keys the saved lineup happens to
+  // have -- an EMPTY slot is the biggest upgrade there is and must be counted.
+  const slots = window.buildSlots((S.play && S.play.formationKey) || "balanced", "my").map(x => x.id);
+  const weakest = {};                               // position -> {power, player|null}
+  slots.forEach(id => {
+    const pos = id.replace(/[0-9]+$/, ""), p = lu[id];
+    const pw = p ? eff(p) : 0;
+    if(!weakest[pos] || pw < weakest[pos].power) weakest[pos] = { power: pw, player: p || null };
+  });
+  const usedIds = new Set(inSquad.map(p => p.id));
+  const benchHints = Object.keys(weakest).map(pos => {
+    const best = ownedCards().filter(p => p.position === pos && !usedIds.has(p.id)).sort((a,b) => eff(b) - eff(a))[0];
+    return best && eff(best) > weakest[pos].power ? { pos, best, gain: eff(best) - weakest[pos].power } : null;
+  }).filter(Boolean).sort((a,b) => b.gain - a.gain);
+  const cands = [];
+  if(s.status === "ready"){
+    (s.listings || []).forEach(l => { const p = M.card(l.card_id); if(!p || p.owned || l.owned || !weakest[p.position]) return;
+      const gain = p.basePower + (l.level || 0) - weakest[p.position].power; if(gain > 0) cands.push({ kind:"buy", id:l.id, p, price:l.price, gain, from:"market" }); });
+    (s.scout || []).forEach(o => { const p = M.card(o.card_id); if(!p || p.owned || o.owned || !weakest[p.position]) return;
+      const gain = p.basePower - weakest[p.position].power; if(gain > 0) cands.push({ kind:"scout", id:p.id, p, price:o.price, gain, from:"scouting" }); });
+  }
+  cands.sort((a,b) => (b.gain / b.price) - (a.gain / a.price));
+  const top = cands.slice(0, 3);
+  const rows = top.map(c => {
+    const w = weakest[c.p.position], can = S.gems >= c.price;
+    return `<div class="mgrRow">
+        ${rowThumb(T, c.p)}
+        <div class="mgrInfo">
+          <div class="mgrName">${T.esc(c.p.name)}</div>
+          <div class="mgrMeta"><b style="color:${C.turf}">+${c.gain} PWR</b> at ${c.p.position}${w.player ? " · replaces " + T.esc(w.player.name) : " · fills an empty slot"}</div>
+          <div class="mgrMeta" style="margin-top:3px">from the ${c.from} · ${(c.gain / c.price * 100).toFixed(1)} power per 100 gems</div>
+        </div>
+        ${gemTag(T, c.price, "PRICE")}
+        <button class="mgrBtn scrimtap" ${can ? `data-mgr="mask" data-kind="${c.kind}" data-v="${c.id}"` : "disabled"}
+          style="background:${can ? C.gold : C.panelLight};color:${can ? C.bg : C.muted}">${can ? "BUY" : "NEED GEMS"}</button>
+      </div>`; }).join("");
+  const bench = benchHints[0] ? `<div class="mgrExplain" style="border-color:${C.turf}44">
+      <b style="color:${C.turf}">Free upgrade:</b> ${T.esc(benchHints[0].best.name)} on your bench is <b>+${benchHints[0].gain}</b> over your weakest ${benchHints[0].pos}.
+      Tap <b>EQUIP BEST SQUAD</b> on the Play tab.</div>` : "";
+  const body = s.status === "ready"
+    ? (rows || `<div style="font-size:11px;color:${C.muted};padding:4px 2px 8px">Nobody on the market right now beats your starters. Check back after tomorrow's scouting report.</div>`)
+    : s.status === "missing" ? `<div style="font-size:11px;color:${C.muted};padding:4px 2px 8px">Transfer targets appear once the market opens.</div>`
+    : `<div class="mgrNote mgrShimmer">Scouting the market…</div>`;
+  return `<div class="mgrLabel">TRANSFER TARGETS</div>${bench}${body}`;
+}
+
 function teamSection(T){
   const C = T.COLORS, S = window.state, pl = S.play || {};
   const formationKey = pl.formationKey || "balanced";
@@ -217,6 +281,7 @@ function teamSection(T){
     <div class="row between" style="align-items:center;margin-bottom:4px">
       <div style="font-size:11px;color:${C.muted}">Squad value <b style="color:${C.gold}">${fmt(squadValue)}</b> gems <span style="opacity:.7">(estimate)</span></div>
     </div>
+    ${targetsHTML(T, lu, inSquad)}
     ${bench.length ? `<div class="mgrLabel">STRONGEST ON THE BENCH</div>
       <div class="grid3" style="grid-template-columns:repeat(4,1fr);gap:8px">${bench.map(p => `<div>${T.playerCard(p,{mode:"showcase"})}</div>`).join("")}</div>` : ""}
     <button class="btn scrimtap wfull" data-action="nav-tab" data-tab="play"
@@ -336,7 +401,7 @@ function buyTab(T){
         <div class="mgrInfo">
           <div class="mgrName">${T.esc(p.name)}</div>
           <div class="mgrMeta">${rowMeta(T, p, l.level)}</div>
-          <div class="mgrMeta" style="margin-top:3px">listed by <span style="color:${C.cream}">${T.esc(l.seller_name || "a manager")}</span></div>
+          <div class="mgrMeta" style="margin-top:3px">listed by <span style="color:${C.cream}">${T.esc(l.seller_name || "a manager")}</span>${dealBadge(T, p, l)}</div>
         </div>
         ${gemTag(T, l.price, "PRICE")}
         <button class="mgrBtn scrimtap" ${can ? `data-mgr="mask" data-kind="buy" data-v="${l.id}"` : "disabled"}
@@ -487,8 +552,7 @@ function marketSection(T){
       <button class="mgrTab scrimtap${m.market==="sell"?" on":""}" data-mgr="market" data-v="sell">SELL</button>
       <button class="mgrTab scrimtap${m.market==="mine"?" on":""}" data-mgr="market" data-v="mine">MY LISTINGS${activeMine ? ` (${activeMine})` : ""}</button>
     </div>
-    ${sub}
-    ${sheetHTML(T)}`;
+    ${sub}`;
 }
 
 // ---------- page ----------
@@ -500,7 +564,7 @@ function build(){
   const body = m.tab === "training" ? trainingSection(T)
              : m.tab === "market"   ? marketSection(T)
              : teamSection(T);
-  return `<div class="view">${header(T)}${tabs()}${body}</div>`;
+  return `<div class="view">${header(T)}${tabs()}${body}${sheetHTML(T)}</div>`;
 }
 
 window.managerView = function(){
